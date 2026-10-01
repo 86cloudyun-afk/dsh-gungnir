@@ -205,6 +205,50 @@ export class Broker {
     return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
   }
 
+  // ── 效率遥测（ADR-002 D10：预算不是门闸，效率才是目标）──────────────────────
+  recordMetrics(engagementId, commandId, { tokens_in = 0, tokens_out = 0, wall_time_ms = 0, verified_facts = 0, role = null, model_tier = null } = {}) {
+    const cmd = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(commandId);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `command ${commandId} not found`);
+    if (cmd.engagement_id !== engagementId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
+    }
+    this.global.prepare(`INSERT INTO task_metrics
+      (command_id, engagement_id, task_id, role, model_tier, tokens_in, tokens_out, wall_time_ms, verified_facts, ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(command_id) DO UPDATE SET
+        tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
+        wall_time_ms = excluded.wall_time_ms, verified_facts = excluded.verified_facts,
+        role = excluded.role, model_tier = excluded.model_tier, ts = excluded.ts`).run(
+      commandId, engagementId, cmd.task_id, role, model_tier, tokens_in, tokens_out, wall_time_ms, verified_facts, now());
+    return this.metrics(engagementId);
+  }
+
+  /** 效率聚合：端到端视角（框架 §2 原则 8/§11）——完成时间与有效产出，不含成本门闸。 */
+  metrics(engagementId) {
+    const rows = this.global.prepare('SELECT * FROM task_metrics WHERE engagement_id = ?').all(engagementId);
+    const sum = (k) => rows.reduce((a, r) => a + (r[k] ?? 0), 0);
+    const store = this._eng(engagementId).store;
+    const effective = store.effectiveCount();
+    const tokens = sum('tokens_in') + sum('tokens_out');
+    const wall = sum('wall_time_ms');
+    const verified = sum('verified_facts');
+    return {
+      tasks: rows.length,
+      tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'),
+      wall_time_ms: wall,
+      verified_facts: verified,
+      effective_facts: effective,
+      facts_per_1000_tokens: tokens > 0 ? Number(((effective / tokens) * 1000).toFixed(3)) : null,
+      ms_per_fact: effective > 0 ? Math.round(wall / effective) : null,
+      by_role: rows.reduce((acc, r) => {
+        const k = r.role ?? 'unknown';
+        acc[k] = acc[k] ?? { tasks: 0, tokens: 0, verified: 0 };
+        acc[k].tasks += 1; acc[k].tokens += r.tokens_in + r.tokens_out; acc[k].verified += r.verified_facts;
+        return acc;
+      }, {}),
+    };
+  }
+
   // ── shell 状态与喷洒（战役内，经 store；agent 侧只经工具调用）────────────────
   shell(engagementId) {
     return this._eng(engagementId).store.shellState();
