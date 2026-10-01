@@ -154,21 +154,23 @@ export class Broker {
     this.adapter.cancel(cmd.task_id, reason);
 
     const manifest = this.adapter.manifestOf(cmd.task_id) ?? [];
-    const confirmed = manifest.filter((m) => m.check());
-    if (confirmed.length === manifest.length && manifest.length > 0) {
+    // 每个资源条目只探针一次（ADR-003 D4）：check() 是对运行资源的实测（PID/端口/容器 inspect），
+    // 重复探针既浪费又会造成 TOCTOU 不一致（同一次取消内资源状态变化导致记账与返回自相矛盾）。
+    const probed = manifest.map((m) => ({ id: m.id, kind: m.kind, confirmed: m.check() }));
+    const allConfirmed = probed.length > 0 && probed.every((m) => m.confirmed);
+    if (allConfirmed) {
       this._setCommandState(cmd.command_id, 'confirmed_stopped');
-      this._gate(engagement_id, 'stop_confirmed', { task_id: cmd.task_id, manifest: manifest.map(m => m.id) });
-      return { task_id: cmd.task_id, state: 'confirmed_stopped', manifest: confirmed };
+      this._gate(engagement_id, 'stop_confirmed', { task_id: cmd.task_id, manifest: probed.map((m) => m.id) });
+      return { task_id: cmd.task_id, state: 'confirmed_stopped', manifest: probed.filter((m) => m.confirmed) };
     }
     // 任一资源未证实 → unresolved（人工队列），op_log 记录隔离项
-    for (const m of manifest.filter((x) => !x.check())) {
+    for (const m of probed.filter((x) => !x.confirmed)) {
       this.global.prepare(`INSERT INTO op_log (op_id, kind, ref_id, state, detail, ts)
         VALUES (?, 'resource_unconfirmed', ?, 'quarantined', ?, ?)`)
         .run(randomUUID(), m.id, `${m.kind} not confirmed for ${cmd.task_id}`, now());
     }
     this._setCommandState(cmd.command_id, 'unresolved');
-    return { task_id: cmd.task_id, state: 'unresolved',
-      manifest: manifest.map((m) => ({ id: m.id, kind: m.kind, confirmed: m.check() })) };
+    return { task_id: cmd.task_id, state: 'unresolved', manifest: probed };
   }
 
   // ── 撤销级联（ADR-001 D4 / ADR-003 D5）───────────────────────────────────────
