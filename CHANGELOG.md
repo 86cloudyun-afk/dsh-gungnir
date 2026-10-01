@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- CLI（`bin/warroom.mjs`）：engage / exec / collect / status / cancel / revoke / report / secret /
+  jump / adapter 全部子命令 + `--json`；门闸与授权在 CLI 路径上同样强制
+- **adapter 再水化**（`hydrate`）：跨进程恢复任务状态（CLI 每次调用是新进程；真实驱动同样需要
+  向执行层查询既有任务的语义）
 - 三角色预设（commander/recon/chain）+ 允许清单 `presets/warroom.preset.json` + 挂载文档 `docs/PRESET.md`；
   CI 新闸 `scripts/check-preset.mjs`（清单必须覆盖全部工具、危险能力必须显式拒绝、角色文件必须齐备）
 - Adapter 一致性套件（9 项契约检查，含负样本"有齿"验证）：FakeAdapter 与
