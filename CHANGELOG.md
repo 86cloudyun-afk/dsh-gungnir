@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- shell 状态三字段 API（ADR-002 D8）：`recordShellProof`（历史最高证明）与 `verifyShell`
+  （当前有效性，仅 unknown/likely/confirmed_lost，必须由再验证驱动——拿过 root ≠ 现在仍可控）
+- 凭据喷洒台账（宪法反模式 5/6 库化）：断点查询（避免重复爆破）与**防锁死**（账号 locked 后一律拒绝）
+- 工具集扩到 15 个（shell_status / shell_verify / spray_check / spray_record）；
+  预设允许清单同步更新（新增工具必须显式进清单的摩擦按设计生效）
 - **DSH 桥驱动**（`adapters/dsh-bridge.js` + `docs/DSH-BRIDGE-PROTOCOL.md`）：
   以 spool 文件协议与 DSH 侧执行层通信（原子写、幂等 external_id、崩溃可恢复）；
   超时 → unknown 且 spool 留待办 job（绝不自动重试）
