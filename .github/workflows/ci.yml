@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+    branches: [main, 'pr/**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: 验收套件（零依赖）
+        run: node --test
+      - name: 工具 schema 严格校验
+        run: node scripts/validate-tool-schemas.mjs
