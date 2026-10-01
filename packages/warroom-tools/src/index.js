@@ -156,6 +156,71 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.redispatch(args.engagement_id, args.task_id, args.reason ?? 'manual'),
   },
+  {
+    name: 'warroom_shell_status',
+    description: 'shell 状态三字段：历史最高证明 / 当前有效性 / 最后验证时间',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.shell(args.engagement_id) ?? {
+      highest_proof: null, current_validity: 'unknown', last_verified_at: null,
+    },
+  },
+  {
+    name: 'warroom_shell_verify',
+    description: '记录 shell 历史最高证明或再验证当前有效性（当前可控性不得由历史默认继承）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        proof: { type: 'string' },
+        validity: { type: 'string', enum: ['unknown', 'likely', 'confirmed_lost'] },
+        evidence_ref: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if (args.proof) return core.broker.recordShellProof(args.engagement_id, { proof: args.proof, evidence_ref: args.evidence_ref });
+      if (args.validity) return core.broker.verifyShell(args.engagement_id, { validity: args.validity, evidence_ref: args.evidence_ref });
+      throw Object.assign(new Error('需要 proof 或 validity'), { code: 'E_GATE_MISSING_TUPLE' });
+    },
+  },
+  {
+    name: 'warroom_spray_check',
+    description: '喷洒前查断点：该(凭据×服务×账号)是否已试过、账号是否已锁定',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, credential_ref: { type: 'string' },
+        service: { type: 'string' }, account: { type: 'string' },
+      },
+      required: ['engagement_id', 'credential_ref', 'service', 'account'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.sprayCheck(args.engagement_id, args),
+  },
+  {
+    name: 'warroom_spray_record',
+    description: '登记一次喷洒结果（success/fail/locked/skipped）；锁定后拒绝继续（防锁死）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, credential_ref: { type: 'string' },
+        service: { type: 'string' }, account: { type: 'string' },
+        result: { type: 'string', enum: ['success', 'fail', 'locked', 'skipped'] },
+      },
+      required: ['engagement_id', 'credential_ref', 'service', 'account', 'result'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, ...rest } = args;
+      return core.broker.sprayRecord(engagement_id, rest);
+    },
+  },
 ];
 
 export { ERR };
