@@ -5,9 +5,13 @@
   "type": "module",
   "description": "WARROOM — DSH 红队战役指挥框架（v0.1 冻结闭环）",
   "license": "MIT",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test",
+    "test:schema": "node scripts/validate-tool-schemas.mjs",
+    "ci": "node --test && node scripts/validate-tool-schemas.mjs"
   },
   "workspaces": [
     "packages/shared-types",
