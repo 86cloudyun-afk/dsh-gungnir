@@ -9,8 +9,8 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report',
-  'secret', 'jump', 'adapter', 'help'];
+const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report',
+  'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
   console.log(`GUNGNIR CLI · 100% 红队工具，仅限授权测试
@@ -25,6 +25,10 @@ function usage() {
   cancel    取消（清单逐项证实）：--engagement <id> --task <tid> [--reason r]
   revoke    撤销授权并级联停止：--engagement <id>
   report    导出报告：--engagement <id> [--out <dir>]
+  verify-report  复现校验：<report.md> --engagement <id>
+  shell     status|proof|verify：shell 三字段（--proof X / --validity unknown|likely|confirmed_lost）
+  spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
+  metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
   secret    put|grant|status
   jump      import|acquire|list|sweep
   adapter   fake|redteam（默认 fake）
@@ -50,6 +54,11 @@ const { values: v } = parseArgs({
     label: { type: 'string' }, plaintext: { type: 'string' }, 'secret-ref': { type: 'string' },
     purpose: { type: 'string' }, 'ttl-seconds': { type: 'string' }, id: { type: 'string' },
     host: { type: 'string' }, 'addr-v4': { type: 'string' },
+    proof: { type: 'string' }, validity: { type: 'string' },
+    'credential-ref': { type: 'string' }, service: { type: 'string' }, account: { type: 'string' },
+    result: { type: 'string' }, role: { type: 'string' },
+    'tokens-in': { type: 'string' }, 'tokens-out': { type: 'string' },
+    'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -128,6 +137,42 @@ switch (command) {
   case 'report':
     out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out }));
     break;
+  case 'verify-report': {
+    const { readFileSync } = await import('node:fs');
+    const reportPath = argv[1];
+    if (!reportPath) { console.error('verify-report 需要报告路径'); process.exit(2); }
+    out(broker.verifyReport(need('engagement', v.engagement), readFileSync(reportPath, 'utf8')));
+    break;
+  }
+  case 'shell': {
+    const sub = argv[1];
+    const engagementId = need('engagement', v.engagement);
+    if (sub === 'status') out(broker.shell(engagementId) ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null });
+    else if (sub === 'proof') out(broker.recordShellProof(engagementId, { proof: need('proof', v.proof) }));
+    else if (sub === 'verify') out(broker.verifyShell(engagementId, { validity: need('validity', v.validity) }));
+    else { console.error('shell 需要 status|proof|verify'); process.exit(2); }
+    break;
+  }
+  case 'spray': {
+    const sub = argv[1];
+    const engagementId = need('engagement', v.engagement);
+    const args = { credential_ref: need('credential-ref', v['credential-ref']), service: need('service', v.service), account: need('account', v.account) };
+    if (sub === 'check') out(broker.sprayCheck(engagementId, args));
+    else if (sub === 'record') out(broker.sprayRecord(engagementId, { ...args, result: need('result', v.result) }));
+    else { console.error('spray 需要 check|record'); process.exit(2); }
+    break;
+  }
+  case 'metrics': {
+    const engagementId = need('engagement', v.engagement);
+    if (v['command-id']) {
+      out(broker.recordMetrics(engagementId, v['command-id'], {
+        tokens_in: Number(v['tokens-in'] ?? 0), tokens_out: Number(v['tokens-out'] ?? 0),
+        wall_time_ms: Number(v['wall-time-ms'] ?? 0), verified_facts: Number(v['verified-facts'] ?? 0),
+        role: v.role,
+      }));
+    } else out(broker.metrics(engagementId));
+    break;
+  }
   case 'secret': {
     const sub = argv[1];
     if (sub === 'put') out(broker.secrets.put(need('plaintext', v.plaintext), { label: v.label ?? 'secret' }));
