@@ -11,7 +11,10 @@ FULL="${OWNER}/${REPO_NAME}"
 echo "[*] 账号: ${OWNER}  仓库: ${FULL}"
 
 # 仓库不存在则创建（已存在则直接复用）
-if ! gh repo view "$FULL" >/dev/null 2>&1; then
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "https://github.com/${FULL}.git"
+  git push -u origin main
+elif ! gh repo view "$FULL" >/dev/null 2>&1; then
   gh repo create "$REPO_NAME" --public --source=. --remote=origin --push \
     --description "GUNGNIR - DSH 红队战役指挥框架：攻击路径合成的工程化。事实库+门闸+跳板池，执行层可插拔。编排层，不含漏洞利用代码；仅限授权测试。"
 else
