@@ -3,7 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { SCHEMA_VERSION } from './version.js';
+import { runMigrations } from './migrate.js';
 
 export const FACT_DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -97,12 +97,8 @@ CREATE TABLE IF NOT EXISTS command_queue (
 );
 `;
 
-function applyDdl(db, ddl, label) {
+function applyDdl(db, ddl) {
   db.exec(ddl);
-  db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(
-    `schema_version:${label}`,
-    String(SCHEMA_VERSION)
-  );
 }
 
 export function openEngagementDb(dir) {
@@ -110,7 +106,8 @@ export function openEngagementDb(dir) {
   const db = new DatabaseSync(join(dir, 'fact.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
-  applyDdl(db, FACT_DDL, 'fact');
+  applyDdl(db, FACT_DDL);
+  runMigrations(db, 'fact');
   return db;
 }
 
@@ -119,7 +116,8 @@ export function openGlobalDb(home) {
   const db = new DatabaseSync(join(home, 'global.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
-  applyDdl(db, GLOBAL_DDL, 'global');
+  applyDdl(db, GLOBAL_DDL);
+  runMigrations(db, 'global');
   return db;
 }
 
