@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- 故障注入矩阵（框架 §10，CI 第四闸）：丢回包 / 乱序与重复回执 / 事实库写失败 /
+  进程残留 / 重启恢复 / 撤销跨重启，六场景一键复跑（`scripts/fault-matrix.mjs`）
+- 再水化提升为公共 API（`rehydrate`）：只恢复非终态命令，终态不重建；CLI 复用同一实现
 - CLI（`bin/warroom.mjs`）：engage / exec / collect / status / cancel / revoke / report / secret /
   jump / adapter 全部子命令 + `--json`；门闸与授权在 CLI 路径上同样强制
 - **adapter 再水化**（`hydrate`）：跨进程恢复任务状态（CLI 每次调用是新进程；真实驱动同样需要
