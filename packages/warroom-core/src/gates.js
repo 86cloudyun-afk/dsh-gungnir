@@ -27,7 +27,8 @@ export function buildAuthObject(p) {
     kind: 'warroom-authorization/1',
     user_message_id: p.user_message_id,
     scope: [...p.targets],
-    window_start: o.window_start ?? now(),
+    // 起点回拨 5s：容忍时钟偏移与同毫秒边界（不改变授权语义）
+    window_start: o.window_start ?? new Date(Date.now() - 5000).toISOString(),
     window_hours: o.window_hours ?? DEFAULT_TEMPLATE.window_hours,
     allowed_means: [...(o.allowed_means ?? DEFAULT_TEMPLATE.allowed_means)],
     action_class_limit: o.action_class_limit ?? DEFAULT_TEMPLATE.action_class_limit,

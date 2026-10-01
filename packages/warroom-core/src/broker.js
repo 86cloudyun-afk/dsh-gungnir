@@ -1,8 +1,9 @@
 // Broker：唯一副作用通道（ADR-001 D1/D2）+ 命令队列 + 撤销级联 + 代际收集（ADR-003）。
 import { randomUUID } from 'node:crypto';
 import {
-  validateFourTuple, validateContract, validateReceipt,
-  warroomError, ERR, canTransition, isTerminal, makeGeneration, ALL_TASK_STATES,
+  validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
+  RHYTHM_MIN_INTERVAL_MS, warroomError, ERR, canTransition, isTerminal, makeGeneration,
+  ALL_TASK_STATES,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
 import { join } from 'node:path';
@@ -82,6 +83,14 @@ export class Broker {
       contract: req.contract,
       manual_approval_token: req.manual_approval_token,
     });
+
+    // 节奏闸（ADR-002 D10 / 框架 §4）：并发 / wire 预算 / 最小间隔
+    this._checkRhythm({ engagementId: req.engagement_id, rhythm: row.rhythm, contract: req.contract, store });
+
+    // destructive 的人工裁决：令牌必须是已登记且未过期的批准（可审计），检查其归属与一次性
+    if (req.contract.action_class === 'destructive') {
+      this._consumeApproval(req.manual_approval_token, req.engagement_id);
+    }
 
     // broker 持有 task_id（四元组在派发前即完整）
     const generation = makeGeneration(row.auth_version, ++this.dispatchCounter, 1);
@@ -179,6 +188,62 @@ export class Broker {
     }
     const r = store.ingestMembers({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
     return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
+  }
+
+  // ── 节奏控制（ADR-002 D10）─────────────────────────────────────────────────
+  _checkRhythm({ engagementId, rhythm, contract, store }) {
+    const runningStates = "('queued','running','cancel_requested','unknown')";
+    const running = this.global.prepare(
+      `SELECT COUNT(*) AS c FROM command_queue WHERE engagement_id = ? AND state IN ${runningStates}`
+    ).get(engagementId).c;
+    const cap = RHYTHM_CONCURRENCY[rhythm] ?? 1;
+    if (running >= cap) {
+      throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT, `并发已达节奏档上限 (${running}/${cap}, ${rhythm})`);
+    }
+    const wireCost = contract.wire_cost ?? 0;
+    if (wireCost > 0) {
+      const used = store.rateTotal('wire');
+      const budget = RHYTHM_WIRE_CAP[rhythm] ?? 0;
+      if (used + wireCost > budget) {
+        throw warroomError(ERR.E_GATE_RATE_LIMIT,
+          `wire 预算不足：已用 ${used} + 本次 ${wireCost} > ${budget}（${rhythm}）`);
+      }
+      const minGap = RHYTHM_MIN_INTERVAL_MS[rhythm] ?? 0;
+      if (minGap > 0) {
+        const last = store.lastRateTs('wire');
+        const gap = last ? this._nowMs() - Date.parse(last) : Infinity;
+        if (gap < minGap) {
+          const e = warroomError(ERR.E_GATE_RATE_LIMIT,
+            `节奏间隔不足：距上次出网 ${Math.round(gap)}ms < ${minGap}ms（${rhythm}）`);
+          e.retry_after_ms = minGap - gap;
+          throw e;
+        }
+      }
+    }
+  }
+
+  // ── 人工批准（destructive 裁决，ADR-001 D5）────────────────────────────────
+  /** 操作员侧签发批准令牌（进程内 API；DSH 中对应人工裁决动作）。 */
+  createApproval({ engagement_id, reason = '', issued_by = 'operator', ttlSeconds = 3600, single_use = true }) {
+    const approval_id = `ap_${randomUUID()}`;
+    const expires_at = new Date(this._nowMs() + ttlSeconds * 1000).toISOString();
+    this.global.prepare(`INSERT INTO approvals
+      (approval_id, engagement_id, action_class, reason, issued_by, expires_at, single_use, ts)
+      VALUES (?, ?, 'destructive', ?, ?, ?, ?, ?)`).run(
+      approval_id, engagement_id, reason, issued_by, expires_at, single_use ? 1 : 0, now());
+    return { approval_id, expires_at };
+  }
+
+  _consumeApproval(token, engagementId) {
+    if (!token) throw warroomError(ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL, '需要人工批准令牌');
+    const row = this.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(token);
+    if (!row) throw warroomError(ERR.E_APPROVAL_NOT_FOUND, '批准令牌不存在');
+    if (row.engagement_id !== engagementId) throw warroomError(ERR.E_APPROVAL_MISMATCH, '批准令牌不属于该战役');
+    if (Date.parse(row.expires_at) <= this._nowMs()) throw warroomError(ERR.E_APPROVAL_EXPIRED, `批准已于 ${row.expires_at} 过期`);
+    if (row.single_use && row.used_by_command) throw warroomError(ERR.E_APPROVAL_USED, '一次性批准已被使用');
+    this.global.prepare('UPDATE approvals SET used_by_command = ? WHERE approval_id = ?')
+      .run(`used_at:${now()}`, token);
+    return row;
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────

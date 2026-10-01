@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- 节奏闸（ADR-002 D10 / 框架 §4）：并发上限（open 3 / restricted 2 / stealth 1）、
+  wire_requests 滚动预算（100000 / 1000 / 100）、stealth 档 8s 最小间隔（响应带 retry_after_ms）；
+  按规格修正：restricted **无**最小间隔（此前的 1s 限制为过度实现）
+- 人工批准注册表：destructive 必须携带已登记令牌（跨战役/过期/重复使用分别拒绝），
+  审批留痕 issued_by / used_by_command；schema v3 迁移（global 专属）
+- 授权窗口 5s 时钟偏移容差
 - 秘密边界（ADR-001 D7）：AES-256-GCM at-rest 加密、密钥文件 600/目录 700、
   权限化 resolve（secret × 任务 × 用途 × TTL）、全出口脱敏（gate_log / collect / 错误路径 /
   形态正则：token、私钥、kv 口令）

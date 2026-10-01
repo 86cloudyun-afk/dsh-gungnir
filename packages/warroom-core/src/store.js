@@ -120,6 +120,11 @@ export class FactStore {
       VALUES (?, ?, ?, ?, ?)`).run(this._now(), this.engagementId, target, kind, amount);
   }
 
+  lastRateTs(kind) {
+    const r = this.db.prepare('SELECT ts FROM rate_ledger WHERE kind = ? ORDER BY id DESC LIMIT 1').get(kind);
+    return r ? r.ts : null;
+  }
+
   rateTotal(kind) {
     return this.db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM rate_ledger WHERE kind = ?').get(kind).t;
   }

@@ -2,7 +2,7 @@
 // 规则：各包禁止自行解释 ADR；一切以本文件常量与校验函数为准。
 // 变更走语义化版本：破坏性 = 升主版本并广播（框架 §11）。
 
-export const VERSION = '0.1.0-alpha.2';
+export const VERSION = '0.1.0-alpha.3';
 
 // ── 动作分级（ADR-001 D5）：readonly < active < destructive ─────────────────
 export const ACTION_CLASS = Object.freeze(['readonly', 'active', 'destructive']);
@@ -11,6 +11,10 @@ const CLASS_RANK = Object.freeze({ readonly: 0, active: 1, destructive: 2 });
 // ── 节奏档（框架 §4）：并发任务上限；限流对象 = wire_requests（ADR-002 D10）──
 export const RHYTHM = Object.freeze(['open', 'restricted', 'stealth']);
 export const RHYTHM_CONCURRENCY = Object.freeze({ open: 3, restricted: 2, stealth: 1 });
+/** wire_requests 预算上限（滚动口径：按战役累计，ADR-002 D10）。 */
+export const RHYTHM_WIRE_CAP = Object.freeze({ open: 100000, restricted: 1000, stealth: 100 });
+/** 两次出网动作之间的最小间隔（框架 §4：仅 stealth 档有节奏要求，8~25s 抖动的地板值）。 */
+export const RHYTHM_MIN_INTERVAL_MS = Object.freeze({ open: 0, restricted: 0, stealth: 8000 });
 
 // ── 任务状态机（ADR-003 D2）─────────────────────────────────────────────────
 export const TASK_STATES = Object.freeze({
@@ -52,6 +56,11 @@ export const ERR = Object.freeze({
   E_GATE_WINDOW_CLOSED: 'E_GATE_WINDOW_CLOSED',
   E_GATE_DESTRUCTIVE_NEEDS_APPROVAL: 'E_GATE_DESTRUCTIVE_NEEDS_APPROVAL',
   E_GATE_RATE_LIMIT: 'E_GATE_RATE_LIMIT',
+  E_GATE_CONCURRENCY_LIMIT: 'E_GATE_CONCURRENCY_LIMIT',
+  E_APPROVAL_NOT_FOUND: 'E_APPROVAL_NOT_FOUND',
+  E_APPROVAL_EXPIRED: 'E_APPROVAL_EXPIRED',
+  E_APPROVAL_USED: 'E_APPROVAL_USED',
+  E_APPROVAL_MISMATCH: 'E_APPROVAL_MISMATCH',
   E_TASK_NOT_FOUND: 'E_TASK_NOT_FOUND',
   E_DISPATCH_LOST_RESPONSE: 'E_DISPATCH_LOST_RESPONSE',
   E_NO_JUMPHOST: 'E_NO_JUMPHOST',

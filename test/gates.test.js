@@ -45,10 +45,11 @@ test('destructive 无人工批准被拒绝；带批准通过', () => {
     () => h.broker.execute({ ...h.base, command_id: 'g3', contract: h.contract({ action_class: 'destructive' }) }),
     ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL
   );
+  const ap = h.broker.createApproval({ engagement_id: h.eng.engagement_id, reason: '测试批准' });
   const ok = h.broker.execute({
     ...h.base, command_id: 'g4',
     contract: h.contract({ action_class: 'destructive' }),
-    manual_approval_token: 'tok-1',
+    manual_approval_token: ap.approval_id,
   });
   assert.equal(ok.state, 'running');
 });

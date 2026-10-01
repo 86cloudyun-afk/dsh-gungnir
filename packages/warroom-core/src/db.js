@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS secret_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_secret_grants_lookup
   ON secret_grants(secret_ref, task_id, purpose, expires_at);
+CREATE TABLE IF NOT EXISTS approvals (
+  approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
+  reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
+  used_by_command TEXT, ts TEXT NOT NULL
+);
 `;
 
 function applyDdl(db, ddl) {
