@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Adapter 一致性套件（9 项契约检查，含负样本"有齿"验证）：FakeAdapter 与
+  RedteamModeAdapter(LocalDriver) 全绿，任何新执行层换进来先过此套件
+- redteam-mode 桥骨架：SPI → 五角色映射、Driver 接口、`docs/REDTEAM-BRIDGE.md`（真实驱动留 v0.2 集成）
 - 报告导出器（框架 §5）：markdown 报告 = 客户攻击报告 = 蓝队 IOC 排查清单（同一份证据两个视图）；
   水位（seq + snapshot_id + exported_at）入正文与文件名；IOC/清理附录半自动初稿（隧道 / 未完成任务 /
   隔离态资源 / 凭据引用）；全出口脱敏（明文秘密 + 形态正则）；导出后新增事实不进旧报告
