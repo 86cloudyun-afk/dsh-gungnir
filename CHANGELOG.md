@@ -32,6 +32,13 @@
 - CI 三闸之一：工具 schema 严格校验器（DSH 挂载会因非法 schema 整组失败）
 - GitHub Actions：验收套件 + schema 校验（node 22.x）
 
+## v0.1.0-alpha.2 — 2026-10-02
+
+批次 1（PR #1–#10）合并入 main：CI 三闸、迁移与备份、秘密边界、节奏闸与人工批准、
+reconcile/redispatch、报告导出、adapter 一致性套件、三角色预设。
+其中 PR #7 / #9 为外部贡献（取消探针一次、command_id 服务端校验），审查记录见
+`docs/MERGE-REVIEW-2026-10-02.md`。合并后：测试 63/63、工具 schema 11/11、预设闸通过。
+
 ## v0.1.0-alpha.1 — 2026-10-02
 
 ### Added
