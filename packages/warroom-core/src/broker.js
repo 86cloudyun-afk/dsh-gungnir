@@ -68,6 +68,12 @@ export class Broker {
   execute(req = {}) {
     // 契约形态 → broker 预分配 task_id → 四元组全量校验（ADR-001 D2）
     validateContract(req.contract);
+    // command_id 是派发幂等键（ADR-003 D1）：先持久化后派发、可按 ID 找回。
+    // broker 是服务端唯一副作用通道，必须在此自证，而非依赖 agent 侧工具 schema。
+    // 缺失 → 后续 command_queue 绑定抛不透明错误；空串 → 不同命令误判去重为同一任务。
+    if (typeof req.command_id !== 'string' || req.command_id === '') {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'command_id required (dispatch idempotency key, ADR-003 D1)');
+    }
     const task_id = req.task_id || `wt_${randomUUID()}`;
     validateFourTuple({
       engagement_id: req.engagement_id, auth_version: req.auth_version,
