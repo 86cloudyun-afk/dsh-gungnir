@@ -22,3 +22,5 @@ jobs:
         run: node scripts/validate-tool-schemas.mjs
       - name: 预设允许清单校验
         run: node scripts/check-preset.mjs
+      - name: 故障注入矩阵
+        run: node scripts/fault-matrix.mjs
