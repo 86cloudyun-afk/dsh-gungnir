@@ -3,42 +3,64 @@
 > 永恒之枪，出手必中——**攻击路径合成**的工程化：把分散、隐蔽、看似无关的弱点，
 > 拼成一条到 shell 的完整链路。
 
-DSH 红队战役指挥框架。**规格与架构决策全部在仓库内维护**（多方维护入口）：
+DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防演练与渗透测试。
+仓库只含编排层，不含任何漏洞利用代码。**
+
+## 状态
+
+| 项 | 现状 |
+|---|---|
+| 版本 | `v0.1.0-alpha.2`（批次 1 已合并；批次 2 PR 进行中） |
+| 测试 | 72 例，`node --test` 全绿 |
+| CI 闸 | 4：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 |
+| 工具 | 11 个 `warroom_*`（schema 严格校验） |
+| 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（含如实标注的缺口与计划） |
+
+## 规格与架构决策（本仓库为唯一真源）
 
 - 规格（v1.4）：[docs/WARROOM-FRAMEWORK.md](docs/WARROOM-FRAMEWORK.md)
 - ADR-001 权限与执行边界（rev1）：[docs/adr/ADR-001-permission-execution-boundary.md](docs/adr/ADR-001-permission-execution-boundary.md)
 - ADR-002 数据与证据契约（rev2）：[docs/adr/ADR-002-data-evidence-contract.md](docs/adr/ADR-002-data-evidence-contract.md)
 - ADR-003 Adapter 生命周期（rev2）：[docs/adr/ADR-003-adapter-lifecycle.md](docs/adr/ADR-003-adapter-lifecycle.md)
 - 冻结快照：[docs/adr/frozen/](docs/adr/frozen/)
+- 桥协议： [docs/DSH-BRIDGE-PROTOCOL.md](docs/DSH-BRIDGE-PROTOCOL.md) ｜ 预设挂载：[docs/PRESET.md](docs/PRESET.md) ｜ 备份恢复：[docs/BACKUP.md](docs/BACKUP.md)
+- 合并审查记录：[docs/MERGE-REVIEW-2026-10-02.md](docs/MERGE-REVIEW-2026-10-02.md)
 
 **治理**：ADR 一经 Accepted 即不可变，修正以新 rev 重写并留修订记录；规格/doctrine 改动走 PR + RFC。
-本仓库是规格唯一真源；线上提交前跑 `node --test`（验收负样本套件）。
 
-**100% 红队工具：仅限已获授权的攻防演练与渗透测试。仓库只含编排层，不含任何漏洞利用代码。**
+## 快速开始（CLI，不依赖 DSH）
 
-## v0.1 冻结闭环
+```sh
+node bin/warroom.mjs engage --target 10.0.0.0/24 --rhythm open      # 开工指令即授权，冻结授权对象
+node bin/warroom.mjs exec  --engagement eng_... --command-id c1 --target 10.0.0.5 --class active
+node bin/warroom.mjs status --engagement eng_... --task wt_...
+node bin/warroom.mjs cancel --engagement eng_... --task wt_...
+node bin/warroom.mjs report --engagement eng_...
+node bin/warroom.mjs secret put --plaintext '...' --label ssh-pw     # 明文只进加密库
+node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
+```
 
-单战役、单 adapter（redteam-mode，接入中）、服务端门闸、可取消任务、证据入库、报告导出。
-推进方式见框架 §11（批次 0 = 共享类型 → 四线并行 → 最小真实链路交叉验证）。
+全部子命令支持 `--json`；默认 home 为 `$WARROOM_HOME` 或 `./.warroom`。
 
 ## 包结构
 
 | 包 | 平面 | 内容 |
 |---|---|---|
-| `packages/shared-types` | 共同契约 | 状态机、错误码、四元组/契约/回执校验（批次 0，alpha 冻结） |
-| `packages/warroom-core` | host | 事实库（fact.db/global.db）、门闸 broker、跳板池、fake adapter |
-| `packages/warroom-tools` | agent | `warroom_*` 工具定义（v0.1 骨架，包 DSH 工具 schema） |
+| `packages/shared-types` | 共同契约 | 状态机与迁移表、错误码、四元组/契约/回执校验 |
+| `packages/warroom-core` | host | 事实库（fact.db/global.db）、门闸 broker、跳板池、秘密库、报告、adapter（fake / redteam-mode / DSH 桥） |
+| `packages/warroom-tools` | agent | 11 个 `warroom_*` 工具定义（允许清单制的唯一副作用入口） |
+| `presets/` | 预设 | 三角色（commander/recon/chain）+ 允许清单 |
 
-## 测试（验收负样本）
+## 测试与四闸
 
 ```sh
-node --test test/
+node --test                          # 验收套件（72 例）
+node scripts/validate-tool-schemas.mjs   # 工具 schema（DSH 挂载硬要求）
+node scripts/check-preset.mjs            # 预设允许清单闭合
+node scripts/fault-matrix.mjs            # 故障注入矩阵（丢回包/乱序/写失败/残留/重启/撤销）
 ```
-
-覆盖框架 §8 验收清单中可离线验证的项：门闸四元组负样本、丢回包恢复、资源残留、
-成员级幂等、乱序修订、代际隔离、水位、只读连接、op_log 补偿、TTL 隔离。
 
 ## 数据位置
 
-`$DSH_HOME/warroom/engagements/<engagement_id>/fact.db`（战役事实）+
-`$DSH_HOME/warroom/global.db`（跳板/租约/op_log/命令队列）。测试使用临时目录，不触碰真实环境。
+`$WARROOM_HOME/engagements/<engagement_id>/fact.db`（战役事实）+ `$WARROOM_HOME/global.db`
+（跳板/租约/op_log/命令队列/秘密）+ `$WARROOM_HOME/secrets/`（密钥，700/600，**不随备份走**）。
