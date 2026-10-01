@@ -30,6 +30,7 @@
       "warroom_shell_verify",
       "warroom_spray_check",
       "warroom_spray_record",
+      "warroom_metrics",
       "skill"
     ],
     "deny": [

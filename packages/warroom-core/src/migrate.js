@@ -27,6 +27,22 @@ export const MIGRATIONS = [
     },
   },
   {
+    version: 5,
+    labels: ['global'],
+    up(db) {
+      // v5：任务级效率遥测（ADR-002 D10）——预算不是门闸，效率才是目标
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_metrics (
+          command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
+          role TEXT, model_tier TEXT,
+          tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+          wall_time_ms INTEGER NOT NULL DEFAULT 0, verified_facts INTEGER NOT NULL DEFAULT 0,
+          ts TEXT NOT NULL
+        );
+      `);
+    },
+  },
+  {
     version: 4,
     labels: ['global'],
     up(db) {

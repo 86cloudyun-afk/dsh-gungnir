@@ -106,6 +106,13 @@ CREATE TABLE IF NOT EXISTS secret_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_secret_grants_lookup
   ON secret_grants(secret_ref, task_id, purpose, expires_at);
+CREATE TABLE IF NOT EXISTS task_metrics (
+  command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
+  role TEXT, model_tier TEXT,
+  tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+  wall_time_ms INTEGER NOT NULL DEFAULT 0, verified_facts INTEGER NOT NULL DEFAULT 0,
+  ts TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
   reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,

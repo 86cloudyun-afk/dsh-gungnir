@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- 效率遥测（ADR-002 D10）：任务级 `tokens_in/out`、`wall_time_ms`、`verified_facts`（同任务幂等覆盖），
+  战役聚合给出 `by_role` 视图与端到端指标（`facts_per_1000_tokens`、`ms_per_fact`）——
+  **无成本门闸**，服务于编制与档位决策；跨战役记录被拒
+- 多战役隔离测试：任务/事实/度量互不串味；共享跳板池全局单份记账（租约按战役归属）
+- schema v5（task_metrics）
 - shell 状态三字段 API（ADR-002 D8）：`recordShellProof`（历史最高证明）与 `verifyShell`
   （当前有效性，仅 unknown/likely/confirmed_lost，必须由再验证驱动——拿过 root ≠ 现在仍可控）
 - 凭据喷洒台账（宪法反模式 5/6 库化）：断点查询（避免重复爆破）与**防锁死**（账号 locked 后一律拒绝）
