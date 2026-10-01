@@ -129,9 +129,69 @@ export class FactStore {
     return this.db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM rate_ledger WHERE kind = ?').get(kind).t;
   }
 
-  sprayLog({ credential_ref, service, account, result }) {
+  // ── shell 状态（ADR-002 D8：历史证明 / 当前有效性 / 最后验证时间 三字段分离）─────
+  /** 记录历史最高权限证明（不改变当前可控性）。 */
+  recordShellProof({ proof, evidence_ref = null }) {
+    const cur = this.shellState();
+    if (cur) {
+      this.db.prepare('UPDATE shell_state SET highest_proof = ? WHERE id = ?').run(proof, cur.id);
+    } else {
+      this.db.prepare(`INSERT INTO shell_state (engagement_id, highest_proof, current_validity, last_verified_at)
+        VALUES (?, ?, 'unknown', NULL)`).run(this.engagementId, proof);
+    }
+    this.appendGateLog({ decision: 'shell_proof', detail: `highest_proof=${proof}`, request: evidence_ref });
+    return this.shellState();
+  }
+
+  /**
+   * 更新当前有效性：只能由**再验证**驱动（unknown | likely | confirmed_lost），
+   * 不允许因为"历史拿过"就默认仍然可控。
+   */
+  verifyShell({ validity, evidence_ref = null }) {
+    const allowed = ['unknown', 'likely', 'confirmed_lost'];
+    if (!allowed.includes(validity)) throw new Error(`validity 必须是 ${allowed.join(' | ')}`);
+    const cur = this.shellState();
+    const ts = this._now();
+    if (cur) {
+      this.db.prepare('UPDATE shell_state SET current_validity = ?, last_verified_at = ? WHERE id = ?')
+        .run(validity, ts, cur.id);
+    } else {
+      this.db.prepare(`INSERT INTO shell_state (engagement_id, highest_proof, current_validity, last_verified_at)
+        VALUES (?, NULL, ?, ?)`).run(this.engagementId, validity, ts);
+    }
+    this.appendGateLog({ decision: 'shell_verify', detail: `current_validity=${validity}`, request: evidence_ref });
+    return this.shellState();
+  }
+
+  shellState() {
+    return this.db.prepare('SELECT * FROM shell_state WHERE engagement_id = ? ORDER BY id DESC LIMIT 1')
+      .get(this.engagementId) ?? null;
+  }
+
+  // ── 凭据喷洒：断点与防锁死（宪法反模式 5/6 的库化）──────────────────────────
+  /** 记录一次喷洒（无论成败）。 */
+  sprayRecord({ credential_ref, service, account, result }) {
+    const allowed = ['success', 'fail', 'locked', 'skipped'];
+    if (!allowed.includes(result)) throw new Error(`result 必须是 ${allowed.join(' | ')}`);
     this.db.prepare(`INSERT INTO spray_log (ts, credential_ref, service, account, result)
       VALUES (?, ?, ?, ?, ?)`).run(this._now(), credential_ref, service, account, result);
+  }
+
+  /** 断点：该 (凭据 × 服务 × 账号) 是否已试过（避免重复爆破）。 */
+  sprayTried({ credential_ref, service, account }) {
+    return !!this.db.prepare(`SELECT 1 FROM spray_log
+      WHERE credential_ref = ? AND service = ? AND account = ? AND result IN ('success','fail','locked','skipped')
+      LIMIT 1`).get(credential_ref, service, account);
+  }
+
+  /** 防锁死：该 (服务 × 账号) 是否已触发锁定 → 一律停止重试。 */
+  sprayLocked({ service, account }) {
+    return !!this.db.prepare(`SELECT 1 FROM spray_log
+      WHERE service = ? AND account = ? AND result = 'locked' LIMIT 1`).get(service, account);
+  }
+
+  spraySummary() {
+    return this.db.prepare(`SELECT result, COUNT(*) AS n FROM spray_log GROUP BY result`).all();
   }
 
   _writeGuard() {

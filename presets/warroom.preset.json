@@ -2,7 +2,11 @@
   "id": "warroom-gungnir",
   "name": "红队指挥（GUNGNIR）",
   "version": "0.1.0-alpha.1",
-  "roles": ["commander", "recon", "chain"],
+  "roles": [
+    "commander",
+    "recon",
+    "chain"
+  ],
   "roleFiles": {
     "commander": "presets/roles/commander.md",
     "recon": "presets/roles/recon.md",
@@ -22,6 +26,10 @@
       "warroom_secret_grant",
       "warroom_secret_status",
       "warroom_report_export",
+      "warroom_shell_status",
+      "warroom_shell_verify",
+      "warroom_spray_check",
+      "warroom_spray_record",
       "skill"
     ],
     "deny": [
@@ -38,7 +46,11 @@
   },
   "subagent": {
     "maxDepth": 1,
-    "denyTools": ["subagent", "subagent_fork", "workflow"]
+    "denyTools": [
+      "subagent",
+      "subagent_fork",
+      "workflow"
+    ]
   },
   "notes": [
     "执行层（红队模式五角色）由其自身预设管辖，不在本预设的允许清单内。",

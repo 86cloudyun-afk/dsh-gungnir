@@ -205,6 +205,31 @@ export class Broker {
     return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
   }
 
+  // ── shell 状态与喷洒（战役内，经 store；agent 侧只经工具调用）────────────────
+  shell(engagementId) {
+    return this._eng(engagementId).store.shellState();
+  }
+  recordShellProof(engagementId, { proof, evidence_ref }) {
+    return this._eng(engagementId).store.recordShellProof({ proof, evidence_ref });
+  }
+  verifyShell(engagementId, { validity, evidence_ref }) {
+    return this._eng(engagementId).store.verifyShell({ validity, evidence_ref });
+  }
+  sprayCheck(engagementId, { credential_ref, service, account }) {
+    const store = this._eng(engagementId).store;
+    return {
+      locked: store.sprayLocked({ service, account }),
+      tried: store.sprayTried({ credential_ref, service, account }),
+    };
+  }
+  sprayRecord(engagementId, args) {
+    const store = this._eng(engagementId).store;
+    const check = this.sprayCheck(engagementId, args);
+    if (check.locked) throw warroomError(ERR.E_GATE_RATE_LIMIT, '该账号已锁定，禁止继续喷洒（防锁死）');
+    store.sprayRecord(args);
+    return { recorded: true, ...args };
+  }
+
   // ── 报告导出（框架 §5：水位 + IOC 附录 + 脱敏）──────────────────────────────
   buildReport(engagementId) {
     const { row, store } = this._engWithRow(engagementId);
