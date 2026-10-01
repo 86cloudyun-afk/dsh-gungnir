@@ -27,6 +27,17 @@ export const MIGRATIONS = [
     },
   },
   {
+    version: 4,
+    labels: ['global'],
+    up(db) {
+      // v4：任务执行尝试序号（generation 的第三段）
+      const cols = db.prepare('PRAGMA table_info(command_queue)').all().map((c) => c.name);
+      if (!cols.includes('attempt')) {
+        db.exec('ALTER TABLE command_queue ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
+      }
+    },
+  },
+  {
     version: 3,
     labels: ['global'],
     up(db) {
@@ -69,7 +80,8 @@ export function runMigrations(db, label) {
     writeVersion(db, label, SCHEMA_VERSION);
     return { from: null, to: SCHEMA_VERSION, applied };
   }
-  for (const m of MIGRATIONS) {
+  const ordered = [...MIGRATIONS].sort((a, b) => a.version - b.version); // 顺序无关：按版本号执行
+  for (const m of ordered) {
     if (m.version > current && m.version <= SCHEMA_VERSION && (!m.labels || m.labels.includes(label))) {
       db.exec('BEGIN IMMEDIATE');
       try {

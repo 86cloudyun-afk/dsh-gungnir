@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- 对账与重试（ADR-003 D3/D6）：\`reconcile\` 只接受 unknown/unresolved、资源残留则维持挂起、
+  探针定论绝不自动重做；\`redispatch\` 升 attempt 换 generation，旧代回执继续隔离；
+  \`status\` 全景（账本态/运行态/清单探针/尝试次数）
+- 状态迁移表强制：非法迁移报 \`E_INVALID_TRANSITION\`（迁移表补齐 unknown→unresolved、failed→running 等边）
+- 修复：丢回包/去重返回路径补 generation（调用方在任何分支都能拿到代际）
+- 迁移框架按版本号排序执行（数组顺序不再影响结果）；schema v4（command_queue.attempt）
 - 节奏闸（ADR-002 D10 / 框架 §4）：并发上限（open 3 / restricted 2 / stealth 1）、
   wire_requests 滚动预算（100000 / 1000 / 100）、stealth 档 8s 最小间隔（响应带 retry_after_ms）；
   按规格修正：restricted **无**最小间隔（此前的 1s 限制为过度实现）

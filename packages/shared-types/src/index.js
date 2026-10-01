@@ -2,7 +2,7 @@
 // 规则：各包禁止自行解释 ADR；一切以本文件常量与校验函数为准。
 // 变更走语义化版本：破坏性 = 升主版本并广播（框架 §11）。
 
-export const VERSION = '0.1.0-alpha.3';
+export const VERSION = '0.1.0-alpha.4';
 
 // ── 动作分级（ADR-001 D5）：readonly < active < destructive ─────────────────
 export const ACTION_CLASS = Object.freeze(['readonly', 'active', 'destructive']);
@@ -30,11 +30,12 @@ export const ALL_TASK_STATES = Object.freeze([
 
 /** 合法迁移表：host 独占执行迁移；adapter 只上报事件，不得自行改状态。 */
 export const TASK_TRANSITIONS = Object.freeze({
-  queued: ['running', 'cancelled'],
+  queued: ['running', 'cancelled', 'unknown'],
   running: ['cancel_requested', 'unknown', 'done', 'partial', 'failed', 'cancelled'],
   cancel_requested: ['confirmed_stopped', 'unresolved', 'cancelled'],
-  unknown: ['done', 'partial', 'failed'],
-  unresolved: ['confirmed_stopped', 'failed', 'partial', 'done'],
+  unknown: ['done', 'partial', 'failed', 'running', 'unresolved'],
+  unresolved: ['confirmed_stopped', 'failed', 'partial', 'done', 'running'],
+  failed: ['running'], // 人工裁决后的重派（attempt+1）
 });
 
 export function canTransition(from, to) {
@@ -61,6 +62,9 @@ export const ERR = Object.freeze({
   E_APPROVAL_EXPIRED: 'E_APPROVAL_EXPIRED',
   E_APPROVAL_USED: 'E_APPROVAL_USED',
   E_APPROVAL_MISMATCH: 'E_APPROVAL_MISMATCH',
+  E_TASK_NOT_RECONCILABLE: 'E_TASK_NOT_RECONCILABLE',
+  E_TASK_NOT_REDISPATCHABLE: 'E_TASK_NOT_REDISPATCHABLE',
+  E_INVALID_TRANSITION: 'E_INVALID_TRANSITION',
   E_TASK_NOT_FOUND: 'E_TASK_NOT_FOUND',
   E_DISPATCH_LOST_RESPONSE: 'E_DISPATCH_LOST_RESPONSE',
   E_NO_JUMPHOST: 'E_NO_JUMPHOST',
