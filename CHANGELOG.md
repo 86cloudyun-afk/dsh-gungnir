@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- CLI 全子命令补全（verify-report / shell / spray / metrics），覆盖全部 16 个工具的能力面
+- **挂载部署脚本** `scripts/deploy-dsh.mjs`（--check / --print / --apply）：
+  patch 层只允许脚本改（多方维护冲突高发），apply 前自动备份、幂等不重复插入
 - 报告**证据摘要**（sha256：整体 + 按 entity_type）与**复现校验器**
   （`scripts/verify-report.mjs` / `broker.verifyReport`）：对照当前库判定报告是否仍可复现，
   有漂移如实回报（退出码 3），不修数据
@@ -56,6 +59,13 @@
 - 工具：warroom_secret_put / warroom_secret_grant / warroom_secret_status（无 resolve 工具——解析仅 host 可用）
 - CI 三闸之一：工具 schema 严格校验器（DSH 挂载会因非法 schema 整组失败）
 - GitHub Actions：验收套件 + schema 校验（node 22.x）
+
+### Fixed
+- **误写真实 profile**：部署脚本原先优先读 `DSH_PROFILE_DIR` 环境变量，在本机（真实 DSH 会话）
+  执行测试时把预设行写进了操作员的 profile —— 已按备份**逐字节回滚**并在真实文件上验证
+  "warroom 残留 0"；修正为 `--home` 优先，测试隔离清空 DSH 环境变量；备份/幂等行为补回归测试。
+  （教训：脚本在"看起来是测试"的上下文里仍可能触达真实环境——涉及全局配置的写入必须有
+  显式目标与隔离测试。）
 
 ## v0.1.0-alpha.2 — 2026-10-02
 
