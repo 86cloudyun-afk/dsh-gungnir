@@ -12,6 +12,7 @@ import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
 import { SecretVault } from './secrets.js';
 import { redactDeep } from './redactor.js';
+import { exportReport as exportReportFile, buildReport } from './report.js';
 
 const now = () => new Date().toISOString();
 
@@ -194,6 +195,26 @@ export class Broker {
     }
     const r = store.ingestMembers({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
     return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
+  }
+
+  // ── 报告导出（框架 §5：水位 + IOC 附录 + 脱敏）──────────────────────────────
+  buildReport(engagementId) {
+    const { row, store } = this._engWithRow(engagementId);
+    return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global });
+  }
+
+  exportReport(engagementId, { outDir } = {}) {
+    const { row, store } = this._engWithRow(engagementId);
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
+    return exportReportFile({
+      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir,
+    });
+  }
+
+  _engWithRow(engagementId) {
+    const eng = this._eng(engagementId);
+    const row = eng.db.prepare('SELECT * FROM engagements WHERE id = ?').get(engagementId);
+    return { row, store: eng.store };
   }
 
   // ── 节奏控制（ADR-002 D10）─────────────────────────────────────────────────

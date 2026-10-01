@@ -110,6 +110,52 @@ export const TOOLS = [
       return { secrets, active_grants: grants };
     },
   },
+  {
+    name: 'warroom_report_export',
+    description: '导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.exportReport(args.engagement_id, { outDir: args.out_dir }),
+  },
+  {
+    name: 'warroom_status',
+    description: '任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, task_id: { type: 'string' } },
+      required: ['engagement_id', 'task_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.status(args.engagement_id, args.task_id),
+  },
+  {
+    name: 'warroom_reconcile',
+    description: '对账 unknown/unresolved 任务（探针定论，绝不默认失败重做）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, task_id: { type: 'string' } },
+      required: ['engagement_id', 'task_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.reconcile(args.engagement_id, args.task_id),
+  },
+  {
+    name: 'warroom_redispatch',
+    description: '重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, task_id: { type: 'string' }, reason: { type: 'string' },
+      },
+      required: ['engagement_id', 'task_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.redispatch(args.engagement_id, args.task_id, args.reason ?? 'manual'),
+  },
 ];
 
 export { ERR };

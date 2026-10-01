@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- 报告导出器（框架 §5）：markdown 报告 = 客户攻击报告 = 蓝队 IOC 排查清单（同一份证据两个视图）；
+  水位（seq + snapshot_id + exported_at）入正文与文件名；IOC/清理附录半自动初稿（隧道 / 未完成任务 /
+  隔离态资源 / 凭据引用）；全出口脱敏（明文秘密 + 形态正则）；导出后新增事实不进旧报告
+- 工具：warroom_report_export / warroom_status / warroom_reconcile / warroom_redispatch（共 11 个）
 - 对账与重试（ADR-003 D3/D6）：\`reconcile\` 只接受 unknown/unresolved、资源残留则维持挂起、
   探针定论绝不自动重做；\`redispatch\` 升 attempt 换 generation，旧代回执继续隔离；
   \`status\` 全景（账本态/运行态/清单探针/尝试次数）
