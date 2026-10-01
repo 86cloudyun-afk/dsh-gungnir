@@ -77,3 +77,22 @@ test('取消时每个资源条目只探针一次（避免重复探针与 TOCTOU�
   assert.ok(c.manifest.some((m) => m.kind === 'container' && m.confirmed === false));
   assert.ok(c.manifest.some((m) => m.kind === 'session' && m.confirmed === true));
 });
+
+test('缺少 command_id 被拒绝（派发幂等键，ADR-003 D1）', () => {
+  const h = harness();
+  assert.throws(
+    () => h.broker.execute({ ...h.base, contract: h.contract() }),
+    (e) => e.code === 'E_GATE_MISSING_TUPLE'
+  );
+  // 不留下任何命令行与 adapter 任务
+  assert.equal(h.broker.global.prepare('SELECT COUNT(*) c FROM command_queue').get().c, 0);
+  assert.equal([...h.adapter.tasks.values()].length, 0);
+});
+
+test('空串 command_id 被拒绝（避免不同命令误判去重为同一任务）', () => {
+  const h = harness();
+  assert.throws(
+    () => h.broker.execute({ ...h.base, command_id: '', contract: h.contract() }),
+    (e) => e.code === 'E_GATE_MISSING_TUPLE'
+  );
+});
