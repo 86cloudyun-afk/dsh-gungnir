@@ -55,3 +55,25 @@ test('正常取消：清单逐项证实 → confirmed_stopped', () => {
   assert.equal(c.state, 'confirmed_stopped');
   assert.equal(c.manifest.length, 2); // session + container
 });
+
+test('取消时每个资源条目只探针一次（避免重复探针与 TOCTOU，ADR-003 D4）', () => {
+  const h = harness({ faults: { containerResidue: true } });
+  const r = h.broker.execute({
+    ...h.base, command_id: 'cmd-probe-once',
+    contract: h.contract({ resources: ['container'] }),
+  });
+  const orig = h.adapter.manifestOf.bind(h.adapter);
+  const counts = {};
+  h.adapter.manifestOf = (id) =>
+    orig(id).map((item) => ({
+      ...item,
+      check: () => { counts[item.id] = (counts[item.id] ?? 0) + 1; return item.check(); },
+    }));
+  const c = h.broker.cancel(h.eng.engagement_id, r.task_id, 'test');
+  assert.equal(c.state, 'unresolved');
+  // 清单两项（session + container）各恰好探针一次
+  assert.deepEqual(Object.values(counts).sort(), [1, 1]);
+  // 返回清单与探针结果一致：session 已证实、container 未证实
+  assert.ok(c.manifest.some((m) => m.kind === 'container' && m.confirmed === false));
+  assert.ok(c.manifest.some((m) => m.kind === 'session' && m.confirmed === true));
+});
