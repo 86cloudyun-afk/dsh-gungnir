@@ -77,6 +77,31 @@ export class FakeAdapter {
     return { task_id: t.task_id, state: t.state };
   }
 
+  /**
+   * 再水化：跨进程恢复任务（CLI/重启后 adapter 内存态丢失时，从命令队列重建）。
+   * 真实驱动同样需要这一语义（向执行层查询既有任务），见 docs/REDTEAM-BRIDGE.md。
+   */
+  hydrate(command_id, contract, state = 'running') {
+    if (this.tasks.has(command_id)) return this.tasks.get(command_id);
+    const task_id = contract.task_id ?? `fake_t_${++this.counter}`;
+    const wantsContainer = (contract.resources ?? []).includes('container');
+    const task = {
+      command_id, task_id, contract, state,
+      generation: contract.generation,
+      session_up: true,
+      container_up: wantsContainer,
+      manifest: [
+        { kind: 'session', id: `${task_id}-session` },
+        ...(wantsContainer ? [{ kind: 'container', id: `${task_id}-container` }] : []),
+      ],
+      members: contract.fake_members ?? [],
+      receipts: [],
+      hydrated: true,
+    };
+    this.tasks.set(command_id, task);
+    return task;
+  }
+
   lookup(command_id) {
     const t = this.tasks.get(command_id);
     return t ? { task_id: t.task_id, state: t.state } : null;
