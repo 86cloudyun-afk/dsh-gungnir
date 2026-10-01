@@ -12,7 +12,8 @@
     "test": "node --test",
     "test:schema": "node scripts/validate-tool-schemas.mjs",
     "cli": "node bin/warroom.mjs",
-    "ci": "node --test && node scripts/validate-tool-schemas.mjs && node scripts/check-preset.mjs"
+    "ci": "node --test && node scripts/validate-tool-schemas.mjs && node scripts/check-preset.mjs && node scripts/fault-matrix.mjs",
+    "faults": "node scripts/fault-matrix.mjs"
   },
   "workspaces": [
     "packages/shared-types",
