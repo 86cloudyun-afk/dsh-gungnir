@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **DSH 桥驱动**（`adapters/dsh-bridge.js` + `docs/DSH-BRIDGE-PROTOCOL.md`）：
+  以 spool 文件协议与 DSH 侧执行层通信（原子写、幂等 external_id、崩溃可恢复）；
+  超时 → unknown 且 spool 留待办 job（绝不自动重试）
+- 一致性套件升级为**异步停止确认感知**（`awaitStopMs`）：把 ADR-003「cancel 是请求、
+  证实要探针」的语义编进契约检查；桥驱动与本地驱动共用同一套件
 - 故障注入矩阵（框架 §10，CI 第四闸）：丢回包 / 乱序与重复回执 / 事实库写失败 /
   进程残留 / 重启恢复 / 撤销跨重启，六场景一键复跑（`scripts/fault-matrix.mjs`）
 - 再水化提升为公共 API（`rehydrate`）：只恢复非终态命令，终态不重建；CLI 复用同一实现
