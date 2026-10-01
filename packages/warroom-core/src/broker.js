@@ -100,11 +100,14 @@ export class Broker {
     const existing = this.global
       .prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
     if (existing) {
-      return { command_id: req.command_id, task_id: existing.task_id, state: existing.state, deduped: true };
+      return {
+        command_id: req.command_id, task_id: existing.task_id, state: existing.state,
+        generation: existing.generation, deduped: true,
+      };
     }
     this.global.prepare(`INSERT INTO command_queue
-      (command_id, engagement_id, task_id, contract, state, generation, ts)
-      VALUES (?, ?, ?, ?, 'queued', ?, ?)`).run(
+      (command_id, engagement_id, task_id, contract, state, generation, attempt, ts)
+      VALUES (?, ?, ?, ?, 'queued', ?, 1, ?)`).run(
       req.command_id, req.engagement_id, task_id, JSON.stringify(contract), generation, now()
     );
     store.appendGateLog({
@@ -128,7 +131,10 @@ export class Broker {
         const found = this.adapter.lookup(req.command_id);
         const state = 'unknown';
         this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run(state, req.command_id);
-        return { command_id: req.command_id, task_id: found?.task_id ?? task_id, state, recoverable: true };
+        return {
+          command_id: req.command_id, task_id: found?.task_id ?? task_id, state,
+          generation, recoverable: true,
+        };
       }
       this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run('failed', req.command_id);
       store.appendGateLog({ decision: 'deny', code: e.code ?? 'ADAPTER_ERROR', detail: String(e.message) });
@@ -253,7 +259,68 @@ export class Broker {
   }
   _setCommandState(command_id, state) {
     if (!ALL_TASK_STATES.includes(state)) throw new Error(`bad state ${state}`);
+    const cur = this.global.prepare('SELECT state FROM command_queue WHERE command_id = ?').get(command_id);
+    if (cur && cur.state !== state && !canTransition(cur.state, state)) {
+      throw warroomError(ERR.E_INVALID_TRANSITION, `${cur.state} → ${state} 不是合法迁移`);
+    }
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run(state, command_id);
+  }
+
+  /** 任务全景：账本状态 + 运行态 + 资源清单 + 尝试次数。 */
+  status(engagementId, taskIdOrCommand) {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    const runtime = this.adapter.status(cmd.task_id);
+    const manifest = (this.adapter.manifestOf(cmd.task_id) ?? [])
+      .map((m) => ({ id: m.id, kind: m.kind, confirmed_stopped: m.check() }));
+    return {
+      task_id: cmd.task_id, command_id: cmd.command_id, engagement_id: cmd.engagement_id,
+      ledger_state: cmd.state, attempt: cmd.attempt, generation: cmd.generation,
+      runtime_state: runtime?.state ?? null, manifest,
+    };
+  }
+
+  /**
+   * 对账：只处理 unknown / unresolved（ADR-003 D3）——以证据定论，绝不默认失败重做。
+   * 定论依据优先级：执行器回执 > 只读再探测 > 人工（本 API 对应前两者）。
+   */
+  reconcile(engagementId, taskIdOrCommand) {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (!['unknown', 'unresolved'].includes(cmd.state)) {
+      throw warroomError(ERR.E_TASK_NOT_RECONCILABLE, `状态 ${cmd.state} 无需对账`);
+    }
+    const manifest = this.adapter.manifestOf(cmd.task_id) ?? [];
+    const residual = manifest.filter((m) => !m.check());
+    const verdict = this.adapter.reconcile(cmd.task_id); // 探针定论
+    let next = verdict.state;
+    if (residual.length > 0) next = 'unresolved';       // 资源残留 → 维持挂起
+    this._setCommandState(cmd.command_id, next === cmd.state ? cmd.state : next);
+    this._gate(engagementId, 'reconcile', {
+      task_id: cmd.task_id, verdict: next, probes: manifest.length, residual: residual.map((m) => m.id),
+    });
+    return { task_id: cmd.task_id, state: next, residual: residual.map((m) => m.id) };
+  }
+
+  /**
+   * 重派：仅 failed / unresolved（人工裁决后）——升 attempt、换 generation；
+   * 旧 attempt 回执按代际隔离（ADR-003 D6）。
+   */
+  redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (!['failed', 'unresolved'].includes(cmd.state)) {
+      throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
+    }
+    const row = this._auth(engagementId).row;
+    const attempt = cmd.attempt + 1;
+    const generation = makeGeneration(row.auth_version, this.dispatchCounter, attempt);
+    this._setCommandState(cmd.command_id, 'running');
+    this.global.prepare('UPDATE command_queue SET attempt = ?, generation = ? WHERE command_id = ?')
+      .run(attempt, generation, cmd.command_id);
+    this.adapter.redispatch?.(cmd.command_id, { ...JSON.parse(cmd.contract), generation }, attempt);
+    this._gate(engagementId, 'redispatch', { task_id: cmd.task_id, attempt, reason });
+    return { task_id: cmd.task_id, attempt, generation, state: 'running' };
   }
   _gate(engagement_id, code, detail) {
     try {

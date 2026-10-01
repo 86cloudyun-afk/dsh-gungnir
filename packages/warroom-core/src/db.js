@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS op_log (
 );
 CREATE TABLE IF NOT EXISTS command_queue (
   command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
-  contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, ts TEXT NOT NULL
+  contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, attempt INTEGER NOT NULL DEFAULT 1,
+  ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS secret_store (
   secret_ref TEXT PRIMARY KEY, label TEXT NOT NULL,
