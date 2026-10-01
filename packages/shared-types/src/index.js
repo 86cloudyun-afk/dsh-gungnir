@@ -2,7 +2,7 @@
 // 规则：各包禁止自行解释 ADR；一切以本文件常量与校验函数为准。
 // 变更走语义化版本：破坏性 = 升主版本并广播（框架 §11）。
 
-export const VERSION = '0.1.0-alpha.1';
+export const VERSION = '0.1.0-alpha.2';
 
 // ── 动作分级（ADR-001 D5）：readonly < active < destructive ─────────────────
 export const ACTION_CLASS = Object.freeze(['readonly', 'active', 'destructive']);
@@ -57,6 +57,10 @@ export const ERR = Object.freeze({
   E_NO_JUMPHOST: 'E_NO_JUMPHOST',
   E_COMPENSATED: 'E_COMPENSATED',
   E_STORE_WRITE_FAILED: 'E_STORE_WRITE_FAILED',
+  E_SECRET_NOT_FOUND: 'E_SECRET_NOT_FOUND',
+  E_SECRET_NO_GRANT: 'E_SECRET_NO_GRANT',
+  E_SECRET_GRANT_EXPIRED: 'E_SECRET_GRANT_EXPIRED',
+  E_SECRET_KEY_INVALID: 'E_SECRET_KEY_INVALID',
 });
 
 export function warroomError(code, message, detail) {

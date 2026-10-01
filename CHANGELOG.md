@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- 秘密边界（ADR-001 D7）：AES-256-GCM at-rest 加密、密钥文件 600/目录 700、
+  权限化 resolve（secret × 任务 × 用途 × TTL）、全出口脱敏（gate_log / collect / 错误路径 /
+  形态正则：token、私钥、kv 口令）
+- schema v2 迁移（global 库专属）：secret_store / secret_grants；迁移按 labels 过滤
+- 工具：warroom_secret_put / warroom_secret_grant / warroom_secret_status（无 resolve 工具——解析仅 host 可用）
 - CI 三闸之一：工具 schema 严格校验器（DSH 挂载会因非法 schema 整组失败）
 - GitHub Actions：验收套件 + schema 校验（node 22.x）
 

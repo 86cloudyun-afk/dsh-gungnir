@@ -5,9 +5,12 @@ import {
   warroomError, ERR, canTransition, isTerminal, makeGeneration, ALL_TASK_STATES,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
+import { join } from 'node:path';
 import { openEngagementDb, openGlobalDb } from './db.js';
 import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
+import { SecretVault } from './secrets.js';
+import { redactDeep } from './redactor.js';
 
 const now = () => new Date().toISOString();
 
@@ -18,6 +21,7 @@ export class Broker {
   constructor({ home, adapter, nowMs } = {}) {
     this.home = home;
     this.global = openGlobalDb(home);
+    this.secrets = new SecretVault({ root: join(home, 'secrets'), db: this.global, nowMs: () => this._nowMs() });
     this.adapter = adapter ?? new FakeAdapter();
     this._nowMs = nowMs ?? (() => Date.now());
     this.engagements = new Map(); // engagement_id -> { db, store }
@@ -94,8 +98,11 @@ export class Broker {
       VALUES (?, ?, ?, ?, 'queued', ?, ?)`).run(
       req.command_id, req.engagement_id, task_id, JSON.stringify(contract), generation, now()
     );
-    store.appendGateLog({ decision: 'allow', code: 'BROKER_EXECUTE',
-      detail: `class=${contract.action_class}`, request: { command_id: req.command_id, task_id } });
+    store.appendGateLog({
+      decision: 'allow', code: 'BROKER_EXECUTE',
+      detail: `class=${contract.action_class}`,
+      request: this.secrets.redact(JSON.stringify({ command_id: req.command_id, task_id })),
+    });
 
     // 计量：tool_calls 每次执行 +1；wire_requests 由契约声明（ADR-002 D10）
     store.recordRate({ target: contract.targets[0], kind: 'tool', amount: 1 });
@@ -171,7 +178,7 @@ export class Broker {
       return { accepted: false, quarantined: 'generation' };
     }
     const r = store.ingestMembers({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
-    return { accepted: true, seq: r.seq, results: r.results };
+    return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
@@ -184,7 +191,10 @@ export class Broker {
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run(state, command_id);
   }
   _gate(engagement_id, code, detail) {
-    try { this._eng(engagement_id).store.appendGateLog({ decision: code, detail: JSON.stringify(detail) }); }
-    catch { /* fact 不可写时审计走 op_log 补偿路径（ADR-002 D6） */ }
+    try {
+      this._eng(engagement_id).store.appendGateLog({
+        decision: code, detail: this.secrets.redact(JSON.stringify(detail)),
+      });
+    } catch { /* fact 不可写时审计走 op_log 补偿路径（ADR-002 D6） */ }
   }
 }
