@@ -6,17 +6,17 @@ import { join } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { harness } from '../packages/warroom-core/src/testing.js';
-import { openEngagementDb } from '../packages/warroom-core/src/db.js';
+import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
 import { runMigrations, ERR_SCHEMA_NEWER } from '../packages/warroom-core/src/migrate.js';
 
 test('迁移幂等：重复打开版本不变、无异常', () => {
   const h = harness();
   const dir = join(h.home, 'engagements', h.eng.engagement_id);
   const db2 = openEngagementDb(dir);
-  assert.equal(db2.prepare("SELECT v FROM meta WHERE k = 'schema_version:fact'").get().v, '1');
+  assert.equal(db2.prepare("SELECT v FROM meta WHERE k = 'schema_version:fact'").get().v, '2');
   db2.close();
   const db3 = openEngagementDb(dir);
-  assert.equal(db3.prepare("SELECT v FROM meta WHERE k = 'schema_version:fact'").get().v, '1');
+  assert.equal(db3.prepare("SELECT v FROM meta WHERE k = 'schema_version:fact'").get().v, '2');
   db3.close();
 });
 
@@ -60,12 +60,29 @@ test('备份目标目录被自动创建且可重复执行', () => {
   assert.ok(readdirSync(dest).includes('global.db'));
 });
 
-test('runMigrations 返回值：新库 from=null，老库 from=1', () => {
+test('v2 迁移：老库缺 secret 表时补建（global 库专属迁移）', async () => {
+  const h = harness();
+  const g = h.broker.global;
+  g.exec('DROP TABLE IF EXISTS secret_store; DROP TABLE IF EXISTS secret_grants;');
+  g.prepare("UPDATE meta SET v = '1' WHERE k = 'schema_version:global'").run();
+  // 重新打开触发迁移
+  const reopened = openGlobalDb(h.home);
+  const v = reopened.prepare("SELECT v FROM meta WHERE k = 'schema_version:global'").get().v;
+  assert.equal(v, '2');
+  const tables = reopened.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  assert.ok(tables.includes('secret_store') && tables.includes('secret_grants'));
+  // fact 库不应被 global 专属迁移污染
+  const factTables = h.store().db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  assert.equal(factTables.includes('secret_store'), false);
+});
+
+test('runMigrations 返回值：已迁移库 from=to=当前版本', () => {
   const h = harness();
   const dir = join(h.home, 'engagements', h.eng.engagement_id);
   const db = openEngagementDb(dir);
   const r = runMigrations(db, 'fact');
-  assert.equal(r.from, 1);
-  assert.equal(r.to, 1);
+  assert.equal(r.from, 2);
+  assert.equal(r.to, 2);
+  assert.equal(r.applied.length, 0);
   db.close();
 });

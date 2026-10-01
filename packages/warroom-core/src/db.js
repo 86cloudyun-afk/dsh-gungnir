@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS command_queue (
   command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
   contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, ts TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS secret_store (
+  secret_ref TEXT PRIMARY KEY, label TEXT NOT NULL,
+  ciphertext BLOB NOT NULL, iv TEXT NOT NULL, tag TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS secret_grants (
+  grant_id TEXT PRIMARY KEY, secret_ref TEXT NOT NULL, engagement_id TEXT,
+  task_id TEXT NOT NULL, purpose TEXT NOT NULL, expires_at TEXT NOT NULL, ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_secret_grants_lookup
+  ON secret_grants(secret_ref, task_id, purpose, expires_at);
 `;
 
 function applyDdl(db, ddl) {
