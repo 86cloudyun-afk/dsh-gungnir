@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 三角色预设（commander/recon/chain）+ 允许清单 `presets/warroom.preset.json` + 挂载文档 `docs/PRESET.md`；
+  CI 新闸 `scripts/check-preset.mjs`（清单必须覆盖全部工具、危险能力必须显式拒绝、角色文件必须齐备）
 - Adapter 一致性套件（9 项契约检查，含负样本"有齿"验证）：FakeAdapter 与
   RedteamModeAdapter(LocalDriver) 全绿，任何新执行层换进来先过此套件
 - redteam-mode 桥骨架：SPI → 五角色映射、Driver 接口、`docs/REDTEAM-BRIDGE.md`（真实驱动留 v0.2 集成）
