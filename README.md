@@ -1,4 +1,7 @@
-# WARROOM
+# DSH GUNGNIR（冈格尼尔）
+
+> 永恒之枪，出手必中——**攻击路径合成**的工程化：把分散、隐蔽、看似无关的弱点，
+> 拼成一条到 shell 的完整链路。
 
 DSH 红队战役指挥框架。规格：[/Users/appleshu/dsh/WARROOM-FRAMEWORK.md](../WARROOM-FRAMEWORK.md)（v1.4）
 + 三份 ADR（[001](../adr/ADR-001-permission-execution-boundary.md) rev1 权限与执行边界 /
