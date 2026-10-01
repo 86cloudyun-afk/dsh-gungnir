@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- 报告**证据摘要**（sha256：整体 + 按 entity_type）与**复现校验器**
+  （`scripts/verify-report.mjs` / `broker.verifyReport`）：对照当前库判定报告是否仍可复现，
+  有漂移如实回报（退出码 3），不修数据
 - 效率遥测（ADR-002 D10）：任务级 `tokens_in/out`、`wall_time_ms`、`verified_facts`（同任务幂等覆盖），
   战役聚合给出 `by_role` 视图与端到端指标（`facts_per_1000_tokens`、`ms_per_fact`）——
   **无成本门闸**，服务于编制与档位决策；跨战役记录被拒

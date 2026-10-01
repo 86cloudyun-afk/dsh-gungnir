@@ -1,8 +1,11 @@
 // 报告导出器（框架 §5）：水位绑定 + 事实视图 + IOC/清理附录（半自动初稿）+ 脱敏双保险。
 // 报告双属性：给客户的可复现攻击报告 = 给蓝队的 IOC 排查清单（同一份证据的两个视图）。
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
+
+const sha = (s) => createHash('sha256').update(s).digest('hex');
 
 const ENTITY_ORDER = ['asset', 'domain', 'vuln', 'credential', 'session', 'chain', 'shell', 'persistence'];
 
@@ -72,6 +75,13 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- exported_at: \`${snap.exported_at}\``);
   lines.push('- 复现方式：以同一 fact.db + 上述水位重新导出，内容应与本报告一致（ADR-002 D4）。');
   lines.push('');
+  lines.push('## 证据摘要（sha256，供复现校验）');
+  lines.push('');
+  lines.push(`- fact_members: \`${sha(JSON.stringify(snap.rows))}\``);
+  for (const [type, rows] of grouped) {
+    lines.push(`- ${type}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
+  }
+  lines.push('');
   lines.push('## 战役元信息');
   lines.push('');
   lines.push(`- 授权对象哈希: \`${engagementRow?.auth_hash ?? '-'}\``);
@@ -128,16 +138,55 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
 
   const markdown = lines.join('\n');
-  return { markdown, watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at } };
+  return {
+    markdown,
+    watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
+    evidence_digests: { fact_members: sha(JSON.stringify(snap.rows)) },
+  };
 }
 
-/** 导出到文件；返回 {path, watermark}。 */
+/** 导出到文件；返回 {path, watermark, evidence_digests}。 */
 export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir }) {
-  const { markdown, watermark } = buildReport({ store, engagementId, engagementRow, vault, globalDb });
+  const { markdown, watermark, evidence_digests } = buildReport({ store, engagementId, engagementRow, vault, globalDb });
   const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, markdown, 'utf8');
-  return { path, watermark };
+  return { path, watermark, evidence_digests };
+}
+
+/** 从报告正文解析水位与证据摘要（供复现校验器使用）。 */
+export function parseReportHeader(markdown) {
+  const pick = (label) => {
+    const m = markdown.match(new RegExp('- ' + label + ': `([^`]+)`'));
+    return m ? m[1] : null;
+  };
+  return {
+    seq: Number(pick('seq')),
+    snapshot_id: pick('snapshot_id'),
+    exported_at: pick('exported_at'),
+    fact_members_digest: pick('fact_members'),
+  };
+}
+
+/**
+ * 复现校验（ADR-002 D4）：用报告里的水位与摘要对照当前库，
+ * 判定报告是否仍可复现；漂移如实回报，不修数据。
+ */
+export function verifyReportAgainstStore(markdown, store) {
+  const header = parseReportHeader(markdown);
+  const snap = store.exportSnapshot();
+  const digest = sha(JSON.stringify(snap.rows));
+  const driftSeq = snap.seq - (Number.isFinite(header.seq) ? header.seq : 0);
+  return {
+    report: header,
+    current: { seq: snap.seq, snapshot_id: snap.snapshot_id, fact_members_digest: digest },
+    reproducible: header.snapshot_id === snap.snapshot_id && header.fact_members_digest === digest,
+    drift: { seq: driftSeq, rows_now: snap.rows.length },
+  };
+}
+
+export function readReport(path) {
+  return readFileSync(path, 'utf8');
 }
 
 export { redactDeep };
