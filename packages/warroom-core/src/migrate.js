@@ -5,9 +5,27 @@ import { SCHEMA_VERSION } from './version.js';
 const META_KEY = 'schema_version';
 export const ERR_SCHEMA_NEWER = 'E_SCHEMA_NEWER_THAN_CODE';
 
-/** 迁移清单：version = 目标版本，up(db) 执行该步变更。基准 DDL 由 db.js 保证，这里只做增量。 */
+/** 迁移清单：version = 目标版本，labels 限定作用的库，up(db) 执行该步变更。 */
 export const MIGRATIONS = [
-  // v1 为基准结构（db.js DDL 已含），无增量
+  {
+    version: 2,
+    labels: ['global'],
+    up(db) {
+      // v2：秘密边界（ADR-001 D7）——加密存储 + 授权表
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS secret_store (
+          secret_ref TEXT PRIMARY KEY, label TEXT NOT NULL,
+          ciphertext BLOB NOT NULL, iv TEXT NOT NULL, tag TEXT NOT NULL, created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS secret_grants (
+          grant_id TEXT PRIMARY KEY, secret_ref TEXT NOT NULL, engagement_id TEXT,
+          task_id TEXT NOT NULL, purpose TEXT NOT NULL, expires_at TEXT NOT NULL, ts TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_secret_grants_lookup
+          ON secret_grants(secret_ref, task_id, purpose, expires_at);
+      `);
+    },
+  },
 ];
 
 function readVersion(db, label) {
@@ -38,7 +56,7 @@ export function runMigrations(db, label) {
     return { from: null, to: SCHEMA_VERSION, applied };
   }
   for (const m of MIGRATIONS) {
-    if (m.version > current && m.version <= SCHEMA_VERSION) {
+    if (m.version > current && m.version <= SCHEMA_VERSION && (!m.labels || m.labels.includes(label))) {
       db.exec('BEGIN IMMEDIATE');
       try {
         m.up(db);
