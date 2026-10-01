@@ -7,6 +7,7 @@ import { Broker } from '../packages/warroom-core/src/broker.js';
 import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
+import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
 const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report',
   'secret', 'jump', 'adapter', 'help'];
@@ -69,14 +70,7 @@ function makeAdapter(kind) {
 
 const broker = new Broker({ home, adapter: makeAdapter(v.adapter) });
 // 跨进程再水化：非终态命令在 adapter 侧重建任务（CLI 每次调用是新进程）
-{
-  const open = ["('queued','running','cancel_requested','unknown','unresolved')"].join('');
-  const rows = broker.global
-    .prepare(`SELECT command_id, contract, state FROM command_queue WHERE state IN ${open}`).all();
-  for (const r of rows) {
-    try { broker.adapter.hydrate?.(r.command_id, JSON.parse(r.contract), r.state); } catch { /* 驱动不支持再水化时忽略 */ }
-  }
-}
+rehydrate(broker);
 const jumps = new JumphostManager({
   globalDb: broker.global,
   getFactStore: (id) => broker._eng(id).store,
