@@ -106,7 +106,7 @@ export class FactStore {
   appendGateLog({ decision, code = null, detail = null, request = null, recovered_at = null }) {
     this.db.prepare(`INSERT INTO gate_log (ts, decision, code, detail, request_json, recovered_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(this._now(), decision, code, detail,
-      request ? JSON.stringify(request) : null, recovered_at);
+      request ? (typeof request === 'string' ? request : JSON.stringify(request)) : null, recovered_at);
   }
 
   /** 审计补齐（op_log 补偿期间 fact 不可写，恢复后回填，ADR-002 D6）。 */
@@ -118,6 +118,11 @@ export class FactStore {
   recordRate({ target, kind, amount = 1 }) {
     this.db.prepare(`INSERT INTO rate_ledger (ts, engagement_id, target, kind, amount)
       VALUES (?, ?, ?, ?, ?)`).run(this._now(), this.engagementId, target, kind, amount);
+  }
+
+  lastRateTs(kind) {
+    const r = this.db.prepare('SELECT ts FROM rate_ledger WHERE kind = ? ORDER BY id DESC LIMIT 1').get(kind);
+    return r ? r.ts : null;
   }
 
   rateTotal(kind) {

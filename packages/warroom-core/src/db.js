@@ -3,7 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { SCHEMA_VERSION } from './version.js';
+import { runMigrations } from './migrate.js';
 
 export const FACT_DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -93,16 +93,28 @@ CREATE TABLE IF NOT EXISTS op_log (
 );
 CREATE TABLE IF NOT EXISTS command_queue (
   command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
-  contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, ts TEXT NOT NULL
+  contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, attempt INTEGER NOT NULL DEFAULT 1,
+  ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS secret_store (
+  secret_ref TEXT PRIMARY KEY, label TEXT NOT NULL,
+  ciphertext BLOB NOT NULL, iv TEXT NOT NULL, tag TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS secret_grants (
+  grant_id TEXT PRIMARY KEY, secret_ref TEXT NOT NULL, engagement_id TEXT,
+  task_id TEXT NOT NULL, purpose TEXT NOT NULL, expires_at TEXT NOT NULL, ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_secret_grants_lookup
+  ON secret_grants(secret_ref, task_id, purpose, expires_at);
+CREATE TABLE IF NOT EXISTS approvals (
+  approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
+  reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
+  used_by_command TEXT, ts TEXT NOT NULL
 );
 `;
 
-function applyDdl(db, ddl, label) {
+function applyDdl(db, ddl) {
   db.exec(ddl);
-  db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(
-    `schema_version:${label}`,
-    String(SCHEMA_VERSION)
-  );
 }
 
 export function openEngagementDb(dir) {
@@ -110,7 +122,8 @@ export function openEngagementDb(dir) {
   const db = new DatabaseSync(join(dir, 'fact.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
-  applyDdl(db, FACT_DDL, 'fact');
+  applyDdl(db, FACT_DDL);
+  runMigrations(db, 'fact');
   return db;
 }
 
@@ -119,7 +132,8 @@ export function openGlobalDb(home) {
   const db = new DatabaseSync(join(home, 'global.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
-  applyDdl(db, GLOBAL_DDL, 'global');
+  applyDdl(db, GLOBAL_DDL);
+  runMigrations(db, 'global');
   return db;
 }
 

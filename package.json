@@ -11,7 +11,7 @@
   "scripts": {
     "test": "node --test",
     "test:schema": "node scripts/validate-tool-schemas.mjs",
-    "ci": "node --test && node scripts/validate-tool-schemas.mjs"
+    "ci": "node --test && node scripts/validate-tool-schemas.mjs && node scripts/check-preset.mjs"
   },
   "workspaces": [
     "packages/shared-types",

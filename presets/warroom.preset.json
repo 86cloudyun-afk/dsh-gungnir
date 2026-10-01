@@ -1,0 +1,47 @@
+{
+  "id": "warroom-gungnir",
+  "name": "红队指挥（GUNGNIR）",
+  "version": "0.1.0-alpha.1",
+  "roles": ["commander", "recon", "chain"],
+  "roleFiles": {
+    "commander": "presets/roles/commander.md",
+    "recon": "presets/roles/recon.md",
+    "chain": "presets/roles/chain.md"
+  },
+  "toolPolicy": {
+    "mode": "allowlist",
+    "allow": [
+      "warroom_execute",
+      "warroom_collect",
+      "warroom_cancel",
+      "warroom_status",
+      "warroom_reconcile",
+      "warroom_redispatch",
+      "warroom_fact_query",
+      "warroom_secret_put",
+      "warroom_secret_grant",
+      "warroom_secret_status",
+      "warroom_report_export",
+      "skill"
+    ],
+    "deny": [
+      "bash",
+      "write",
+      "edit",
+      "subagent",
+      "subagent_fork",
+      "workflow",
+      "redteam_*",
+      "ops_*"
+    ],
+    "denyRationale": "ADR-001 D1：允许清单闭合——战役会话内不得有通用执行/文件写/进程工具，也不得直调红队模式与战役记账工具；一切副作用经 broker（warroom_execute）。"
+  },
+  "subagent": {
+    "maxDepth": 1,
+    "denyTools": ["subagent", "subagent_fork", "workflow"]
+  },
+  "notes": [
+    "执行层（红队模式五角色）由其自身预设管辖，不在本预设的允许清单内。",
+    "deny 中的通配符按前缀匹配；新增工具必须同时进入 allow，否则不可见。"
+  ]
+}

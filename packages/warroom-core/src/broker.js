@@ -1,13 +1,18 @@
 // Broker：唯一副作用通道（ADR-001 D1/D2）+ 命令队列 + 撤销级联 + 代际收集（ADR-003）。
 import { randomUUID } from 'node:crypto';
 import {
-  validateFourTuple, validateContract, validateReceipt,
-  warroomError, ERR, canTransition, isTerminal, makeGeneration, ALL_TASK_STATES,
+  validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
+  RHYTHM_MIN_INTERVAL_MS, warroomError, ERR, canTransition, isTerminal, makeGeneration,
+  ALL_TASK_STATES,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
+import { join } from 'node:path';
 import { openEngagementDb, openGlobalDb } from './db.js';
 import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
+import { SecretVault } from './secrets.js';
+import { redactDeep } from './redactor.js';
+import { exportReport as exportReportFile, buildReport } from './report.js';
 
 const now = () => new Date().toISOString();
 
@@ -18,6 +23,7 @@ export class Broker {
   constructor({ home, adapter, nowMs } = {}) {
     this.home = home;
     this.global = openGlobalDb(home);
+    this.secrets = new SecretVault({ root: join(home, 'secrets'), db: this.global, nowMs: () => this._nowMs() });
     this.adapter = adapter ?? new FakeAdapter();
     this._nowMs = nowMs ?? (() => Date.now());
     this.engagements = new Map(); // engagement_id -> { db, store }
@@ -79,6 +85,14 @@ export class Broker {
       manual_approval_token: req.manual_approval_token,
     });
 
+    // 节奏闸（ADR-002 D10 / 框架 §4）：并发 / wire 预算 / 最小间隔
+    this._checkRhythm({ engagementId: req.engagement_id, rhythm: row.rhythm, contract: req.contract, store });
+
+    // destructive 的人工裁决：令牌必须是已登记且未过期的批准（可审计），检查其归属与一次性
+    if (req.contract.action_class === 'destructive') {
+      this._consumeApproval(req.manual_approval_token, req.engagement_id);
+    }
+
     // broker 持有 task_id（四元组在派发前即完整）
     const generation = makeGeneration(row.auth_version, ++this.dispatchCounter, 1);
     const contract = { ...req.contract, task_id, generation, engagement_id: req.engagement_id };
@@ -87,15 +101,21 @@ export class Broker {
     const existing = this.global
       .prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
     if (existing) {
-      return { command_id: req.command_id, task_id: existing.task_id, state: existing.state, deduped: true };
+      return {
+        command_id: req.command_id, task_id: existing.task_id, state: existing.state,
+        generation: existing.generation, deduped: true,
+      };
     }
     this.global.prepare(`INSERT INTO command_queue
-      (command_id, engagement_id, task_id, contract, state, generation, ts)
-      VALUES (?, ?, ?, ?, 'queued', ?, ?)`).run(
+      (command_id, engagement_id, task_id, contract, state, generation, attempt, ts)
+      VALUES (?, ?, ?, ?, 'queued', ?, 1, ?)`).run(
       req.command_id, req.engagement_id, task_id, JSON.stringify(contract), generation, now()
     );
-    store.appendGateLog({ decision: 'allow', code: 'BROKER_EXECUTE',
-      detail: `class=${contract.action_class}`, request: { command_id: req.command_id, task_id } });
+    store.appendGateLog({
+      decision: 'allow', code: 'BROKER_EXECUTE',
+      detail: `class=${contract.action_class}`,
+      request: this.secrets.redact(JSON.stringify({ command_id: req.command_id, task_id })),
+    });
 
     // 计量：tool_calls 每次执行 +1；wire_requests 由契约声明（ADR-002 D10）
     store.recordRate({ target: contract.targets[0], kind: 'tool', amount: 1 });
@@ -112,7 +132,10 @@ export class Broker {
         const found = this.adapter.lookup(req.command_id);
         const state = 'unknown';
         this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run(state, req.command_id);
-        return { command_id: req.command_id, task_id: found?.task_id ?? task_id, state, recoverable: true };
+        return {
+          command_id: req.command_id, task_id: found?.task_id ?? task_id, state,
+          generation, recoverable: true,
+        };
       }
       this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run('failed', req.command_id);
       store.appendGateLog({ decision: 'deny', code: e.code ?? 'ADAPTER_ERROR', detail: String(e.message) });
@@ -171,7 +194,83 @@ export class Broker {
       return { accepted: false, quarantined: 'generation' };
     }
     const r = store.ingestMembers({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
-    return { accepted: true, seq: r.seq, results: r.results };
+    return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
+  }
+
+  // ── 报告导出（框架 §5：水位 + IOC 附录 + 脱敏）──────────────────────────────
+  buildReport(engagementId) {
+    const { row, store } = this._engWithRow(engagementId);
+    return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global });
+  }
+
+  exportReport(engagementId, { outDir } = {}) {
+    const { row, store } = this._engWithRow(engagementId);
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
+    return exportReportFile({
+      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir,
+    });
+  }
+
+  _engWithRow(engagementId) {
+    const eng = this._eng(engagementId);
+    const row = eng.db.prepare('SELECT * FROM engagements WHERE id = ?').get(engagementId);
+    return { row, store: eng.store };
+  }
+
+  // ── 节奏控制（ADR-002 D10）─────────────────────────────────────────────────
+  _checkRhythm({ engagementId, rhythm, contract, store }) {
+    const runningStates = "('queued','running','cancel_requested','unknown')";
+    const running = this.global.prepare(
+      `SELECT COUNT(*) AS c FROM command_queue WHERE engagement_id = ? AND state IN ${runningStates}`
+    ).get(engagementId).c;
+    const cap = RHYTHM_CONCURRENCY[rhythm] ?? 1;
+    if (running >= cap) {
+      throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT, `并发已达节奏档上限 (${running}/${cap}, ${rhythm})`);
+    }
+    const wireCost = contract.wire_cost ?? 0;
+    if (wireCost > 0) {
+      const used = store.rateTotal('wire');
+      const budget = RHYTHM_WIRE_CAP[rhythm] ?? 0;
+      if (used + wireCost > budget) {
+        throw warroomError(ERR.E_GATE_RATE_LIMIT,
+          `wire 预算不足：已用 ${used} + 本次 ${wireCost} > ${budget}（${rhythm}）`);
+      }
+      const minGap = RHYTHM_MIN_INTERVAL_MS[rhythm] ?? 0;
+      if (minGap > 0) {
+        const last = store.lastRateTs('wire');
+        const gap = last ? this._nowMs() - Date.parse(last) : Infinity;
+        if (gap < minGap) {
+          const e = warroomError(ERR.E_GATE_RATE_LIMIT,
+            `节奏间隔不足：距上次出网 ${Math.round(gap)}ms < ${minGap}ms（${rhythm}）`);
+          e.retry_after_ms = minGap - gap;
+          throw e;
+        }
+      }
+    }
+  }
+
+  // ── 人工批准（destructive 裁决，ADR-001 D5）────────────────────────────────
+  /** 操作员侧签发批准令牌（进程内 API；DSH 中对应人工裁决动作）。 */
+  createApproval({ engagement_id, reason = '', issued_by = 'operator', ttlSeconds = 3600, single_use = true }) {
+    const approval_id = `ap_${randomUUID()}`;
+    const expires_at = new Date(this._nowMs() + ttlSeconds * 1000).toISOString();
+    this.global.prepare(`INSERT INTO approvals
+      (approval_id, engagement_id, action_class, reason, issued_by, expires_at, single_use, ts)
+      VALUES (?, ?, 'destructive', ?, ?, ?, ?, ?)`).run(
+      approval_id, engagement_id, reason, issued_by, expires_at, single_use ? 1 : 0, now());
+    return { approval_id, expires_at };
+  }
+
+  _consumeApproval(token, engagementId) {
+    if (!token) throw warroomError(ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL, '需要人工批准令牌');
+    const row = this.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(token);
+    if (!row) throw warroomError(ERR.E_APPROVAL_NOT_FOUND, '批准令牌不存在');
+    if (row.engagement_id !== engagementId) throw warroomError(ERR.E_APPROVAL_MISMATCH, '批准令牌不属于该战役');
+    if (Date.parse(row.expires_at) <= this._nowMs()) throw warroomError(ERR.E_APPROVAL_EXPIRED, `批准已于 ${row.expires_at} 过期`);
+    if (row.single_use && row.used_by_command) throw warroomError(ERR.E_APPROVAL_USED, '一次性批准已被使用');
+    this.global.prepare('UPDATE approvals SET used_by_command = ? WHERE approval_id = ?')
+      .run(`used_at:${now()}`, token);
+    return row;
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
@@ -181,10 +280,74 @@ export class Broker {
   }
   _setCommandState(command_id, state) {
     if (!ALL_TASK_STATES.includes(state)) throw new Error(`bad state ${state}`);
+    const cur = this.global.prepare('SELECT state FROM command_queue WHERE command_id = ?').get(command_id);
+    if (cur && cur.state !== state && !canTransition(cur.state, state)) {
+      throw warroomError(ERR.E_INVALID_TRANSITION, `${cur.state} → ${state} 不是合法迁移`);
+    }
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?').run(state, command_id);
   }
+
+  /** 任务全景：账本状态 + 运行态 + 资源清单 + 尝试次数。 */
+  status(engagementId, taskIdOrCommand) {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    const runtime = this.adapter.status(cmd.task_id);
+    const manifest = (this.adapter.manifestOf(cmd.task_id) ?? [])
+      .map((m) => ({ id: m.id, kind: m.kind, confirmed_stopped: m.check() }));
+    return {
+      task_id: cmd.task_id, command_id: cmd.command_id, engagement_id: cmd.engagement_id,
+      ledger_state: cmd.state, attempt: cmd.attempt, generation: cmd.generation,
+      runtime_state: runtime?.state ?? null, manifest,
+    };
+  }
+
+  /**
+   * 对账：只处理 unknown / unresolved（ADR-003 D3）——以证据定论，绝不默认失败重做。
+   * 定论依据优先级：执行器回执 > 只读再探测 > 人工（本 API 对应前两者）。
+   */
+  reconcile(engagementId, taskIdOrCommand) {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (!['unknown', 'unresolved'].includes(cmd.state)) {
+      throw warroomError(ERR.E_TASK_NOT_RECONCILABLE, `状态 ${cmd.state} 无需对账`);
+    }
+    const manifest = this.adapter.manifestOf(cmd.task_id) ?? [];
+    const residual = manifest.filter((m) => !m.check());
+    const verdict = this.adapter.reconcile(cmd.task_id); // 探针定论
+    let next = verdict.state;
+    if (residual.length > 0) next = 'unresolved';       // 资源残留 → 维持挂起
+    this._setCommandState(cmd.command_id, next === cmd.state ? cmd.state : next);
+    this._gate(engagementId, 'reconcile', {
+      task_id: cmd.task_id, verdict: next, probes: manifest.length, residual: residual.map((m) => m.id),
+    });
+    return { task_id: cmd.task_id, state: next, residual: residual.map((m) => m.id) };
+  }
+
+  /**
+   * 重派：仅 failed / unresolved（人工裁决后）——升 attempt、换 generation；
+   * 旧 attempt 回执按代际隔离（ADR-003 D6）。
+   */
+  redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
+    const cmd = this._findCommand(taskIdOrCommand);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (!['failed', 'unresolved'].includes(cmd.state)) {
+      throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
+    }
+    const row = this._auth(engagementId).row;
+    const attempt = cmd.attempt + 1;
+    const generation = makeGeneration(row.auth_version, this.dispatchCounter, attempt);
+    this._setCommandState(cmd.command_id, 'running');
+    this.global.prepare('UPDATE command_queue SET attempt = ?, generation = ? WHERE command_id = ?')
+      .run(attempt, generation, cmd.command_id);
+    this.adapter.redispatch?.(cmd.command_id, { ...JSON.parse(cmd.contract), generation }, attempt);
+    this._gate(engagementId, 'redispatch', { task_id: cmd.task_id, attempt, reason });
+    return { task_id: cmd.task_id, attempt, generation, state: 'running' };
+  }
   _gate(engagement_id, code, detail) {
-    try { this._eng(engagement_id).store.appendGateLog({ decision: code, detail: JSON.stringify(detail) }); }
-    catch { /* fact 不可写时审计走 op_log 补偿路径（ADR-002 D6） */ }
+    try {
+      this._eng(engagement_id).store.appendGateLog({
+        decision: code, detail: this.secrets.redact(JSON.stringify(detail)),
+      });
+    } catch { /* fact 不可写时审计走 op_log 补偿路径（ADR-002 D6） */ }
   }
 }

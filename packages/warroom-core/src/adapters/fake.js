@@ -64,6 +64,19 @@ export class FakeAdapter {
     return { task_id, state: task.state };
   }
 
+  /** 重派：同一任务换代际重跑（旧代回执依旧可被 collect，但会被代际隔离拒收）。 */
+  redispatch(command_id, contract, attempt) {
+    const t = this.tasks.get(command_id);
+    if (!t) throw warroomError(ERR.E_TASK_NOT_FOUND, `fake task ${command_id} not found`);
+    t.contract = contract;
+    t.generation = contract.generation;
+    t.state = 'running';
+    t.session_up = true;
+    t.container_up = (contract.resources ?? []).includes('container');
+    t.attempt = attempt;
+    return { task_id: t.task_id, state: t.state };
+  }
+
   lookup(command_id) {
     const t = this.tasks.get(command_id);
     return t ? { task_id: t.task_id, state: t.state } : null;
