@@ -1,0 +1,9 @@
+{
+  "name": "warroom-shared-types",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "WARROOM 批次0：共享接口类型（唯一契约来源，各包禁止自行解释 ADR）",
+  "license": "MIT",
+  "exports": { ".": "./src/index.js" }
+}

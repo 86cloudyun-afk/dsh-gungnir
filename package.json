@@ -1,0 +1,17 @@
+{
+  "name": "warroom",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "WARROOM — DSH 红队战役指挥框架（v0.1 冻结闭环）",
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "workspaces": [
+    "packages/shared-types",
+    "packages/warroom-core",
+    "packages/warroom-tools"
+  ]
+}

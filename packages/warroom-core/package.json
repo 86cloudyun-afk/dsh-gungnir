@@ -1,0 +1,12 @@
+{
+  "name": "warroom-core",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "WARROOM host 平面：事实库 + 门闸 broker + 跳板池 + adapter 注册（v0.1 含 fake）",
+  "license": "MIT",
+  "exports": { ".": "./src/index.js" },
+  "dependencies": {
+    "warroom-shared-types": "*"
+  }
+}
