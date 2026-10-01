@@ -26,6 +26,20 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 3,
+    labels: ['global'],
+    up(db) {
+      // v3：人工裁决批准（destructive 单次令牌）
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS approvals (
+          approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
+          reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
+          used_by_command TEXT, ts TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 function readVersion(db, label) {
