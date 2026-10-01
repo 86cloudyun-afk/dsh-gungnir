@@ -14,7 +14,7 @@ export const TOOLS = [
         engagement_id: { type: 'string' },
         auth_version: { type: 'integer' },
         action_class: { type: 'string', enum: ['readonly', 'active', 'destructive'] },
-        contract: { type: 'object' },
+        contract: { type: 'object', additionalProperties: true },
         manual_approval_token: { type: 'string' },
       },
       required: ['command_id', 'engagement_id', 'auth_version', 'action_class', 'contract'],
@@ -27,7 +27,7 @@ export const TOOLS = [
     description: '回执入库（成员级幂等 + 代际隔离）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, task_id: { type: 'string' }, receipt: { type: 'object' } },
+      properties: { engagement_id: { type: 'string' }, task_id: { type: 'string' }, receipt: { type: 'object', additionalProperties: true } },
       required: ['engagement_id', 'task_id', 'receipt'],
       additionalProperties: false,
     },
