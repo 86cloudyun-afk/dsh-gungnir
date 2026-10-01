@@ -221,6 +221,26 @@ export const TOOLS = [
       return core.broker.sprayRecord(engagement_id, rest);
     },
   },
+  {
+    name: 'warroom_metrics',
+    description: '效率遥测：记录任务级 tokens/耗时/有效产出，或查询战役聚合（无成本门闸）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, command_id: { type: 'string' },
+        tokens_in: { type: 'integer' }, tokens_out: { type: 'integer' },
+        wall_time_ms: { type: 'integer' }, verified_facts: { type: 'integer' },
+        role: { type: 'string' }, model_tier: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, command_id, ...rest } = args;
+      if (!command_id) return core.broker.metrics(engagement_id);
+      return core.broker.recordMetrics(engagement_id, command_id, rest);
+    },
+  },
 ];
 
 export { ERR };
