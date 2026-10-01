@@ -12,7 +12,7 @@ import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
 import { SecretVault } from './secrets.js';
 import { redactDeep } from './redactor.js';
-import { exportReport as exportReportFile, buildReport } from './report.js';
+import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 
 const now = () => new Date().toISOString();
 
@@ -278,6 +278,12 @@ export class Broker {
   buildReport(engagementId) {
     const { row, store } = this._engWithRow(engagementId);
     return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global });
+  }
+
+  /** 复现校验：给定报告正文，对照当前库判定是否仍可复现。 */
+  verifyReport(engagementId, markdown) {
+    const { store } = this._engWithRow(engagementId);
+    return verifyReportAgainstStore(markdown, store);
   }
 
   exportReport(engagementId, { outDir } = {}) {
