@@ -47,7 +47,14 @@ function ipToInt(ip) {
   return ((+p[0] << 24) | (+p[1] << 16) | (+p[2] << 8) | +p[3]) >>> 0;
 }
 
-/** 目标是否落在单个 scope 条目内：精确 / IPv4 CIDR / 尾部通配。 */
+/**
+ * 目标是否落在单个 scope 条目内：精确 / IPv4 CIDR / 尾部通配（标签边界）。
+ *
+ * 尾部通配按**点分隔的标签边界**匹配，只向子域方向展开，绝不跨边界吞附加后缀：
+ * `app.example.com*` 命中 `app.example.com`（自身）与其子域 `x.app.example.com`，
+ * 但拒绝后缀欺骗 `app.example.com.attacker.com` 与 `app.example.community`。
+ * 裸 `*` 不授予全域（fail-closed）。IP 段请用 CIDR（如 `10.0.0.0/24`），不用八位组通配。
+ */
 export function inScopeEntry(target, entry) {
   if (target === entry) return true;
   if (entry.includes('/')) {
@@ -59,7 +66,13 @@ export function inScopeEntry(target, entry) {
     const mask = bits === 0 ? 0 : ((0xffffffff << (32 - bits)) >>> 0);
     return ((ipInt & mask) === (netInt & mask));
   }
-  if (entry.endsWith('*')) return target.startsWith(entry.slice(0, -1));
+  if (entry.endsWith('*')) {
+    let base = entry.slice(0, -1);
+    if (base.endsWith('.')) base = base.slice(0, -1); // 容忍 "app.example.*" 写法，等价于其基名
+    if (base === '') return false;                     // 裸 "*" 不授予全域
+    // 自身，或点边界左侧展开的子域；拒绝 base 之后追加字符/标签的后缀欺骗
+    return target === base || target.endsWith('.' + base);
+  }
   return false;
 }
 
