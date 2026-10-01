@@ -6,12 +6,16 @@ const TERMINAL = ['done', 'partial', 'failed', 'cancelled', 'confirmed_stopped']
 function ok(name, detail = '') { return { name, ok: true, detail }; }
 function fail(name, detail) { return { name, ok: false, detail }; }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
  * @param {object} adapter SPI 实例
- * @param {{commandIdPrefix?:string}} opts
- * @returns {Array<{name:string, ok:boolean, detail:string}>}
+ * @param {{commandIdPrefix?:string, awaitStopMs?:number}} opts
+ *   awaitStopMs：远端执行层的停止确认会滞后（ADR-003：cancel 是请求，证实要探针）。
+ *                提供该值时套件轮询到确认或超时；不提供则只校验清单可探针。
+ * @returns {Promise<Array<{name:string, ok:boolean, detail:string}>>}
  */
-export function runConformance(adapter, { commandIdPrefix = 'conf' } = {}) {
+export async function runConformance(adapter, { commandIdPrefix = 'conf', awaitStopMs = 0 } = {}) {
   const results = [];
   const cid = `${commandIdPrefix}-${Math.random().toString(36).slice(2, 8)}`;
   const contract = {
@@ -71,13 +75,28 @@ export function runConformance(adapter, { commandIdPrefix = 'conf' } = {}) {
     results.push(fail('manifestOf 返回可探针清单', e.message));
   }
 
-  // 6. cancel 后清单逐项证实（无残留场景）
+  // 6. cancel 的语义：请求发出 + 清单可探针；（可选）等待远端停止确认
   try {
     adapter.cancel(taskId, 'conformance');
-    const all = (adapter.manifestOf(taskId) ?? []).every((m) => m.check() === true);
-    results.push(all ? ok('cancel 后清单逐项证实') : fail('cancel 后清单逐项证实', '存在未证实资源'));
+    const probeable = (adapter.manifestOf(taskId) ?? []).every((m) => typeof m.check === 'function');
+    if (!probeable) {
+      results.push(fail('cancel 后清单可探针', '清单缺失或不可探针'));
+    } else if (awaitStopMs <= 0) {
+      results.push(ok('cancel 后清单可探针（未要求等待确认）'));
+    } else {
+      const deadline = Date.now() + awaitStopMs;
+      let all = false;
+      for (;;) {
+        all = (adapter.manifestOf(taskId) ?? []).every((m) => m.check() === true);
+        if (all || Date.now() > deadline) break;
+        await sleep(10);
+      }
+      results.push(all
+        ? ok('cancel 后清单逐项证实（等待远端确认）')
+        : fail('cancel 后清单逐项证实（等待远端确认）', `${awaitStopMs}ms 内未确认`));
+    }
   } catch (e) {
-    results.push(fail('cancel 后清单逐项证实', e.message));
+    results.push(fail('cancel 后清单可探针', e.message));
   }
 
   // 7. collect 回执形状
