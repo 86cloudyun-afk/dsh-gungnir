@@ -218,3 +218,36 @@ test('三种受众都保留水位与自校验（可复现性不因受众改变�
     assert.match(md, /## 证据摘要（sha256/, `${audience} 缺证据摘要`);
   }
 });
+
+test('报告附录：效率四段（客户版一行总览；其它视图完整分解）', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'eff-rpt-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  h.broker.settle(h.eng.engagement_id, ex.task_id);
+  h.broker.recordMetrics(h.eng.engagement_id, 'eff-rpt-1', { tokens_in: 100, role: 'recon', model_tier: 'flash' });
+
+  const full = h.broker.exportReport(h.eng.engagement_id, { format: 'both', audience: 'full' });
+  const md = readFileSync(full.paths.markdown, 'utf8');
+  assert.match(md, /## 效率观测（四段）/);
+  assert.match(md, /排队（立项→首派）/);
+  assert.match(md, /交接（派发→首回执）/);
+  assert.match(md, /返工：/);
+  assert.match(md, /口径：command_queue\.ts/);
+
+  const json = JSON.parse(readFileSync(full.paths.json, 'utf8'));
+  assert.ok(json.efficiency);
+  assert.ok('queue_ms' in json.efficiency && 'by_tier' in json.efficiency);
+
+  const client = h.broker.exportReport(h.eng.engagement_id, { format: 'md', audience: 'client' });
+  const cmd = readFileSync(client.paths.markdown, 'utf8');
+  assert.match(cmd, /端到端：排队/);
+  assert.equal(cmd.includes('口径：command_queue.ts'), false, '客户版不给内部分段口径');
+});
+
+test('无遥测数据时：效率段仍出现但值为 —（不编造数字）', () => {
+  const h = harness();
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.match(md, /## 效率观测（四段）/);
+  assert.match(md, /排队（立项→首派）：—/);
+});

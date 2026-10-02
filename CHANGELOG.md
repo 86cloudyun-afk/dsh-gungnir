@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **报告并入效率四段**：md 新增「效率观测（四段）」（客户版只给一行端到端总览；其它视图给完整分解 +
+  口径说明），JSON 增 `efficiency`（分段 / 返工 / by_role / by_tier）；无遥测时值为 `—` 不编造
 - **战役时序视图**：`warroom timeline --engagement <id> [--text|--json]`（工具 `warroom_timeline`，30 个工具）
   —— 立项→派发→回执→结项→控制面→交付 的事件时间线，按账本真实事件排序；缺失阶段如实为 null、
   无时间戳的账本态事件单列（不脑补时间）

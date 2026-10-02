@@ -35,7 +35,7 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 }
 
 /** 结构化报告（机器可读）：与 markdown 报告同水位、同证据摘要。 */
-export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null }) {
+export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null, metrics = null }) {
   const snap = store.exportSnapshot();
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
   const facts = snap.rows.map((r) => {
@@ -85,6 +85,14 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     jump_routes: routes,
     kb_usage: kbUsage,
     topology: R(topology),
+    efficiency: metrics ? {
+      queue_ms: metrics.segments?.queue_ms ?? null,
+      handoff_ms: metrics.segments?.handoff_ms ?? null,
+      exec_ms: metrics.segments?.exec_ms ?? null,
+      rework: metrics.segments?.rework ?? null,
+      by_role: metrics.by_role ?? {},
+      by_tier: metrics.by_tier ?? {},
+    } : null,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -102,7 +110,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
  *   blue   —— 蓝队版：IOC 清单优先 + 审计摘要 + 事实证据引用（排查口径）
  *   full   —— 全量（默认，内部归档/交叉复核用）
  */
-export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50, audience = 'full' }) {
+export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50, audience = 'full', metrics = null }) {
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
@@ -273,6 +281,25 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('');
   }
 
+  // 效率四段（§11）：客户版只给一行总览，其它视图给完整分解
+  if (metrics?.segments) {
+    const seg = metrics.segments;
+    const fmt = (ms) => (ms === null || ms === undefined ? '—' : `${Math.round(ms / 1000)}s`);
+    lines.push('## 效率观测（四段）');
+    lines.push('');
+    if (audience === 'client') {
+      lines.push(`- 端到端：排队 ${fmt(seg.queue_ms)} · 交接 ${fmt(seg.handoff_ms)} · 执行 ${fmt(seg.exec_ms)}`
+        + `（样本：交接 ${seg.samples?.handoff ?? 0} / 执行 ${seg.samples?.exec ?? 0}）`);
+    } else {
+      lines.push(`- 排队（立项→首派）：${fmt(seg.queue_ms)}`);
+      lines.push(`- 交接（派发→首回执）：${fmt(seg.handoff_ms)}（样本 ${seg.samples?.handoff ?? 0}）`);
+      lines.push(`- 执行（首回执→结项）：${fmt(seg.exec_ms)}（样本 ${seg.samples?.exec ?? 0}）`);
+      lines.push(`- 返工：${seg.rework?.tasks ?? 0} 个任务（墙钟 ${fmt(seg.rework?.wall_ms)}）`);
+      lines.push(`- 口径：${seg.basis}`);
+    }
+    lines.push('');
+  }
+
   if (audience !== 'client' && auditSummary.length > 0) {
     lines.push('## 审计摘要（门闸判定分布）');
     lines.push('');
@@ -309,8 +336,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
  * 导出到文件；format: 'md' | 'json' | 'both'。
  * 返回 {path|paths, watermark, evidence_digests}。
  */
-export function exportReport({ store, engagementId, engagementRow, vault, globalDb, home = null, outDir, format = 'md', maxFactsPerType = 50, audience = 'full' }) {
-  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, home, maxFactsPerType, audience });
+export function exportReport({ store, engagementId, engagementRow, vault, globalDb, home = null, outDir, format = 'md', maxFactsPerType = 50, audience = 'full', metrics = null }) {
+  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, home, maxFactsPerType, audience, metrics });
   const { watermark, evidence_digests } = built;
   mkdirSync(outDir, { recursive: true });
 
@@ -342,7 +369,7 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   }
   if (format === 'json' || format === 'both') {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
-    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home });
+    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home, metrics });
     json.audience = audience;
     json.self_check = selfCheck;
     writeFileSync(path, JSON.stringify(json, null, 2), 'utf8');
