@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDemoSnapshot } from '../packages/warroom-dashboard/src/demo.js';
-import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode } from '../packages/warroom-dashboard/public/graph.js';
+import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary } from '../packages/warroom-dashboard/public/graph.js';
 
 test('layout keeps fork, merge, shared route IDs, isolated nodes and stable coordinates', () => {
   const snapshot = createDemoSnapshot();
@@ -91,4 +91,43 @@ test('exact source search reports duplicate adapter/type identities instead of c
   assert.equal(ambiguous.candidates.length, 2);
   assert.equal(findExactNode(snapshot, 'other-adapter-copy').node.id, 'other-adapter-copy');
   assert.equal(findExactNode(snapshot, 'missing-source').candidates.length, 0);
+});
+
+test('global and local label fitting ellipsizes CJK and English while preserving source text', () => {
+  const longChinese = '这是一个非常长的中文资产名称需要被限制在节点宽度内';
+  const longEnglish = 'A-very-long-asset-name-that-must-not-overflow-the-node';
+  for (const fontSize of [16, 20]) {
+    for (const label of [longChinese, longEnglish]) {
+      const fitted = fitNodeLabel(label, 138, fontSize);
+      assert.ok(fitted.endsWith('…'));
+      assert.notEqual(fitted, label);
+    }
+  }
+  assert.equal(fitNodeLabel('短名称', 138, 20), '短名称');
+});
+
+test('route and task selections use only explicit route/node/edge mappings', () => {
+  const snapshot = {
+    nodes: [{ id: 'jump', task_ids: [], route_ids: ['r1', 'r2'] }, { id: 'task-node', task_ids: ['t1'], route_ids: [] }],
+    edges: [{ id: 'e1', route_ids: ['r1'] }, { id: 'e2', route_ids: ['r2'] }],
+    routes: [{ route_id: 'r1', jumphost_id: 'shared', node_ids: ['jump'], edge_ids: ['e1'] }, { route_id: 'r2', jumphost_id: 'shared', node_ids: ['jump'], edge_ids: ['e2'] }],
+    tasks: [{ task_id: 't1', route_id: 'r2' }],
+  };
+  assert.deepEqual(routeSelection(snapshot, 'r1').edge_ids, ['e1']);
+  assert.deepEqual(taskSelection(snapshot, 't1').node_ids.sort(), ['jump', 'task-node']);
+  assert.deepEqual(taskSelection(snapshot, 't1').edge_ids, ['e2']);
+  assert.deepEqual(taskSelection(snapshot, 'unknown').node_ids, []);
+  assert.equal(snapshot.routes.filter((route) => route.jumphost_id === 'shared').length, 2);
+});
+
+test('summary reports partial totals and independent risks including expired pending route', () => {
+  const summary = snapshotSummary({
+    nodes: [{ state: 'failed' }, { state: 'pending' }], edges: [], routes: [{ lease: { state: 'expired' }, egress: { current: false } }], tasks: [],
+    diagnostics: { truncated: true, unresolved_refs: 3, ambiguous_refs: 2, counts: { nodes: 20, edges: 4, routes: 2, tasks: 1 } },
+  });
+  assert.equal(summary.partial, true);
+  assert.equal(summary.displayed.nodes, 2);
+  assert.equal(summary.totals.nodes, 20);
+  assert.deepEqual(summary.risks, { failed: 1, pending: 2, expired: 1 });
+  assert.equal(snapshotSummary({ nodes: [], edges: [], routes: [], tasks: [], diagnostics: {} }).totals.nodes, null);
 });
