@@ -43,6 +43,16 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json
 | 超时要如实 | 不要用轮询空转伪装进度；主控有 `sweep` 把超时任务转 `unknown` |
 | 停止要证实 | `stopped:true` 需与实际一致；残留会让任务停在 `unresolved`（人工队列） |
 
+## 先跑演练（推荐第一步）
+
+```sh
+node scripts/executor-drill.mjs                 # 离线：fake 执行层，验证指挥层自身链路
+node scripts/executor-drill.mjs --mode bridge   # 桥模式：真起应答器子进程 + 示例执行器
+```
+
+输出是**逐步**的（每步带结论与关键值），失败会指出具体是哪一步——比自己猜"到底通没通"快得多。
+桥模式下演练会演示正规收尾：执行器未报终态时走 `cancel → 远端确认停止 → 结项`。
+
 ## 接入检查单
 
 ```sh

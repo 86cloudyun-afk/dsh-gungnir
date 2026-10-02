@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'weekly', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,12 +17,15 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  weekly    多战役周报（只读）：[--days n] [--out <file>] [--text]
   deliver   一键交付：报告(all) + 证据包(含清单) + 备份 + 门禁判定 → 返回交付包路径
             --engagement <id> [--out <dir>] [--keep n] [--no-backup]
   checklist 交付清单（验收项自动判定 + 人工确认）：--engagement <id> [--write] [--out <dir>] [--text]
-            [--strict（必过项未全通过即非零退出）] [--profile delivery|progress]
+            [--strict] [--profile delivery|progress]
+            --confirm <shell|ioc> --by <署名> --note <结论>   # 人工确认留痕
   rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
+            --all 则指挥层视角：所有战役的巡检汇总
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
             [--sessions-db <path>] [--out <file>]
@@ -96,8 +99,10 @@ const { values: v } = parseArgs({
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
+    all: { type: 'boolean', default: false }, confirm: { type: 'string' },
+    by: { type: 'string' }, note: { type: 'string' },
     profile: { type: 'string' }, backup: { type: 'boolean', default: true },
-    'no-backup': { type: 'boolean', default: false },
+    'no-backup': { type: 'boolean', default: false }, days: { type: 'string' },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -130,6 +135,19 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'weekly': {
+    const { renderWeekly } = await import('../packages/warroom-core/src/weekly.js');
+    const w = broker.weekly({ days: v.days ? Number(v.days) : 7 });
+    if (v.out) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(v.out, renderWeekly(w) + '\n', 'utf8');
+      out({ path: v.out, totals: w.totals });
+    } else if (v.text || !v.json) {
+      console.log(renderWeekly(w));
+      if (v.json) out(w);
+    } else out(w);
+    break;
+  }
   case 'deliver': {
     const r = broker.deliver(need('engagement', v.engagement), {
       outDir: v.out ?? null, keep: v.keep ? Number(v.keep) : 7,
@@ -142,6 +160,10 @@ switch (command) {
   case 'checklist': {
     const { renderChecklist } = await import('../packages/warroom-core/src/checklist.js');
     const engagementId = need('engagement', v.engagement);
+    if (v.confirm) {
+      out(broker.confirmChecklistItem(engagementId, { itemId: v.confirm, by: v.by ?? null, note: v.note ?? '' }));
+      break;
+    }
     if (v.write) out(broker.exportChecklist(engagementId, { outDir: v.out ?? null }));
     else {
       const c = broker.checklist(engagementId, { profile: v.strict ? 'delivery' : (v.profile ?? 'delivery') });
@@ -163,7 +185,16 @@ switch (command) {
     break;
   }
   case 'watch': {
-    const { renderWatch } = await import('../packages/warroom-core/src/watch.js');
+    const { renderWatch, renderFleetWatch } = await import('../packages/warroom-core/src/watch.js');
+    if (v.all) {
+      // 舰队视图不需要单个战役
+      const f = broker.fleetWatch({ timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
+      if (v.text || !v.json) {
+        console.log(renderFleetWatch(f));
+        if (v.json) out(f);
+      } else out(f);
+      break;
+    }
     const v2 = broker.watch(need('engagement', v.engagement), { timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
     if (v.text || !v.json) {
       console.log(renderWatch(v2));

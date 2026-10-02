@@ -528,13 +528,22 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, export: { type: 'boolean' }, out_dir: { type: 'string' },
         profile: { type: 'string', enum: ['delivery', 'progress'] },
+        confirm: { type: 'string', description: '人工项 id（shell|ioc）：记录确认留痕' },
+        by: { type: 'string' }, note: { type: 'string' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => (args.export
-      ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
-      : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' })),
+    run: (core, args) => {
+      if (args.confirm) {
+        return core.broker.confirmChecklistItem(args.engagement_id, {
+          itemId: args.confirm, by: args.by ?? null, note: args.note ?? '',
+        });
+      }
+      return args.export
+        ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
+        : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' });
+    },
   },
   {
     name: 'warroom_deliver',
@@ -551,6 +560,28 @@ export const TOOLS = [
     run: (core, args) => core.broker.deliver(args.engagement_id, {
       outDir: args.out_dir ?? null, keep: args.keep ?? 7, backup: args.backup !== false,
     }),
+  },
+  {
+    name: 'warroom_weekly',
+    description: '多战役周报（只读）：窗口内活跃战役的事实/报告/交付门禁汇总',
+    input_schema: {
+      type: 'object',
+      properties: { days: { type: 'integer' }, out: { type: 'string' } },
+      required: ['days'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.weekly({ days: args.days }),
+  },
+  {
+    name: 'warroom_fleet',
+    description: '舰队视图（只读）：所有战役的巡检汇总（在飞/超阈/路由/告警/交付门禁）',
+    input_schema: {
+      type: 'object',
+      properties: { timeout_min: { type: 'integer' } },
+      required: ['timeout_min'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.fleetWatch({ timeoutMin: args.timeout_min || null }),
   },
 ];
 

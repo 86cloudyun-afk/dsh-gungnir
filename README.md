@@ -11,9 +11,9 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 | 项 | 现状 |
 |---|---|
 | 版本 | `v0.1.0-alpha.2`（批次 1 已合并；批次 2 PR 进行中） |
-| 测试 | 347 例，`npm run ci` 全绿 |
+| 测试 | 364 例，`npm run ci` 全绿 |
 | CI 闸 | 6：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 工具文档同步 / 自审闸（+ 围栏真实容器验收 job） |
-| 工具 | 34 个 `warroom_*`（schema 严格校验） |
+| 工具 | 36 个 `warroom_*`（schema 严格校验） |
 | 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（含如实标注的缺口与计划） |
 
 ## 规格与架构决策（本仓库为唯一真源）
@@ -58,7 +58,8 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 ## 测试与四闸
 
 ```sh
-npm run ci                           # 六道闸一次跑完（推荐；验收套件 347 例）
+npm run ci                           # 六道闸一次跑完（推荐；验收套件 364 例）
+node scripts/executor-drill.mjs      # 执行层落地演练（fake / --mode bridge）
 node scripts/ci.mjs --quiet          # 只看汇总（别用 | tail，管道会吞退出码）
 node --test                          # 只跑验收套件
 node scripts/validate-tool-schemas.mjs   # 工具 schema（DSH 挂载硬要求）

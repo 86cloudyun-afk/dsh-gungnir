@@ -17,9 +17,10 @@ import { KnowledgeBase } from './knowledge.js';
 import { loadConfig } from './config.js';
 import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
-import { buildWatch } from './watch.js';
+import { buildWatch, buildFleetWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
-import { buildChecklist, renderChecklist } from './checklist.js';
+import { buildChecklist, renderChecklist, recordConfirmation } from './checklist.js';
+import { buildWeekly } from './weekly.js';
 import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
@@ -456,6 +457,11 @@ export class Broker {
     return { ...result, recorded };
   }
 
+  /** 多战役周报（指挥层视角，只读）。 */
+  weekly({ days = 7, now = null } = {}) {
+    return buildWeekly({ broker: this, days, now: now ?? Date.now() });
+  }
+
   /**
    * 一键交付：报告（md+json+html，含受众视图）→ 证据包（含交付清单）→ 备份 → **交付门禁判定**。
    * 返回一次跑完的产物路径 + 门禁结论；不做任何隐藏动作（每步都是前面已存在的公开接口）。
@@ -484,6 +490,13 @@ export class Broker {
     };
   }
 
+  /** 记录人工确认（谁/何时/结论）；只写审计，不改自动判定。 */
+  confirmChecklistItem(engagementId, { itemId, by = null, note = '' }) {
+    const { store } = this._eng(engagementId);
+    const rec = recordConfirmation({ store, itemId, by, note });
+    return { ...rec, engagement_id: engagementId };
+  }
+
   /** 交付清单（验收项自动判定 + 人工确认项，只读）。 */
   checklist(engagementId, { profile = 'delivery', reportsDir = null, evidenceDir = null } = {}) {
     return buildChecklist({ broker: this, engagementId, profile, reportsDir, evidenceDir });
@@ -497,6 +510,11 @@ export class Broker {
     const path = join(dir, 'DELIVERY_CHECKLIST.md');
     writeFileSync(path, renderChecklist(c) + '\n', 'utf8');
     return { path, done: c.done, total: c.total, manual: c.manual };
+  }
+
+  /** 舰队视图（所有战役的巡检汇总，只读）。 */
+  fleetWatch({ timeoutMin = null } = {}) {
+    return buildFleetWatch({ broker: this, timeoutMin });
   }
 
   /** 速率与预算视图（wire 用量/预算/最小间隔/喷洒台账，只读）。 */

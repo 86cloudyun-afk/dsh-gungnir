@@ -150,3 +150,67 @@ test('CLI --strict：必过项未全通过即非零退出；达成后零退出',
   assert.equal(after.code, 0, JSON.stringify(after.parsed.blocked));
   assert.equal(after.parsed.deliverable, true);
 });
+
+test('人工确认留痕：确认前是待办；确认后带署名与结论（机器仍不自动判定）', () => {
+  const h = harness();
+  const before = h.broker.checklist(h.eng.engagement_id);
+  const shellItem = before.items.find((i) => i.id === 'shell');
+  assert.equal(shellItem.status, '☐');
+  assert.equal(shellItem.pending_confirmation, true);
+
+  const rec = h.broker.confirmChecklistItem(h.eng.engagement_id, {
+    itemId: 'shell', by: 'yg', note: '人工复核：当前可控性 unknown（未复验）',
+  });
+  assert.equal(rec.item_id, 'shell');
+  assert.ok(rec.at);
+
+  const after = h.broker.checklist(h.eng.engagement_id);
+  const shellAfter = after.items.find((i) => i.id === 'shell');
+  assert.equal(shellAfter.status, '✅');
+  assert.equal(shellAfter.confirmed.by, 'yg');
+  assert.match(shellAfter.confirmed.note, /未复验/);
+  assert.equal(shellAfter.pending_confirmation, undefined);
+
+  // 审计留痕可查
+  const audit = h.broker.audit(h.eng.engagement_id, { decision: 'checklist_confirm' });
+  assert.equal(audit.rows.length, 1);
+
+  // 渲染：待办段的说明与人工标记
+  const text = renderChecklist(before);
+  assert.match(text, /（人工）/);
+  assert.match(text, /待人工确认/);
+  assert.match(text, /--confirm <id>/);
+});
+
+test('人工确认只允许人工项；自动项不接受"确认"（不许绕过判定）', () => {
+  const h = harness();
+  assert.throws(() => h.broker.confirmChecklistItem(h.eng.engagement_id, { itemId: 'report', by: 'x' }),
+    /人工确认只适用于人工项/);
+  assert.equal(h.broker.audit(h.eng.engagement_id, { decision: 'checklist_confirm' }).rows.length, 0);
+});
+
+test('确认不改变交付门禁（门禁只看自动项）', () => {
+  const h = harness();
+  const before = h.broker.checklist(h.eng.engagement_id).deliverable;
+  h.broker.confirmChecklistItem(h.eng.engagement_id, { itemId: 'shell', by: 'yg', note: 'ok' });
+  const after = h.broker.checklist(h.eng.engagement_id).deliverable;
+  assert.equal(before, after, '人工确认不得把门禁刷绿');
+});
+
+test('CLI checklist --confirm 可用；非法项非零退出', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  const rec = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'checklist', '--engagement', h.eng.engagement_id,
+    '--confirm', 'ioc', '--by', 'yg', '--note', 'IOC 已逐条核', '--home', h.home, '--json'], { encoding: 'utf8', env }));
+  assert.equal(rec.item_id, 'ioc');
+  const after = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'checklist', '--engagement', h.eng.engagement_id,
+    '--home', h.home, '--json'], { encoding: 'utf8', env }));
+  assert.equal(after.items.find((i) => i.id === 'ioc').status, '✅');
+
+  let code = 0;
+  try {
+    execFileSync('node', ['bin/warroom.mjs', 'checklist', '--engagement', h.eng.engagement_id,
+      '--confirm', 'report', '--home', h.home, '--json'], { encoding: 'utf8', env, stdio: 'pipe' });
+  } catch (e) { code = e.status; }
+  assert.notEqual(code, 0, '对自动项确认应失败');
+});
