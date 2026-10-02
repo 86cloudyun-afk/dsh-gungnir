@@ -130,3 +130,20 @@ test('导出的 HTML 带目录（长报告）', () => {
   assert.match(html, /href="#水位-复现锚点"/);
   assert.equal(/<script[^>]+src|<link[^>]+href/.test(html), false);
 });
+
+test('窄屏适配：表格包在滚动容器里，媒体查询收敛字号与留白', () => {
+  const html = renderHtml({ markdown: '| a | b |\n|---|---|\n| 1 | 2 |', title: 't' });
+  assert.match(html, /<div class="table-wrap"><table>/);
+  assert.match(html, /@media screen and \(max-width: 720px\)/);
+  assert.match(html, /\.table-wrap \{ overflow-x:auto/);
+  assert.match(html, /table \{ min-width:32rem; \}/);
+  assert.match(html, /\.cover dl \{ grid-template-columns:1fr;/);
+});
+
+test('导出的 HTML 也带滚动容器（表格不被压扁）', () => {
+  const h = harness();
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'html' });
+  const html = readFileSync(r.paths.html, 'utf8');
+  assert.match(html, /table-wrap/);
+  assert.equal(/<script[^>]+src|<link[^>]+href/.test(html), false, '仍然零外部资源');
+});
