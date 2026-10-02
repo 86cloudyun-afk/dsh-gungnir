@@ -18,7 +18,7 @@
 | 6 | 成员幂等：{A}→{A,B} 不重复记账；乱序修订不覆盖；重复回执无效 | `test/store.test.js`、故障矩阵② | ✅ |
 | 7 | 旧代结果不覆盖新版本（代际隔离） | `test/store.test.js`、`test/reconcile.test.js` | ✅ |
 | 8 | 日志 / 报告 / 错误输出无秘密明文 | `test/secrets.test.js`、`test/report.test.js`、CLI 冒烟 | ✅ |
-| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | `fence.js` + `test/fence.test.js` + `scripts/fence-verify.mjs` + CI `fence` job | ✅ 静态不变量全绿；**真实容器验收进 CI**（runner 自带 daemon，`--require-daemon` 不允许静默通过）；本地无 daemon 时 SKIP |
+| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | CI `fence` job（run [36944503518](https://github.com/86cloudyun-afk/dsh-gungnir/actions/runs/36944503518)） | ✅ **真实验收已通过**：runner 上创建 `--internal` 网络 + sidecar 双挂 + 任务容器，`wget` 直连**被阻断**（日志逐步可查）；本地无 daemon 时如实 SKIP |
 | 10 | 报告水位双校验（seq + snapshot + 证据摘要） | `test/report.test.js` | ✅ |
 | 11 | 非所有者写连接被只读模式拒绝 | `test/store.test.js` | ✅ |
 | 12 | fact.db 停写注入：op_log 补偿 + 恢复补审计 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③ | ✅ |
@@ -54,6 +54,7 @@
 | 时间窗到期同路径 | `test/gates.test.js` | ✅ |
 | 执行器断联 → unknown；reconcile 定论；不自动重做 | `test/reconcile.test.js`、`test/dsh-bridge.test.js` | ✅ |
 | cancel 幂等 | `test/dispatch.test.js` | ✅ |
+| 超时 → unknown（绝不自动重试）| `test/timeout.test.js`（清扫不产生新命令、reconcile 才定论）| ✅ |
 | 旧代回执隔离 | `test/store.test.js`、`test/reconcile.test.js` | ✅ |
 | SPI 契约（跨 adapter 一致） | `test/adapter-conformance.test.js`、`test/dsh-bridge.test.js` | ✅ |
 

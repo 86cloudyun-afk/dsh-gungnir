@@ -34,6 +34,7 @@
       "warroom_poc_search",
       "warroom_poc_add",
       "warroom_poc_use",
+      "warroom_sweep_timeouts",
       "skill"
     ],
     "deny": [
