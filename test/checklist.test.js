@@ -106,3 +106,47 @@ test('CLI checklist 文本/JSON/落盘三路可用', () => {
   assert.ok(existsSync(exp.path));
   assert.match(readFileSync(exp.path, 'utf8'), /交付清单/);
 });
+
+test('交付门禁：未完成必过项 → deliverable=false 且列出未过项', () => {
+  const h = harness();
+  const c = h.broker.checklist(h.eng.engagement_id);
+  assert.equal(c.profile, 'delivery');
+  assert.equal(c.deliverable, false);
+  assert.ok(c.gate.length >= 5, `必过项应 ≥5，实际 ${c.gate.length}`);
+  assert.ok(c.blocked.some((b) => b.startsWith('report：')), JSON.stringify(c.blocked));
+  const text = renderChecklist(c);
+  assert.match(text, /\*\*门禁口径（delivery）\*\*/);
+  assert.match(text, /未过：/);
+});
+
+test('进度口径宽松：未开工也 deliverable=true（只盯异常态）', () => {
+  const h = harness();
+  const c = h.broker.checklist(h.eng.engagement_id, { profile: 'progress' });
+  assert.equal(c.profile, 'progress');
+  assert.ok(c.gate.length < 5);
+  assert.equal(c.deliverable, true, '进度口径：没干活不算异常（不要求报告/证据/备份）');
+});
+
+test('CLI --strict：必过项未全通过即非零退出；达成后零退出', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  const runStrict = () => {
+    try {
+      const out = execFileSync('node', ['bin/warroom.mjs', 'checklist', '--engagement', h.eng.engagement_id,
+        '--home', h.home, '--strict', '--json'], { encoding: 'utf8', env });
+      return { code: 0, parsed: JSON.parse(out) };
+    } catch (e) { return { code: e.status, parsed: JSON.parse(e.stdout ?? '{}') }; }
+  };
+  assert.equal(runStrict().code, 1, '未交付前 strict 应非零');
+
+  // 先落事实（水位必过项需要 seq>0），再补齐报告/证据/备份
+  const ex = h.broker.execute({ ...h.base, command_id: 'ck-strict-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  h.broker.settle(h.eng.engagement_id, ex.task_id);
+  h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'engagements', h.eng.engagement_id, 'evidence') });
+  backupHome({ home: h.home });
+  const after = runStrict();
+  assert.equal(after.code, 0, JSON.stringify(after.parsed.blocked));
+  assert.equal(after.parsed.deliverable, true);
+});

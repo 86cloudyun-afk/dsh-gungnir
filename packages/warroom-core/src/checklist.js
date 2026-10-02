@@ -12,7 +12,13 @@ const MANUAL = '☐';
  * @param {{broker:object, engagementId:string}} p
  * @returns {{items:Array<{id,title,status,detail,manual?:boolean}>, done:number, total:number, manual:number}}
  */
-export function buildChecklist({ broker, engagementId }) {
+/**
+ * @param {{broker:object, engagementId:string, profile?:'delivery'|'progress'}} p
+ *   profile=delivery：交付口径——"尚未导出报告/证据未落盘/无备份"等**必过项**；
+ *   profile=progress：进度口径——只把"明显不该发生"的失败项视为必过（用于日常巡检门禁）。
+ *   口径写进返回值 `required`，命令行的 --strict 按它判定退出码。
+ */
+export function buildChecklist({ broker, engagementId, profile = 'delivery' }) {
   const store = broker._eng(engagementId).store;
   const row = store.db.prepare('SELECT * FROM engagements WHERE id = ?').get(engagementId);
   const items = [];
@@ -113,7 +119,28 @@ export function buildChecklist({ broker, engagementId }) {
 
   const done = items.filter((i) => i.status === OK).length;
   const manual = items.filter((i) => i.manual).length;
-  return { engagement_id: engagementId, items, done, total: items.length - manual, manual };
+
+  // 必过项（gate）：
+  //   delivery —— 对外交付面必须齐全（授权/水位/报告可复现/证据/审计/备份）
+  //   progress —— **只盯"已做的东西没有坏"**：没干活不算异常（水位可空、可无报告/证据/备份），
+  //              但一旦存在就必须是好的（报告不得漂移、备份不得过期）
+  const deliveryRequired = ['auth', 'watermark', 'report', 'evidence', 'audit', 'backup'];
+  const progressRequired = ['auth'];
+  if (snap.rows.length > 0) progressRequired.push('watermark');
+  if (reports.length > 0 && !reproducible) progressRequired.push('report');
+  if (indexFiles > 0) progressRequired.push('evidence');
+  if (backups.length > 0 && !fresh) progressRequired.push('backup');
+  const required = profile === 'delivery' ? deliveryRequired : progressRequired;
+  const gate = items
+    .filter((i) => required.includes(i.id))
+    .map((i) => ({ id: i.id, title: i.title, passed: i.status === OK, detail: i.detail }));
+  const blocked = gate.filter((g) => !g.passed);
+
+  return {
+    engagement_id: engagementId, items, done, total: items.length - manual, manual,
+    profile, required, gate, blocked: blocked.map((b) => `${b.id}：${b.detail}`),
+    deliverable: blocked.length === 0,
+  };
 }
 
 /** 渲染成可勾选 markdown（交付附件）。 */
@@ -128,6 +155,11 @@ export function renderChecklist(c) {
   for (const item of c.items) {
     lines.push(`- ${item.status} **${item.title}** — ${item.detail}`);
   }
+  lines.push('');
+  lines.push('');
+  lines.push(`**门禁口径（${c.profile}）**：必过项 ${c.gate.length} 项，`
+    + (c.deliverable ? '全部通过 ✅' : `**${c.blocked.length} 项未通过** ⬜`));
+  for (const b of c.blocked) lines.push(`- 未过：${b}`);
   lines.push('');
   lines.push('> 判定原则：自动项只依据账本与文件；判定不了的写"人工确认"，绝不打勾充数。');
   return lines.join('\n');
