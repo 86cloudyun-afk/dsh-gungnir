@@ -7,10 +7,10 @@ import { harness } from '../packages/warroom-core/src/testing.js';
 import { Broker } from '../packages/warroom-core/src/broker.js';
 import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 
-test('故障注入矩阵全绿（19 场景：故障 + 持久层 + 交付物边界 + 交付门禁 + 人工确认边界）', () => {
+test('故障注入矩阵全绿（20 场景：故障 + 持久层 + 交付边界 + 交付门禁 + 确认边界 + 归档幂等）', () => {
   const r = runFaultMatrix();
   assert.equal(r.failed.length, 0, r.failed.map((f) => `${f.name}: ${f.detail}`).join('\n'));
-  assert.ok(r.total >= 19, `场景数应 ≥19，实际 ${r.total}`);
+  assert.ok(r.total >= 20, `场景数应 ≥20，实际 ${r.total}`);
 });
 
 test('再水化：只恢复非终态命令，终态不重建', () => {
