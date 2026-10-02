@@ -37,7 +37,12 @@ test('备份：一致性快照 + 完整性校验 + 行数对账', () => {
   const dest = join(h.home, 'test-backups');
   const out = execFileSync('node', ['scripts/backup.mjs', h.home, dest], { encoding: 'utf8' });
   assert.match(out, /integrity ok/);
-  assert.match(out, /备份完成 2\/2/);
+  // 库数量随功能增长（global.db + fact.db + knowledge.db）：断言"全部成功"而非写死数字
+  const m = out.match(/备份完成 (\d+)\/(\d+)/);
+  assert.ok(m, '应打印备份计数');
+  assert.equal(m[1], m[2], '所有库都必须备份成功');
+  assert.ok(Number(m[1]) >= 2, '至少 global.db 与 fact.db');
+  assert.match(out, /knowledge\.db \(integrity ok\)|global\.db \(integrity ok\)/);
 
   const factBak = join(dest, 'engagements', h.eng.engagement_id, 'fact.db');
   const globalBak = join(dest, 'global.db');
