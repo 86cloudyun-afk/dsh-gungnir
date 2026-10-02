@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  egress    出口验证：status | record --jumphost <id> --ip <ip> [--verdict pass|fail] [--route r]
   fact      事实查询（只读）：--engagement <id> [--type t] [--source s] [--since iso]
             [--history] [--adapter a] [--limit n]
   backup    备份家目录全部库（一致性快照 + 完整性校验）：[--out <dir>] [--keep N]
@@ -79,7 +80,8 @@ const { values: v } = parseArgs({
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
-    adapter: { type: 'string' },
+    adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
+    verdict: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -109,6 +111,16 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'egress': {
+    const sub = argv[1] ?? 'status';
+    if (sub === 'record') {
+      out(broker.recordEgressCheck(need('engagement', v.engagement), {
+        jumphost_id: need('jumphost', v.jumphost), exit_ip: need('ip', v.ip),
+        route_id: v.route ?? null, verdict: v.verdict ?? 'pass',
+      }));
+    } else out(broker.egressStatus(need('engagement', v.engagement)));
+    break;
+  }
   case 'fact': {
     const { store } = broker._eng(need('engagement', v.engagement));
     out(store.queryFacts({
