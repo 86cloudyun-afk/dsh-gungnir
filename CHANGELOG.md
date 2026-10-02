@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **CI 加 `--quiet`**：只输出「门禁汇总」，退出码仍真实反映成败——从机制上不需要 `| tail`
+  （管道会吞退出码；本项目两次踩此坑，第二次正是 `npm run ci | tail -4` 掩盖了失败）
 - **报告 HTML 渲染**：`report --format html|all`（工具 `format` 增 html/all）—— 自包含单文件 HTML
   （内联 CSS、**零外部资源**，离线可读）；mermaid 图**双份**（可渲染块 + 离线源码）；
   受众视图独立成文件（`…-client.html`）；回归断言"无外部 link/script 与 URL 资源"

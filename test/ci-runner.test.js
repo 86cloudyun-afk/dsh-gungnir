@@ -26,6 +26,13 @@ test('--only 跑子集并给出汇总行（真跑最便宜的两道闸）', () =
   assert.match(r.out, /结论：全部通过/);
 });
 
+test('--quiet：只输出汇总，退出码仍真实反映成败（无需管道 tail）', () => {
+  const ok = run(['--only', 'tool-schema,preset', '--quiet']);
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.out, /=== 门禁汇总 ===/);
+  assert.equal(ok.out.includes('=== tool-schema：'), false, 'quiet 模式不打印逐闸表头');
+});
+
 test('--only 无匹配 → 退出码 2 且提示可用闸门', () => {
   const r = run(['--only', 'nope']);
   assert.equal(r.code, 2);

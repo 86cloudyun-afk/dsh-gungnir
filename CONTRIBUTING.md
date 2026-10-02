@@ -18,7 +18,9 @@ node scripts/self-review.mjs           # 秘密/链接/验收引用/代码卫生
 > 打印逐闸退出码与汇总结论，任一失败即非零退出。
 > **不许用管道里的 grep 退出码代替 gate 结论**——本项目踩过这个坑（grep 命中失败行仍返回 0，
 > 见 `docs/MERGE-REVIEW-*.md`）。现该坑已由工具封堵：判定只在 `ci.mjs` 里做。
-> 只想跑其中几道：`node scripts/ci.mjs --only test,self-review`；列闸门：`--list`。
+> 只想跑其中几道：`node scripts/ci.mjs --only test,self-review`；列闸门：`--list`；
+> 只看汇总：`node scripts/ci.mjs --quiet`——**不要用 `| tail` 看汇总**，管道会把退出码吃掉
+> （本项目两次踩这个坑，第二次正是"用 `npm run ci | tail -4` 掩盖了失败"）。
 
 ## PR 规范
 
