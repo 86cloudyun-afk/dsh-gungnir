@@ -11,6 +11,18 @@ node scripts/backup.mjs "$DSH_HOME/warroom" /path/to/dest
 - 覆盖：`global.db`（跳板/租约/op_log/命令队列）+ `engagements/<id>/fact.db`（战役事实）。
 - 任一份校验失败即非零退出，不掩盖。
 
+## 保留策略与恢复演练
+
+```sh
+node bin/warroom.mjs backup --keep 7            # 自动备份只保留最近 7 份（手工 --out 不受影响）
+node bin/warroom.mjs restore --from <备份目录>   # 默认 dry-run：计划 + 完整性校验，不改数据
+node bin/warroom.mjs restore --from <备份目录> --apply   # 落地：先做"恢复前快照"再覆盖
+```
+
+- dry-run 会逐库校验 `integrity_check` 与 schema 版本；任一异常即警告并非零退出
+- `--apply` 前自动生成 `backups/pre-restore-<ts>`（恢复前快照），随时可回退
+- 恢复后**需重启宿主进程**（旧连接持有已替换的文件句柄）
+
 ## 恢复
 
 1. 停写：确保没有 host 服务在写目标库（否则以退出码/锁报错提示）。
