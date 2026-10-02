@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **stealth 档抖动与漂移**（框架 §4 完整落地）：实际最小间隔在 [8s, 25s] 内随机抖动，
+  再按小时做 ±20% 漂移（同一小时内稳定、跨小时变化）——**不让固定周期成为流量指纹**；
+  `rng` 可注入（测试确定性）；漂移永不低于基础地板
 - **机器可读 schema 导出** `docs/tools.schema.json`（`gungnir-tools/1`：24 个工具的
   name/description/input_schema + 允许清单命中 + 预设角色），随代码同步校验（漂移即 CI 失败）
 - **`warroom init` 首启向导**：建家目录 → 写示例配置（已存在则保留，`--force` 覆盖）→

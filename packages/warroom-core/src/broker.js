@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
-  RHYTHM_MIN_INTERVAL_MS, warroomError, ERR, canTransition, isTerminal, makeGeneration,
+  RHYTHM_MIN_INTERVAL_MS, RHYTHM_JITTER_MS, RHYTHM_HOURLY_DRIFT,
+  warroomError, ERR, canTransition, isTerminal, makeGeneration,
   ALL_TASK_STATES,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
@@ -24,13 +25,14 @@ export class Broker {
   /**
    * @param {{home:string, adapter?:object, nowMs?:()=>number}} opts
    */
-  constructor({ home, adapter, nowMs } = {}) {
+  constructor({ home, adapter, nowMs, rng } = {}) {
     this.home = home;
     this.global = openGlobalDb(home);
     this.secrets = new SecretVault({ root: join(home, 'secrets'), db: this.global, nowMs: () => this._nowMs() });
     this.knowledge = new KnowledgeBase({ home });
     this.adapter = adapter ?? new FakeAdapter();
     this._nowMs = nowMs ?? (() => Date.now());
+    this._rng = rng ?? Math.random;   // 可注入：测试需要确定性抖动
     // 家目录配置：默认节奏档/超时等（非法配置直接抛错，不静默忽略）
     this.config = loadConfig(home);
     this.engagements = new Map(); // engagement_id -> { db, store }
@@ -424,18 +426,42 @@ export class Broker {
         throw warroomError(ERR.E_GATE_RATE_LIMIT,
           `wire 预算不足：已用 ${used} + 本次 ${wireCost} > ${budget}（${rhythm}）`);
       }
-      const minGap = RHYTHM_MIN_INTERVAL_MS[rhythm] ?? 0;
+      const minGap = this._requiredGap(rhythm);
       if (minGap > 0) {
         const last = store.lastRateTs('wire');
         const gap = last ? this._nowMs() - Date.parse(last) : Infinity;
         if (gap < minGap) {
           const e = warroomError(ERR.E_GATE_RATE_LIMIT,
-            `节奏间隔不足：距上次出网 ${Math.round(gap)}ms < ${minGap}ms（${rhythm}）`);
+            `节奏间隔不足：距上次出网 ${Math.round(gap)}ms < ${Math.round(minGap)}ms（${rhythm}）`);
           e.retry_after_ms = minGap - gap;
           throw e;
         }
       }
     }
+  }
+
+  /**
+   * 本次出网要求的最小间隔（框架 §4）：
+   *   基础值（RHYTHM_MIN_INTERVAL_MS）→ stealth 档在 [floor, jitterMax] 内**随机**抖动
+   *   → 再按小时做 ±RHYTHM_HOURLY_DRIFT 漂移（同一小时内稳定，跨小时变化）。
+   * 目的：不让固定周期成为流量指纹。
+   */
+  _requiredGap(rhythm, atMs = null) {
+    const base = RHYTHM_MIN_INTERVAL_MS[rhythm] ?? 0;
+    if (base <= 0) return 0;
+    const jitter = RHYTHM_JITTER_MS[rhythm];
+    let gap = base;
+    if (Array.isArray(jitter) && jitter[1] > jitter[0]) {
+      const [lo, hi] = jitter;
+      gap = lo + Math.floor(this._rng() * (hi - lo));   // 抖动
+    }
+    if (RHYTHM_HOURLY_DRIFT > 0) {
+      const at = atMs ?? this._nowMs();
+      const hourKey = Math.floor(at / 3_600_000);
+      const drift = ((hourKey % 7) - 3) / 7 * 2 * RHYTHM_HOURLY_DRIFT;  // 同一小时稳定、跨小时变化
+      gap = Math.round(gap * (1 + drift));
+    }
+    return Math.max(base, gap);   // 漂移不得低于基础地板
   }
 
   // ── 人工批准（destructive 裁决，ADR-001 D5）────────────────────────────────

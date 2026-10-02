@@ -85,6 +85,7 @@
 | 效率视图（档位 + 返工率） | by_tier 派生指标；重派计入返工率 | `test/efficiency.test.js` | ✅ |
 | 执行器插件（fail-closed） | 未配置不写假回执；三方端到端 | `test/executor-plugin.test.js`、`test/executor-guide.test.js` | ✅ |
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
+| stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
 
 ## 数字快照
