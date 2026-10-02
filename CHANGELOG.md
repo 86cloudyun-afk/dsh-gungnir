@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **DSH 桥应答器参考实现**（`scripts/dsh-bridge-responder.mjs`）：消费 `gungnir-bridge/1` 协议，
+  echo/fixture 两种模式、幂等（同 external_id 只处理一次）、原子写；
+  **跨进程端到端测试**（GUNGNIR 与应答器分属不同进程，仅经 spool 通信）
 - **桶 A 容器围栏**（ADR-001 验收 5）：拓扑计划 + 9 类静态不变量 fail-closed 校验 +
   docker 命令序列 + 运行时验收（daemon 不可用如实 SKIP，**绝不假装通过**）；
   一键复跑：`node scripts/fence-verify.mjs --engagement <id> --socks <route>`
