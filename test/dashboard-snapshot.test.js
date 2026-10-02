@@ -1,74 +1,139 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, symlinkSync, writeFileSync, copyFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
 import { readDashboardSnapshot, listDashboardEngagements, createDemoSnapshot } from '../packages/warroom-dashboard/src/snapshot.js';
 
-const digest = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+const NOW = '2026-10-03T00:45:00.000Z';
+const sha = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'dash-snap-'));
-  const home = join(root, 'home'), dir = join(home, 'warroom/engagements/demo-eng-001');
-  mkdirSync(dir, { recursive: true });
-  const f = new DatabaseSync(join(dir, 'fact.db'));
-  f.exec(`CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT); CREATE TABLE engagements(id TEXT PRIMARY KEY,target_scope TEXT,window_start TEXT,window_end TEXT,allowed_means TEXT,action_class_limit TEXT,rhythm TEXT,auth_version INTEGER,auth_object TEXT,auth_hash TEXT,user_message_id TEXT,created_at TEXT);
-    CREATE TABLE fact_members(id INTEGER PRIMARY KEY,adapter_instance TEXT,entity_type TEXT,source_id TEXT,revision_no INTEGER,content_hash TEXT,payload TEXT,generation TEXT,active INTEGER,superseded_by INTEGER,flags TEXT,ts TEXT);
-    CREATE TABLE fact_seq(id INTEGER PRIMARY KEY,ts TEXT,note TEXT); CREATE TABLE jump_routes(route_id TEXT PRIMARY KEY,lease_id TEXT,jumphost_id TEXT,socks TEXT,state TEXT,ts TEXT);
-    CREATE TABLE egress_checks(id INTEGER PRIMARY KEY,ts TEXT,jumphost_id TEXT,exit_ip TEXT,verdict TEXT,route_id TEXT,recovered_at TEXT);`);
-  f.prepare('INSERT INTO engagements VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run('demo-eng-001','example', '', '', '', '', '',1,'{}','hash',null,'2026-10-03T00:00:00Z');
-  const add = f.prepare('INSERT INTO fact_members(adapter_instance,entity_type,source_id,revision_no,content_hash,payload,generation,active,ts) VALUES(?,?,?,?,?,?,?,?,?)');
-  const rows = [
-    ['adapter-A','asset','same-id',{label:'asset same',state:'verified',layer:1}],
-    ['adapter-B','asset','same-id',{label:'other adapter',state:'pending',layer:1}],
-    ['adapter-A','evidence','same-id',{label:'evidence same',state:'unknown',layer:2}],
-    ['adapter-A','chain','chain-1',{label:'chain',state:'failed',layer:3,refs:[{adapter_instance:'adapter-A',entity_type:'asset',source_id:'same-id'}],edges:[{to:{adapter_instance:'adapter-A',entity_type:'asset',source_id:'same-id'},kind:'explicit',label:'supports'}]}],
-    ['adapter-A','asset','ambiguous-ref',{label:'ambiguous',refs:[{source_id:'same-id'}]}],
-    ['adapter-A','asset','missing-ref',{label:'missing',refs:[{source_id:'not-found'}]}],
-    ['adapter-A','task','cancel-1',{state:'cancel_requested',role:'worker',route_id:'route-live',task_id:'cancel-1'}],
+  const root = mkdtempSync(join(tmpdir(), 'dashboard-real-home-'));
+  const home = join(root, 'home'); mkdirSync(home);
+  const global = openGlobalDb(home);
+  const factDir = join(home, 'engagements', 'demo-eng-001');
+  const fact = openEngagementDb(factDir);
+  const addEng = fact.prepare(`INSERT INTO engagements (id,target_scope,window_start,window_end,allowed_means,action_class_limit,rhythm,auth_version,auth_object,auth_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  addEng.run('demo-eng-001','{}','','','','readonly','restricted',1,'{}','hash','2026-10-03T00:00:00.000Z');
+  const addFact = fact.prepare(`INSERT INTO fact_members (adapter_instance,entity_type,source_id,revision_no,content_hash,payload,active,ts) VALUES (?,?,?,?,?,?,?,?)`);
+  const ts='2026-10-03T02:00:00.000Z';
+  const rows=[
+    ['adapter-A','asset','same-id',1,{label:'asset same',state:'verified'}],
+    ['adapter-B','asset','same-id',1,{label:'other adapter',state:'pending'}],
+    ['adapter-A','evidence','same-id',1,{label:'evidence same',state:'unknown'}],
+    ['adapter-A','chain','chain-1',1,{label:'chain',state:'failed',steps:[{from:'only-source',to:'asset-end',via:'fork step'}]}],
+    ['adapter-A','asset','asset-end',1,{label:'asset end',state:'verified'}],
+    ['adapter-A','asset','only-source',1,{label:'unique source'}],
+    ['adapter-A','chain','typed-missing',1,{target:{adapter_instance:'adapter-A',entity_type:'asset',source_id:'absent'}}],
+    ['adapter-A','chain','partial-typed',1,{target:{entity_type:'asset',source_id:'same-id'}}],
+    ['adapter-A','chain','unknown-string',1,{via:'same-id'}],
+    ['adapter-A','asset','bad-json',1,'{broken'],
+    ['adapter-A','task','cancel-1',1,{state:'running',role:'fake',route_id:'old-route',task_id:'cancel-1'}],
+    ['adapter-A','asset','revision-1',1,{label:'old'}],
   ];
-  for (const [a,t,s,p] of rows) add.run(a,t,s,1,'h',JSON.stringify(p),null,1,'2026-10-03T00:00:00Z');
-  add.run('adapter-A','asset','bad-json',1,'h','{bad',null,1,'2026-10-03T00:00:00Z');
-  f.prepare('INSERT INTO fact_seq(ts,note) VALUES(?,?)').run('2026-10-03T00:00:00Z','seed');
-  f.prepare('INSERT INTO jump_routes VALUES(?,?,?,?,?,?)').run('route-live','lease-live','host-1',null,'active','2026-10-03T00:00:00Z');
-  f.prepare('INSERT INTO jump_routes VALUES(?,?,?,?,?,?)').run('route-old','lease-old','host-1',null,'released','2026-10-02T00:00:00Z');
-  f.prepare('INSERT INTO egress_checks(ts,jumphost_id,exit_ip,verdict,route_id) VALUES(?,?,?,?,?)').run('2026-10-03T00:00:00Z','host-1','192.0.2.9','pass','route-live');
-  f.prepare('INSERT INTO egress_checks(ts,jumphost_id,exit_ip,verdict,route_id) VALUES(?,?,?,?,?)').run('2026-10-03T00:00:00Z','host-1','192.0.2.8','pass','route-old');
-  f.close();
-  const g = new DatabaseSync(join(home,'global.db'));
-  g.exec('CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT); CREATE TABLE leases(lease_id TEXT PRIMARY KEY,jumphost_id TEXT,engagement_id TEXT,state TEXT,expires_at TEXT,heartbeat_at TEXT,ts TEXT); CREATE TABLE command_queue(last_heartbeat_at TEXT,command_id TEXT PRIMARY KEY,engagement_id TEXT,task_id TEXT,contract TEXT,state TEXT,generation TEXT,attempt INTEGER,ts TEXT);');
-  g.prepare('INSERT INTO leases VALUES(?,?,?,?,?,?,?)').run('lease-old','host-1','demo-eng-001','released','2026-10-02T01:00:00Z','2026-10-02T00:00:00Z','2026-10-02T00:00:00Z');
-  g.prepare('INSERT INTO leases VALUES(?,?,?,?,?,?,?)').run('lease-live','host-1','demo-eng-001','active','2026-10-03T01:00:00Z','2026-10-03T00:00:00Z','2026-10-03T00:00:00Z');
-  g.prepare('INSERT INTO command_queue VALUES(?,?,?,?,?,?,?,?,?)').run(null,'cmd-1','demo-eng-001','cancel-1','{}','cancel_requested',null,1,'2026-10-03T00:00:00Z');
-  g.close(); return {root,home, fact:join(dir,'fact.db'),global:join(home,'global.db')};
+  for (const [adapter,type,source,revision,payload] of rows) addFact.run(adapter,type,source,revision,`h${revision}`,typeof payload==='string'?payload:JSON.stringify(payload),1,ts);
+  const old = fact.prepare("SELECT id FROM fact_members WHERE source_id='revision-1'").get();
+  fact.prepare('UPDATE fact_members SET active=0,superseded_by=? WHERE id=?').run(old.id+1,old.id);
+  addFact.run('adapter-A','asset','revision-1',2,'h2',JSON.stringify({label:'new'}),1,'2026-10-03T02:30:00.000Z');
+  fact.prepare('INSERT INTO fact_seq(ts,note) VALUES(?,?)').run(ts,'fixture');
+  fact.prepare('INSERT INTO jump_routes(route_id,lease_id,jumphost_id,socks,state,ts) VALUES(?,?,?,?,?,?)').run('live-route','lease-live','host-1','DO-NOT-EMIT','active','2026-10-03T00:00:00.000Z');
+  fact.prepare('INSERT INTO jump_routes(route_id,lease_id,jumphost_id,socks,state,ts) VALUES(?,?,?,?,?,?)').run('expired-route','lease-expired','host-1','DO-NOT-EMIT','active','2026-10-02T00:00:00.000Z');
+  fact.prepare('INSERT INTO egress_checks(ts,jumphost_id,exit_ip,verdict,route_id) VALUES(?,?,?,?,?)').run('2026-10-03T00:15:00.000Z','host-1','192.0.2.22','pass','expired-route');
+  fact.prepare('INSERT INTO jump_routes(route_id,lease_id,jumphost_id,socks,state,ts) VALUES(?,?,?,?,?,?)').run('other-route','lease-live','host-1','DO-NOT-EMIT','active','2026-10-03T00:00:00.000Z');
+  fact.prepare('INSERT INTO jump_routes(route_id,lease_id,jumphost_id,socks,state,ts) VALUES(?,?,?,?,?,?)').run('stale-route','lease-old','host-1','DO-NOT-EMIT','stale','2026-10-03T00:00:00.000Z');
+  fact.prepare('INSERT INTO egress_checks(ts,jumphost_id,exit_ip,verdict,route_id) VALUES(?,?,?,?,?)').run('2026-10-03T00:30:00.000Z','host-1','192.0.2.20','pass','live-route');
+  fact.prepare('INSERT INTO egress_checks(ts,jumphost_id,exit_ip,verdict,route_id) VALUES(?,?,?,?,?)').run('2026-10-03T02:30:00.000Z','host-1','192.0.2.21','pass','stale-route');
+  fact.prepare('INSERT INTO shell_state(engagement_id,highest_proof,current_validity,last_verified_at) VALUES(?,?,?,?)').run('demo-eng-001','confirmed','likely','2026-10-03T02:00:00.000Z');
+  global.prepare('INSERT INTO jumphosts(id,role,ssh_host,day,addr_v4,addr_v6) VALUES(?,?,?,?,?,?)').run('host-1','pure-relay','socks5://user:secret@127.0.0.1:5555','2026-10-03','192.0.2.1','2001:db8::1');
+  global.prepare('INSERT INTO leases(lease_id,jumphost_id,engagement_id,state,expires_at,heartbeat_at,ts) VALUES(?,?,?,?,?,?,?)').run('lease-live','host-1','demo-eng-001','active','2026-10-03T04:00:00.000Z','2026-10-03T02:59:00.000Z','2026-10-03T00:00:00.000Z');
+  global.prepare('INSERT INTO leases(lease_id,jumphost_id,engagement_id,state,expires_at,heartbeat_at,ts) VALUES(?,?,?,?,?,?,?)').run('lease-expired','host-1','demo-eng-001','active','2026-10-03T00:30:00.000Z','2026-10-03T00:00:00.000Z','2026-10-02T00:00:00.000Z');
+  global.prepare('INSERT INTO leases(lease_id,jumphost_id,engagement_id,state,expires_at,heartbeat_at,ts) VALUES(?,?,?,?,?,?,?)').run('lease-old','host-1','demo-eng-001','released','2026-10-03T04:00:00.000Z','2026-10-03T02:59:00.000Z','2026-10-03T00:00:00.000Z');
+  global.prepare('INSERT INTO command_queue(command_id,engagement_id,task_id,contract,state,generation,attempt,ts) VALUES(?,?,?,?,?,?,?,?)').run('cmd-done','demo-eng-001','task-done',JSON.stringify({role:'analyst'}),'done','g1',1,ts);
+  global.prepare('INSERT INTO command_queue(command_id,engagement_id,task_id,contract,state,generation,attempt,ts) VALUES(?,?,?,?,?,?,?,?)').run('cmd-partial','demo-eng-001','task-partial','{}','partial','g1',1,ts);
+  global.prepare('INSERT INTO command_queue(command_id,engagement_id,task_id,contract,state,generation,attempt,ts) VALUES(?,?,?,?,?,?,?,?)').run('cmd-unresolved','demo-eng-001','task-unresolved','{}','unresolved','g1',1,ts);
+  global.prepare('INSERT INTO command_queue(command_id,engagement_id,task_id,contract,state,generation,attempt,ts) VALUES(?,?,?,?,?,?,?,?)').run('cmd-1','demo-eng-001','cancel-1',JSON.stringify({role:'worker',route_id:'live-route',auth:{token:'SECRET'},extra:'private'}),'confirmed_stopped','g1',1,ts);
+  fact.close(); global.close();
+  return {root,home,factPath:join(factDir,'fact.db'),globalPath:join(home,'global.db')};
 }
+function closeFixture(item) { rmSync(item.root,{recursive:true,force:true}); }
 
-test('snapshot is read-only, isolated, identity-safe, and diagnoses references', () => {
-  const x=fixture(); try {
-    const before=[digest(x.fact),digest(x.global)];
-    const s=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:'2026-10-03T00:30:00Z'});
-    assert.deepEqual([digest(x.fact),digest(x.global)],before);
-    assert.equal(s.nodes.length,7); assert(s.diagnostics.warnings.some(w=>w.includes('Malformed payload'))); assert.equal(new Set(s.nodes.map(n=>n.id)).size,7);
-    assert(s.edges.some(e=>e.kind==='explicit'));
-    assert(s.diagnostics.ambiguous_refs>0); assert(s.diagnostics.unresolved_refs>0);
-    const live=s.routes.find(r=>r.route_id==='route-live'); assert.equal(live.egress.verdict,'pass'); assert.equal(live.egress.current,true);
-    const old=s.routes.find(r=>r.route_id==='route-old'); assert.equal(old.egress.current,false);
-    assert.equal(s.tasks[0].state,'cancel_requested');
-    assert.equal(s.nodes.find(n=>n.source_id==='same-id'&&n.adapter_instance==='adapter-B').state,'pending');
-    assert.equal(listDashboardEngagements({home:x.home}).length,1);
-  } finally {rmSync(x.root,{recursive:true,force:true});}
+test('uses the core home layout, reads atomically, and preserves identity and authoritative task state',()=>{
+ const x=fixture(); try {
+  writeFileSync(join(x.home,'warroom.json'),JSON.stringify({egressMaxAgeMin:60}));
+  const before=[sha(x.factPath),sha(x.globalPath)];
+  const snapshot=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});
+  assert.deepEqual([sha(x.factPath),sha(x.globalPath)],before);
+  assert.equal(snapshot.engagement.engagement_id,'demo-eng-001'); assert.equal(snapshot.watermark.fact_seq,1);
+  assert.equal(snapshot.nodes.length,11); assert.equal(new Set(snapshot.nodes.map((node)=>node.id)).size,11);
+  assert(snapshot.edges.some((edge)=>edge.label==='fork step'&&edge.kind==='explicit'));
+  assert(snapshot.diagnostics.ambiguous_refs>0); assert(snapshot.diagnostics.unresolved_refs>=1);
+  assert.equal(snapshot.nodes.find((node)=>node.source_id==='same-id'&&node.adapter_instance==='adapter-B').state,'pending');
+  assert.equal(snapshot.tasks.length,4);assert.equal(snapshot.tasks.find((task)=>task.task_id==='cancel-1').state,'confirmed_stopped');
+  assert.equal(snapshot.tasks.find((task)=>task.task_id==='cancel-1').role,'worker');assert.equal(snapshot.tasks.find((task)=>task.task_id==='cancel-1').route_id,'live-route');
+  assert.deepEqual(snapshot.tasks.map((task)=>task.state).sort(),['confirmed_stopped','done','partial','unresolved']);
+  assert(!JSON.stringify(snapshot).includes('SECRET')); assert(!JSON.stringify(snapshot).includes('socks5://'));
+  assert.equal(snapshot.diagnostics.shell_state.highest_proof,'confirmed');
+  assert.equal(snapshot.nodes.find((node)=>node.entity_type==='shell')?.highest_proof ?? null,null);
+  assert.equal(listDashboardEngagements({home:x.home})[0].engagement_id,'demo-eng-001');
+ } finally {closeFixture(x);}
 });
-test('missing home stays absent and missing engagement has stable code',()=>{
- const root=mkdtempSync(join(tmpdir(),'dash-empty-')); const home=join(root,'absent');
- try {assert.throws(()=>listDashboardEngagements({home}),e=>e.code==='E_DASHBOARD_PATH');assert.equal(existsSync(home),false);
- const x=fixture(); try {assert.throws(()=>readDashboardSnapshot({home:x.home,engagementId:'nope'}),e=>e.code==='E_DASHBOARD_NOT_FOUND');} finally {rmSync(x.root,{recursive:true,force:true});}
- } finally {rmSync(root,{recursive:true,force:true});}
+
+test('egress requires exact host, route, active lease era, non-recovered check, and freshness',()=>{
+ const x=fixture(); try {
+  const live=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='live-route');
+  assert.equal(live.entry_ip,'192.0.2.1'); assert.equal(live.egress.current,true);
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='other-route').egress.current,false);
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='expired-route').egress.current,false);
+  const mismatch=new DatabaseSync(x.factPath);mismatch.prepare('UPDATE egress_checks SET jumphost_id=? WHERE route_id=?').run('host-other','live-route');mismatch.close();
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:'2026-10-03T02:00:00Z'}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:'2026-10-03T04:00:00Z'}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
+  const db=new DatabaseSync(x.globalPath);
+  db.prepare('UPDATE leases SET ts=? WHERE lease_id=?').run('2026-10-03T00:40:00Z','lease-live'); db.close();
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
+  const recovered=new DatabaseSync(x.factPath);recovered.prepare('UPDATE egress_checks SET jumphost_id=?,recovered_at=? WHERE route_id=?').run('host-1',NOW,'live-route');recovered.close();
+  assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
+ } finally {closeFixture(x);}
 });
-test('demo is marked and has four hosts with fork, merge, and shared evidence',()=>{
- const d=createDemoSnapshot(); assert.equal(d.mode,'demo');assert.equal(d.routes.length,4);assert(d.nodes.every(n=>/^(demo|example)-/.test(n.source_id)));assert(d.edges.some(e=>e.kind==='explicit'));assert(d.routes.some(r=>r.egress.verdict==='pending'));assert(d.routes.some(r=>r.egress.verdict==='fail'));
+
+test('home engagement ID mismatch, path escapes, missing/corrupt databases fail with stable codes',()=>{
+ const x=fixture(); const outside=mkdtempSync(join(tmpdir(),'dashboard-outside-'));
+ try {
+  const wrong=join(x.home,'engagements','wrong-id'); mkdirSync(wrong,{recursive:true}); symlinkSync(x.factPath,join(wrong,'fact.db'));
+  assert.throws(()=>readDashboardSnapshot({home:x.home,engagementId:'wrong-id'}),e=>e.code==='E_DASHBOARD_NOT_FOUND');
+  const escaped=join(outside,'escaped-engagement');mkdirSync(escaped);copyFileSync(x.factPath,join(escaped,'fact.db'));
+  symlinkSync(escaped,join(x.home,'engagements','escape-link'));
+  assert.throws(()=>readDashboardSnapshot({home:x.home,engagementId:'escape-link'}),e=>e.code==='E_DASHBOARD_PATH');
+  assert.throws(()=>readDashboardSnapshot({home:x.home,engagementId:'absent'}),e=>e.code==='E_DASHBOARD_NOT_FOUND');
+  const corrupt=join(outside,'corrupt-home');mkdirSync(join(corrupt,'engagements','broken'),{recursive:true});writeFileSync(join(corrupt,'engagements','broken','fact.db'),'not sqlite');openGlobalDb(corrupt).close();
+  assert.throws(()=>readDashboardSnapshot({home:corrupt,engagementId:'broken'}),e=>e.code==='E_DASHBOARD_DATABASE');
+  const corruptGlobalHome=join(outside,'corrupt-global-home');mkdirSync(join(corruptGlobalHome,'engagements','demo-eng-001'),{recursive:true});copyFileSync(x.factPath,join(corruptGlobalHome,'engagements','demo-eng-001','fact.db'));writeFileSync(join(corruptGlobalHome,'global.db'),'not sqlite');
+  assert.throws(()=>readDashboardSnapshot({home:corruptGlobalHome,engagementId:'demo-eng-001'}),e=>e.code==='E_DASHBOARD_DATABASE');
+  const missingGlobalHome=join(outside,'missing-global-home');mkdirSync(join(missingGlobalHome,'engagements','demo-eng-001'),{recursive:true});copyFileSync(x.factPath,join(missingGlobalHome,'engagements','demo-eng-001','fact.db'));
+  assert.throws(()=>readDashboardSnapshot({home:missingGlobalHome,engagementId:'demo-eng-001'}),e=>e.code==='E_DASHBOARD_DATABASE');
+  const globalOriginal=join(outside,'global-original.db');copyFileSync(x.globalPath,globalOriginal);
+  renameSync(x.globalPath,join(x.home,'global-backup.db'));symlinkSync(globalOriginal,x.globalPath);
+  assert.throws(()=>readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001'}),e=>e.code==='E_DASHBOARD_PATH');
+  const brokenHome=join(outside,'broken');mkdirSync(brokenHome);writeFileSync(join(brokenHome,'global.db'),'not sqlite');
+  assert.throws(()=>readDashboardSnapshot({home:brokenHome,engagementId:'none'}),e=>e.code==='E_DASHBOARD_NOT_FOUND');
+  assert.equal(existsSync(join(outside,'created-home')),false);
+ } finally {closeFixture(x);rmSync(outside,{recursive:true,force:true});}
 });
-test('empty engagement returns an honest empty live snapshot',()=>{
- const x=fixture(); const db=new DatabaseSync(x.fact); db.exec('DELETE FROM fact_members'); db.close();
- try {const s=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001'});assert.equal(s.mode,'live');assert.deepEqual(s.nodes,[]);assert.deepEqual(s.edges,[]);assert.equal(s.diagnostics.counts.nodes,0);} finally {rmSync(x.root,{recursive:true,force:true});}
+
+test('invalid egress config fails closed with diagnostics',()=>{const x=fixture();try{writeFileSync(join(x.home,'warroom.json'),'{broken');const snapshot=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});assert.equal(snapshot.routes.find((route)=>route.route_id==='live-route').egress.current,false);assert(snapshot.diagnostics.warnings.some((warning)=>warning.includes('configuration is invalid')));}finally{closeFixture(x);}});
+
+test('demo has a closed four-route, five-rank graph and navigable synthetic conversation',()=>{
+ const demo=createDemoSnapshot();assert.equal(demo.mode,'demo');assert.equal(demo.routes.length,4);assert(demo.nodes.length>=20);assert.equal(new Set(demo.nodes.map((node)=>node.layer)).size,5);
+ assert.equal(demo.conversation.messages.length,4);assert(demo.nodes.some((node)=>node.state==='unknown'));
+ assert.deepEqual(demo.routes.map((route)=>route.egress.verdict),['pass','pending','fail','pass']);
+ for(const route of demo.routes){const nodeSet=new Set(route.node_ids);assert(nodeSet.size>1);for(const edgeId of route.edge_ids){const edge=demo.edges.find((item)=>item.id===edgeId);assert(nodeSet.has(edge.from));assert(nodeSet.has(edge.to));}}
+ assert(demo.routes.every((route)=>route.entry_ip&&route.exit_ip&&route.lease.state==='active'));
+ assert(demo.nodes.every((node)=>node.source_id.startsWith('demo-')));
+});
+
+test('superseding a fact revision keeps its triple identity',()=>{
+ const x=fixture();try{const before=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});const node=before.nodes.find((item)=>item.source_id==='revision-1');assert(node.id.startsWith('fact:'));assert.equal(node.state,'unknown');const db=new DatabaseSync(x.factPath);db.prepare('UPDATE fact_members SET active=0 WHERE adapter_instance=? AND entity_type=? AND source_id=? AND active=1').run('adapter-A','asset','revision-1');db.prepare('INSERT INTO fact_members(adapter_instance,entity_type,source_id,revision_no,content_hash,payload,active,ts) VALUES(?,?,?,?,?,?,?,?)').run('adapter-A','asset','revision-1',3,'h3',JSON.stringify({label:'third revision'}),1,'2026-10-03T02:45:00Z');db.close();const after=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});assert.equal(after.nodes.find((item)=>item.source_id==='revision-1').id,node.id);assert.equal(after.nodes.find((item)=>item.source_id==='revision-1').label,'third revision');}finally{closeFixture(x);}
 });
