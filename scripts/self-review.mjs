@@ -117,6 +117,16 @@ try {
     const declared = (runnerSource.match(/^\s*\{ name: '/gm) ?? []).length;
     if (declared !== GATES.length) problems.push(`[ci] ci.mjs 登记 ${declared} 道闸，期望 ${GATES.length} 道`);
   }
+  // GitHub Actions 必须跑执行层演练（否则"桥可用"只在本地成立）
+  const workflowPath = join(repoRoot, '.github', 'workflows', 'ci.yml');
+  if (existsSync(workflowPath)) {
+    const wf = readFileSync(workflowPath, 'utf8');
+    if (!wf.includes('executor-drill.mjs')) {
+      problems.push('[ci] .github/workflows/ci.yml 未跑 scripts/executor-drill.mjs（执行层演练）');
+    }
+  } else {
+    problems.push('[ci] 缺少 .github/workflows/ci.yml');
+  }
 } catch (e) {
   problems.push(`[ci] 无法读取 package.json：${e.message}`);
 }

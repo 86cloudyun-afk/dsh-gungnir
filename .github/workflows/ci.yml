@@ -19,6 +19,19 @@ jobs:
       - name: 围栏真实验收（创建 internal 网络 + sidecar + 任务容器，直连必须被阻断）
         run: node scripts/fence-verify.mjs --engagement eng_ci --require-daemon
 
+  drill:
+    # 执行层落地演练：跨进程链路（指挥层 ↔ 桥 ↔ 示例执行器）每次推送都真跑一遍
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: fake 模式演练（离线全链路）
+        run: node scripts/executor-drill.mjs --json
+      - name: bridge 模式演练（真起应答器子进程）
+        run: node scripts/executor-drill.mjs --mode bridge --json
+
   test:
     runs-on: ubuntu-latest
     strategy:
