@@ -29,7 +29,7 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
           - id: persona                     # 角色文本在**运行期**从 presets/roles/<role>.md 读入
             name: '@deepseek-ai/dsh-persona'
           - id: agent-instructions
-          - id: warroom-gungnir             # 本仓挂载入口（注册 36 个 warroom_* 工具）
+          - id: warroom-gungnir             # 本仓挂载入口（注册全部 warroom_* 工具，数量以允许清单为准）
             name: /abs/path/packages/warroom-plugin/src/dsh-entry.mjs
           - id: tool-todo
           - id: tool-ask-user
@@ -78,9 +78,9 @@ console.error(JSON.stringify(value));
 
 | 验证项 | 手段 | 结果 |
 |---|---|---|
-| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验 36 个 `parameters` | ✅ 36/36 通过（`test/dsh-mount.test.js`） |
+| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验全部 `parameters` | ✅ 全数通过（`test/dsh-mount.test.js`） |
 | 装配（不重启） | `dsh --profile web --dump-config [--patch <overlay>]` | ✅ 预设行与子插件清单出现在装配树里 |
-| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **36 个 `warroom_*` 全部可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
+| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **全部 `warroom_*` 可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
 | 执行（真实进程） | 让会话调用 `warroom_poc_add` → `warroom_poc_search` | ✅ 登记入库、检索返回 `count=1`；库侧用 CLI 复核一致 |
 | 作用域收窄 `restrict` | 在 context 级调用 | ⛔ 宿主拒绝："a context-global restriction would mask every agent"。**主保证=挂载构成**；restrict 仅在 agent 作用域且显式开启时尝试，失败记状态不抛错 |
 
