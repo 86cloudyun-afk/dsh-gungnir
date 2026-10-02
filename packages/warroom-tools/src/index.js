@@ -552,6 +552,17 @@ export const TOOLS = [
       outDir: args.out_dir ?? null, keep: args.keep ?? 7, backup: args.backup !== false,
     }),
   },
+  {
+    name: 'warroom_weekly',
+    description: '多战役周报（只读）：窗口内活跃战役的事实/报告/交付门禁汇总',
+    input_schema: {
+      type: 'object',
+      properties: { days: { type: 'integer' }, out: { type: 'string' } },
+      required: ['days'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.weekly({ days: args.days }),
+  },
 ];
 
 export { ERR };
