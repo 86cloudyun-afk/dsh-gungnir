@@ -385,6 +385,29 @@ export function runFaultMatrix() {
     assert(rows.length === 1, `审计应恰好 1 条，实际 ${rows.length}`);
   });
 
+  // ⑳ 归档幂等与"不编造"：同周归档不产生第二份；时序段缺时间戳不填默认值
+  check('归档幂等 & 时序不编造', () => {
+    const c = ctx();
+    // 周报归档：同周重复执行只覆盖，不新增文件
+    const a1 = c.broker.archiveWeekly({ days: 7 });
+    const a2 = c.broker.archiveWeekly({ days: 7 });
+    assert(a1.label === a2.label, '同一时刻归档应落同一 ISO 周');
+    assert(a2.existing.length === 1, `同周不应产生第二份，实际 ${a2.existing.length}`);
+
+    // 时序段：未结项任务入表但执行段为 null（不得填 0 或编造时间）
+    const ex = c.broker.execute({ ...c.base, command_id: 'f-20', contract: c.contract() });
+    void ex;
+    const timeline = c.broker.timeline(c.eng.engagement_id);
+    const tasks = c.broker.exportReport(c.eng.engagement_id, { format: 'json' });
+    const raw = readFileSync(tasks.paths.json, 'utf8');
+    const json = JSON.parse(raw);
+    assert(Array.isArray(json.timing.tasks), '报告应含 timing.tasks');
+    const t0 = json.timing.tasks[0];
+    assert(t0 && t0.settled_at === null && t0.exec_ms === null,
+      `未结项任务的执行段必须是 null，实际 settled=${t0?.settled_at} exec=${t0?.exec_ms}`);
+    assert(timeline.events.some((e) => e.ts === null), '无时间戳事件应保留 ts=null（而不是补当前时间）');
+  });
+
   const failed = checks.filter((x) => !x.ok);
   return { total: checks.length, passed: checks.length - failed.length, failed, checks: [...checks] };
 }
