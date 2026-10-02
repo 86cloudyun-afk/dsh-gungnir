@@ -71,7 +71,7 @@ const { values: v } = parseArgs({
     decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
     'dry-run': { type: 'boolean', default: false }, offset: { type: 'string' }, order: { type: 'string' },
     'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
-    confirm: { type: 'boolean', default: false },
+    confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -212,7 +212,10 @@ switch (command) {
     out(broker.revoke(need('engagement', v.engagement), v.reason ?? 'cli'));
     break;
   case 'report':
-    out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
+    out(broker.exportReport(need('engagement', v.engagement), {
+      outDir: v.out, format: v.format ?? 'md',
+      maxFactsPerType: v['max-facts'] ? Number(v['max-facts']) : 50,
+    }));
     break;
   case 'audit': {
     const engagementId = need('engagement', v.engagement);
