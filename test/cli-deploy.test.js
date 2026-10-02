@@ -137,3 +137,28 @@ test('CI 友好：没有 dsh 可执行时 --check 仍成功（只影响 --verify
     { encoding: 'utf8', env: { ...nodeEnv(), PATH: binDir, DSH_BIN: '' } });
   assert.match(out, /未找到 dsh 可执行（--verify 不可用；挂载仍可写入）/);
 });
+
+test('宿主新鲜度判定：patch 写了没重启必须被报出来（"没有啊"的根因）', async () => {
+  const { hostStaleness } = await import('../scripts/deploy-dsh.mjs');
+  const patch = Date.parse('2026-10-02T14:36:05Z');
+  const old = Date.parse('2026-09-30T14:39:35Z');
+
+  const stale = hostStaleness(old, patch);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.reason, 'host-started-before-patch');
+
+  assert.equal(hostStaleness(patch + 60_000, patch).stale, false);
+  assert.equal(hostStaleness(null, patch).stale, null, '取不到进程启动时刻时如实未知');
+  assert.equal(hostStaleness(old, null).stale, null);
+});
+
+test('--check 在真实 profile 上会输出"宿主是否已重启"结论', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-deploy-stale-'));
+  const profile = join(home, 'profiles', 'web');
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(profile)},{recursive:true})`]);
+  const patch = join(profile, 'cordis.patch.yml');
+  writeFileSync(patch, '- insert:\n    - id: preset-warroom-gungnir\n      name: x\n');
+  const out = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home],
+    { encoding: 'utf8', env: { ...nodeEnv(), DSH_PORT: '1' } });   // 端口 1 上不会有宿主
+  assert.match(out, /宿主未重启|无法判定宿主是否重启/, '必须给出明确结论，不能沉默');
+});
