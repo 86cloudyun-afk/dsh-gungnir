@@ -696,7 +696,7 @@
     },
     {
       "name": "warroom_jumps",
-      "description": "跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
+      "description": "跳板台账与出口：import（登记跳板，需 hosts）/ acquire（为本战役取一条出口路由，需 target） / status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -707,6 +707,8 @@
             "type": "string",
             "enum": [
               "status",
+              "import",
+              "acquire",
               "release",
               "sweep",
               "sweep_routes",
@@ -715,6 +717,41 @@
           },
           "route_id": {
             "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "acquire 用：本次要出网的目标（域名/IP）"
+          },
+          "hosts": {
+            "type": "array",
+            "description": "import 用：跳板清单（来自操作员的 advisory/jumphosts.md）",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "ssh_host": {
+                  "type": "string"
+                },
+                "addr_v4": {
+                  "type": "string"
+                },
+                "addr_v6": {
+                  "type": "string"
+                },
+                "quota": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -800,6 +837,55 @@
         "required": [
           "engagement_id",
           "task_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_engage",
+      "description": "冻结授权并建战役（开工指令即授权事件）：给 targets（靶标/范围）+ user_message_id（操作员开工指令原文或会话 id）。冻结后返回 auth_version / auth_hash，后续所有副作用都绑定该授权对象；目标范围之外的动作一律被门闸拒绝。",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "description": "授权范围内的靶标（域名/IP/CIDR）；必须来自操作员的开工指令",
+            "items": {
+              "type": "string"
+            }
+          },
+          "user_message_id": {
+            "type": "string",
+            "description": "开工指令的标识（会话 id 或指令哈希），作为授权事件来源"
+          },
+          "engagement_id": {
+            "type": "string",
+            "description": "可选：显式指定战役 id（跨会话沿用同一战役时必须保持一致）"
+          },
+          "rhythm": {
+            "type": "string",
+            "enum": [
+              "open",
+              "restricted",
+              "stealth"
+            ]
+          },
+          "window_hours": {
+            "type": "integer"
+          },
+          "action_class_limit": {
+            "type": "string",
+            "enum": [
+              "readonly",
+              "active",
+              "destructive"
+            ]
+          }
+        },
+        "required": [
+          "targets",
+          "user_message_id"
         ],
         "additionalProperties": false
       },

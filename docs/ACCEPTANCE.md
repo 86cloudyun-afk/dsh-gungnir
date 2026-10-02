@@ -14,7 +14,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（恰 36 个 `warroom_*`，0 内核工具），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
+| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（`warroom_*` 全数，0 内核工具；数量与允许清单同源，当前 37），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
