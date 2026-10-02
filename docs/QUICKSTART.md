@@ -123,6 +123,7 @@ node bin/warroom.mjs secret put|grant|status …
 
 ## 8. 下一步
 
+- 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
 - 六道闸自检：`node --test` + `scripts/{validate-tool-schemas,check-preset,fault-matrix,self-review}.mjs`
 - 挂载到 DSH：`node scripts/deploy-dsh.mjs --check`（见 [PRESET.md](PRESET.md)）
 - 真实执行层：`node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge"`（见 [DSH-BRIDGE-PROTOCOL.md](DSH-BRIDGE-PROTOCOL.md)）
