@@ -60,7 +60,11 @@ test('dsh-redteam 执行器未配置 → 失败且不写假回执（fail-closed�
   const r = runResponder(root, ['--executor', 'executors/dsh-redteam-executor.mjs'], { GUNGNIR_EXECUTOR_CMD: '' });
   assert.equal(r.status, 0, '单次模式下错误不致命，但要留痕');
   assert.match(r.stderr + r.stdout, /未配置 GUNGNIR_EXECUTOR_CMD|job-error/);
-  assert.equal(existsSync(join(root, 'inbox', 'f1.status.json')), false, '不得写"看起来成功"的回执');
+  // 不变式（比"没有状态文件"更精确）：状态必须显式 failed，且**绝不写事实**
+  const st = JSON.parse(readFileSync(join(root, 'inbox', 'f1.status.json'), 'utf8'));
+  assert.equal(st.state, 'failed', '必须显式落 failed，而不是静默');
+  assert.notEqual(st.state, 'done');
+  assert.equal(existsSync(join(root, 'inbox', 'f1.facts.json')), false, '不得写事实（不假装成功）');
 });
 
 test('dsh-redteam 执行器按 env 命令调用外部执行器（含 stdin job）', () => {
