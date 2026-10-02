@@ -97,3 +97,52 @@ test('addPoc 拒绝未知字段（静默丢字段 = 静默丢证据）', () => {
   const ok = h.broker.knowledge.addPoc({ code: 'UNK-2', title: 't', category: 'other', body: 'TARGET 默认口令' });
   assert.equal(ok.code, 'UNK-2');
 });
+
+test('检索排序：历史命中率高者优先（相同关键词命中）', () => {
+  const h = harness();
+  const kb = h.broker.knowledge;
+  kb.addPoc({ code: 'JD-1', title: 'JD 后台未授权', category: 'unauth', body: 'TARGET 后台' });
+  kb.addPoc({ code: 'JD-2', title: 'JD 后台未授权（旧写法）', category: 'unauth', body: 'TARGET 后台' });
+
+  // JD-2 打过通，JD-1 只试过失败
+  for (let i = 0; i < 3; i += 1) kb.use('JD-2', { engagement_id: 'eng-a', asset: 'HOST', result: 'hit' });
+  kb.use('JD-1', { engagement_id: 'eng-a', asset: 'HOST', result: 'miss' });
+
+  const rows = kb.search({ q: 'JD 后台' });
+  assert.equal(rows[0].code, 'JD-2', `命中率高的应在前，实际 ${rows.map((r) => r.code).join(',')}`);
+  assert.ok(rows[0].usage.hit_rate > 0, '应带出使用统计');
+  assert.ok(typeof rows[0].score === 'number');
+});
+
+test('检索排序：新鲜度衰减（同命中率时越新越前）', () => {
+  const h = harness();
+  const kb = h.broker.knowledge;
+  kb.addPoc({ code: 'FRESH-1', title: 'ssrf 打点', category: 'ssrf', body: 'TARGET' });
+  kb.addPoc({ code: 'STALE-1', title: 'ssrf 打点（老）', category: 'ssrf', body: 'TARGET' });
+  // 手工把 STALE-1 的 updated_at 改到 2 年前
+  h.broker.knowledge.db.prepare('UPDATE poc SET updated_at = ? WHERE code = ?')
+    .run(new Date(Date.now() - 720 * 86400000).toISOString(), 'STALE-1');
+
+  const rows = kb.search({ q: 'ssrf 打点' });
+  assert.equal(rows[0].code, 'FRESH-1', `新的应在前，实际 ${rows.map((r) => r.code).join(',')}`);
+});
+
+test('检索排序：sort=recent / hits 可显式切换', () => {
+  const h = harness();
+  const kb = h.broker.knowledge;
+  kb.addPoc({ code: 'SR-1', title: 'alpha 漏洞', category: 'other', body: 'TARGET' });
+  kb.addPoc({ code: 'SR-2', title: 'alpha 漏洞二', category: 'other', body: 'TARGET' });
+  for (let i = 0; i < 5; i += 1) kb.use('SR-1', { engagement_id: 'eng-b', asset: 'HOST', result: 'hit' });
+
+  assert.equal(kb.search({ q: 'alpha 漏洞', sort: 'hits' })[0].code, 'SR-1');
+  assert.equal(kb.search({ q: 'alpha 漏洞', limit: 1 }).length, 1);
+});
+
+test('关键词区分：code/title 命中权重高于 source', () => {
+  const h = harness();
+  const kb = h.broker.knowledge;
+  kb.addPoc({ code: 'KW-1', title: 'shiro 反序列化', category: 'deserialization', body: 'TARGET' });
+  kb.addPoc({ code: 'KW-2', title: '通用模板', category: 'other', source: 'shiro 反序列化 报告', body: 'TARGET' });
+  const rows = kb.search({ q: 'shiro' });
+  assert.equal(rows[0].code, 'KW-1', `标题命中权重应更高，实际 ${rows.map((r) => r.code).join(',')}`);
+});

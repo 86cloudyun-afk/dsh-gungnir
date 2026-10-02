@@ -21,7 +21,7 @@
 | `warroom_spray_check` | 喷洒前查断点：该(凭据×服务×账号)是否已试过、账号是否已锁定 | `{ engagement_id*:string, credential_ref*:string, service*:string, account*:string }` | ✅ |
 | `warroom_spray_record` | 登记一次喷洒结果（success/fail/locked/skipped）；锁定后拒绝继续（防锁死） | `{ engagement_id*:string, credential_ref*:string, service*:string, account*:string, result*:success|fail|locked|skipped }` | ✅ |
 | `warroom_metrics` | 效率遥测：记录任务级 tokens/耗时/有效产出，或查询战役聚合（无成本门闸） | `{ engagement_id*:string, command_id:string, tokens_in:integer, tokens_out:integer, wall_time_ms:integer, verified_facts:integer, role:string, model_tier:string }` | ✅ |
-| `warroom_poc_search` | 知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库 | `{ q:string, category:string }` | ✅ |
+| `warroom_poc_search` | 知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库 | `{ q:string, category:string, limit:integer, sort:relevance|recent|hits }` | ✅ |
 | `warroom_poc_add` | 回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝） | `{ code*:string, title*:string, category*:string, source:string, affected_versions:string, evidence_ref:string, body:string }` | ✅ |
 | `warroom_poc_use` | 登记 POC 在某战役某资产上的使用（跨战役复用留痕） | `{ code*:string, engagement_id*:string, asset:string, result:string }` | ✅ |
 | `warroom_sweep_timeouts` | 超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论） | `{ engagement_id*:string, timeout_min:integer }` | ✅ |

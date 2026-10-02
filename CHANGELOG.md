@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **知识库检索加权**（`poc_search`）：相关度 = 关键词命中（code/title 权重高于 source/versions）
+  + **历史命中率**（打通过的最优先——知识库真正的价值信号）+ 新鲜度半衰期衰减（90 天）；
+  支持 `sort: relevance|recent|hits` 与 `limit`；返回带 `score` 与 `usage{total,hits,hit_rate,last_used}`
 - **开工前预检** `warroom preflight --engagement <id>`（工具 `warroom_preflight`，28 个工具）：
   六个维度（环境/配置/战役时间窗与目标/活跃路由与出口验证/备份新鲜度/密钥权限）合成
   **三态结论 ready|degraded|blocked** + 阻塞项 + 下一步建议；blocked 时 CLI 非零退出

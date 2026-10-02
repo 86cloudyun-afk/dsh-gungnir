@@ -258,7 +258,10 @@ export const TOOLS = [
     input_schema: {
       type: 'object',
       // 全部参数可选（纯查询）：用 additionalProperties:true，避免空 required 的非法形态
-      properties: { q: { type: 'string' }, category: { type: 'string' } },
+      properties: {
+        q: { type: 'string' }, category: { type: 'string' }, limit: { type: 'integer' },
+        sort: { type: 'string', enum: ['relevance', 'recent', 'hits'] },
+      },
       additionalProperties: true,
     },
     run: (core, args) => core.broker.knowledge.search(args),

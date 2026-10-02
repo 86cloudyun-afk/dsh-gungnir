@@ -459,6 +459,17 @@
           },
           "category": {
             "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "recent",
+              "hits"
+            ]
           }
         },
         "additionalProperties": true

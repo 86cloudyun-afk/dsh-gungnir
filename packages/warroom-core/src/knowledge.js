@@ -102,13 +102,66 @@ export class KnowledgeBase {
     return this.db.prepare('SELECT * FROM poc WHERE code = ?').get(code) ?? null;
   }
 
-  search({ q, category } = {}) {
+  /**
+   * 检索（跨战役复用的入口）：默认按**相关度**排序，而不是单纯按时间。
+   *
+   * 相关度 = 关键词命中（code/title 权重高于 source/body）
+   *        + **历史命中率**（打过通的优先——这是知识库真正的价值信号）
+   *        + 新鲜度衰减（半衰期 90 天）
+   *
+   * @param {{q?:string, category?:string, limit?:number, sort?:'relevance'|'recent'|'hits'}} opts
+   */
+  search({ q, category, limit = 50, sort = 'relevance' } = {}) {
     const where = [];
     const args = [];
-    if (q) { where.push('(code LIKE ? OR title LIKE ? OR source LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    if (q) {
+      where.push('(code LIKE ? OR title LIKE ? OR source LIKE ? OR affected_versions LIKE ? OR evidence_ref LIKE ?)');
+      args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    }
     if (category) { where.push('category = ?'); args.push(category); }
-    const sql = `SELECT * FROM poc ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY updated_at DESC LIMIT 50`;
-    return this.db.prepare(sql).all(...args);
+    const rows = this.db.prepare(`SELECT * FROM poc ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`).all(...args);
+
+    // 使用统计（命中率 + 最近使用）
+    const stats = this.db.prepare(`
+      SELECT code,
+             COUNT(*) AS total,
+             SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) AS hits,
+             MAX(ts) AS last_used
+      FROM poc_usage GROUP BY code
+    `).all();
+    const statByCode = new Map(stats.map((s) => [s.code, s]));
+
+    const nowMs = Date.now();
+    const HALF_LIFE_DAYS = 90;
+    const scored = rows.map((row) => {
+      const st = statByCode.get(row.code) ?? { total: 0, hits: 0, last_used: null };
+      const hitRate = st.total > 0 ? st.hits / st.total : 0;
+      let keyword = 0;
+      if (q) {
+        const ql = q.toLowerCase();
+        if (row.code.toLowerCase().includes(ql)) keyword += 3;
+        if (row.title.toLowerCase().includes(ql)) keyword += 2;
+        if ((row.source ?? '').toLowerCase().includes(ql)) keyword += 1;
+        if ((row.affected_versions ?? '').toLowerCase().includes(ql)) keyword += 1;
+      } else keyword = 1;   // 无关键词：不区分词面，只比历史价值与新鲜度
+      const refTs = Date.parse(st.last_used ?? row.updated_at ?? row.created_at ?? '') || 0;
+      const ageDays = refTs ? (nowMs - refTs) / 86400000 : 365;
+      const freshness = Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
+      return {
+        ...row,
+        _score: Number((keyword + hitRate * 3 + freshness * 1.5).toFixed(4)),
+        _usage: { total: st.total, hits: st.hits, hit_rate: Number(hitRate.toFixed(3)), last_used: st.last_used },
+      };
+    });
+
+    const order = {
+      relevance: (a, b) => b._score - a._score,
+      recent: (a, b) => Date.parse(b.updated_at ?? 0) - Date.parse(a.updated_at ?? 0),
+      hits: (a, b) => b._usage.hits - a._usage.hits,
+    }[sort] ?? ((a, b) => b._score - a._score);
+
+    return scored.sort(order).slice(0, limit)
+      .map(({ _score, _usage, ...row }) => ({ ...row, score: _score, usage: _usage }));
   }
 
   /** 跨战役复用登记：同一 POC 可被多个战役使用，用法与结果留痕。 */
