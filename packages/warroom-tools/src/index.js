@@ -125,14 +125,20 @@ export const TOOLS = [
         format: { type: 'string', enum: ['md', 'json', 'html', 'both', 'all'] },
         max_facts_per_type: { type: 'integer' },
         audience: { type: 'string', enum: ['client', 'blue', 'full'] },
+        verify: { type: 'boolean', description: 'true = 导出后立刻复核可复现性并返回结论' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportReport(args.engagement_id, {
-      outDir: args.out_dir, format: args.format ?? 'md',
-      maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
-    }),
+    run: (core, args) => (args.verify
+      ? core.broker.exportReportVerified(args.engagement_id, {
+        outDir: args.out_dir, format: args.format ?? 'md',
+        maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
+      })
+      : core.broker.exportReport(args.engagement_id, {
+        outDir: args.out_dir, format: args.format ?? 'md',
+        maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
+      })),
   },
   {
     name: 'warroom_status',

@@ -1,6 +1,6 @@
 // Broker：唯一副作用通道（ADR-001 D1/D2）+ 命令队列 + 撤销级联 + 代际收集（ADR-003）。
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, existsSync, readFileSync } from 'node:fs';
 import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
   RHYTHM_MIN_INTERVAL_MS, RHYTHM_JITTER_MS, RHYTHM_HOURLY_DRIFT,
@@ -403,6 +403,27 @@ export class Broker {
       store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, home: this.home,
       outDir: dir, format, maxFactsPerType, audience, metrics: this.metrics(engagementId),
     });
+  }
+
+  /**
+   * 交付前一体化：导出报告后立刻用**同一判定**复核可复现性，把结论一并返回。
+   * 动机：交付流程里"导出→校验"两步常被漏掉；合成一步，漏不掉。
+   */
+  exportReportVerified(engagementId, opts = {}) {
+    const exported = this.exportReport(engagementId, opts);
+    const markdown = readFileSync(exported.paths.markdown ?? exported.path, 'utf8');
+    const { store } = this._eng(engagementId);
+    const verdict = verifyReportAgainstStore(markdown, store);
+    return {
+      ...exported,
+      verify: {
+        reproducible: verdict.reproducible,
+        report_seq: verdict.report.seq,
+        current_seq: verdict.current.seq,
+        drift_seq: verdict.drift.seq,
+        checked_at: new Date().toISOString(),
+      },
+    };
   }
 
   /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
