@@ -91,6 +91,25 @@ test('CLI：report --format json 可用', () => {
   assert.ok(parsed.paths.json.endsWith('.json'));
 });
 
+test('报告全景：审计摘要 + 跳板台账入报告（md 与 json）', () => {
+  const h = harness();
+  const mgr = new JumphostManager({ globalDb: h.broker.global, getFactStore: (id) => h.broker._eng(id).store });
+  mgr.importHosts([{ id: 'rep-jh', addr_v4: '203.0.113.99' }]);
+  mgr.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.5' });
+  h.broker.execute({ ...h.base, command_id: 'rp-full', contract: h.contract() });
+
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.match(md, /审计摘要（门闸判定分布）/);
+  assert.match(md, /跳板与隧道台账/);
+  assert.match(md, /allow/);
+
+  const json = JSON.parse(readFileSync(r.paths.json, 'utf8'));
+  assert.ok(Array.isArray(json.audit_summary) && json.audit_summary.length >= 1);
+  assert.equal(json.jump_routes.length, 1);
+  assert.match(json.jump_routes[0].socks, /^socks5:\/\//);
+});
+
 test('报告收录链前会议纪要（md 与 json 双视图）', () => {
   const h = harness();
   runWave({
