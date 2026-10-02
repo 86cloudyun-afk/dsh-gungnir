@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **报告修复建议段**（`remediation.js`）：**事实自带修复说明优先**（`payload.remediation|fix|advice`）；
+  没有就按类型/关键词给通用建议，并在段首**明确标注**"其中 N 条为通用建议，请结合资产实际处置，勿当逐条结论照抄"；
+  只对 vuln/credential/chain 出建议（asset/session 不凑数），无 vuln 事实则整段不出现
 - 文档收口：QUICKSTART 增「值班动线（每 30 分钟看什么）」；ACCEPTANCE 增 5 行（巡检/油表/CSV/HTML/交付前一体化）、
   数字同步（322 例 / 32 工具 / 故障矩阵 16 场景）
 - **速率与预算视图**（"油表"）：`warroom rate --engagement <id> [--text|--json]`（工具 `warroom_rate_view`，
