@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **性能门再扩展**：证据落盘（4000ms）与全库备份（6000ms）纳入矩阵；
+  实测 N=5000：证据落盘 153ms、备份 9.9ms、RSS 176MB
 - **围栏 ↔ 跳板联动**：`planFenceForEngagement` 从战役库读**活跃 route** 作为围栏唯一上游
   （无活跃 route 即 `E_FENCE_NO_ROUTE`，fail-closed）；静态校验新增"上游与 route 记录一致"不变量；
   `fence-verify --from-home/--route` 支持真实联动（缺 route 时非零退出并给取出口命令）
