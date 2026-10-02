@@ -324,12 +324,14 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' },
         audiences: { type: 'array', items: { type: 'string', enum: ['client', 'blue'] } },
+        checklist: { type: 'boolean', description: 'true=随包生成 DELIVERY_CHECKLIST.md（默认 true）' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => core.broker.exportEvidence(args.engagement_id, {
       outDir: args.out_dir, target: args.target, audiences: args.audiences ?? ['client', 'blue'],
+      checklist: args.checklist !== false,
     }),
   },
   {

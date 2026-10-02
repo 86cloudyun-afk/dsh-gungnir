@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **交付包标准化**：证据落盘默认**随包生成交付清单**（`DELIVERY_CHECKLIST.md`），并在
+  `EVIDENCE_INDEX.md` 增「交付自检」段点名结果；一个目录 = 报告（含受众视图）+ 水位 + 索引 +
+  交付清单；`checklist:false` 可关闭
 - **交付清单**（验收 12 项的操作化）：`warroom checklist --engagement <id> [--write] [--text]`
   （工具 `warroom_checklist`，33 个工具）—— 自动项（授权冻结/出口与验证/节奏预算/水位/
   攻击路径/报告可复现/证据落盘/审计留痕/备份新鲜度/跳板收口）**只依据账本与文件**判定；
