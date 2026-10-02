@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { RHYTHM_CONCURRENCY } from '../../shared-types/src/index.js';
 import { inScopeEntry } from './gates.js';
 import { planWave } from './wave.js';
+import { planBucket as planBucketImpl } from './buckets.js';
+
 
 const require_wave = () => ({ planWave });
 
@@ -114,7 +116,19 @@ export function preflight({ broker, engagementId, home = null, meeting = null })
     add('secret', '密钥文件', OK, '尚未启用秘密库');
   }
 
-  // 7) 演练计划 × 授权范围（给了会议文件才检查）：每个目标逐个核范围，越界即阻塞
+  // 7) 执行桶自洽性（框架 §4）：桶 A 要有活跃出口；桶 B 不得挂 socks
+  try {
+    const bucket = broker.config?.bucket ?? 'A';
+    const route = activeRoutes.at(-1) ? { socks: activeRoutes.at(-1).socks, route_id: activeRoutes.at(-1).route_id, jumphost_id: activeRoutes.at(-1).jumphost_id } : null;
+    const plan = planBucketImpl({ bucket, route, engagementId });
+    add('bucket', `执行桶 ${bucket} 自洽`, OK, plan.plan.kind);
+  } catch (e) {
+    // 语义分层：缺出口/缺跳板只是"还没取出口"（提示）；桶配置本身矛盾才阻塞
+    const notYet = e.code === 'E_FENCE_NO_ROUTE' || e.code === 'E_NO_JUMPHOST';
+    add('bucket', `执行桶 ${broker.config?.bucket ?? 'A'} 自洽`, notYet ? WARN : FAIL, e.message);
+  }
+
+  // 8) 演练计划 × 授权范围（给了会议文件才检查）：每个目标逐个核范围，越界即阻塞
   let wavePlan = null;
   if (meeting?.tasks?.length) {
     try {
