@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { harness } from '../packages/warroom-core/src/testing.js';
 import { aggregateIoc } from '../packages/warroom-core/src/ioc.js';
+import { runWave } from '../packages/warroom-core/src/wave.js';
 import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 
 test('IOC 聚合：分类、去重、置信度、证据引用齐全', () => {
@@ -88,4 +89,25 @@ test('CLI：report --format json 可用', () => {
     '--home', h.home, '--format', 'json', '--json'], { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '' } });
   const parsed = JSON.parse(out);
   assert.ok(parsed.paths.json.endsWith('.json'));
+});
+
+test('报告收录链前会议纪要（md 与 json 双视图）', () => {
+  const h = harness();
+  runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: {
+      title: '链前会议·报告用例', notes: '先 recon 再 chain',
+      decisions: ['rhythm=restricted'],
+      tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'] }],
+    },
+  });
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.match(md, /链前会议纪要/);
+  assert.match(md, /先 recon 再 chain/);
+  assert.match(md, /rhythm=restricted/);
+  const json = JSON.parse(readFileSync(r.paths.json, 'utf8'));
+  assert.equal(json.meetings.length, 1);
+  assert.equal(json.meetings[0].title, '链前会议·报告用例');
+  assert.deepEqual(json.meetings[0].decisions, ['rhythm=restricted']);
 });
