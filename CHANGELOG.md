@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **多方维护治理文件**：`CONTRIBUTING.md`（六闸门槛/PR 规范/写作用域/外部 PR 审查流程）、
+  `.github/CODEOWNERS`、PR 模板（六闸勾选项）、ADR 提案与缺陷报告议题模板
 - **证据落盘桥**（对齐作战室第 8 节纪律）：`warroom evidence --engagement <id> --out <dir> [--target <名>]`
   → 目录内 `report-<seq>.md` / `report-<seq>.json` / `watermark.json` /
   **`EVIDENCE_INDEX.md`（Confirmed / Leaked credentials(仅引用) / Raw artifacts 三段式）**；
