@@ -30,6 +30,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 - 合并审查记录：[docs/MERGE-REVIEW-2026-10-02.md](docs/MERGE-REVIEW-2026-10-02.md)
 
 **治理**：ADR 一经 Accepted 即不可变，修正以新 rev 重写并留修订记录；规格/doctrine 改动走 PR + RFC。
+贡献流程、六闸门槛、写作用域与外部 PR 审查方式见 [CONTRIBUTING.md](CONTRIBUTING.md)（含 [CODEOWNERS](.github/CODEOWNERS)）。
 
 ## 快速开始（CLI，不依赖 DSH）
 
