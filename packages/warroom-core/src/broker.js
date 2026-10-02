@@ -386,7 +386,7 @@ export class Broker {
   buildReport(engagementId, { maxFactsPerType = 50, audience = 'full' } = {}) {
     const { row, store } = this._engWithRow(engagementId);
     return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global,
-      home: this.home, maxFactsPerType, audience });
+      home: this.home, maxFactsPerType, audience, metrics: this.metrics(engagementId) });
   }
 
   /** 复现校验：给定报告正文，对照当前库判定是否仍可复现。 */
@@ -400,7 +400,7 @@ export class Broker {
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
     return exportReportFile({
       store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, home: this.home,
-      outDir: dir, format, maxFactsPerType, audience,
+      outDir: dir, format, maxFactsPerType, audience, metrics: this.metrics(engagementId),
     });
   }
 
