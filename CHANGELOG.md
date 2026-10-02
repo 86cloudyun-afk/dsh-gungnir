@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **`warroom doctor` 一键体检**：Node/sqlite 版本、docker daemon（不可用给 warn 不误报 fail）、
+  WARROOM_HOME 可写、global 与各战役库完整性 + schema 版本、秘密密钥权限、知识库存在性；
+  支持 `--json`；失败项非零退出，提示项不阻塞
 - **跳板台账与收口**：`JumphostManager.status`（主机/租约/路由总览）、`releaseRoute`（幂等收口）；
   工具 `warroom_jumps`（status/release/sweep，工具数 23→24）、CLI `jump status|release`
 - **报告全景补强**：md 增「审计摘要（门闸判定分布）」与「跳板与隧道台账」两段，
