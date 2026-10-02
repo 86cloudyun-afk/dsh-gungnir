@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDemoSnapshot, listDashboardEngagements, readDashboardSnapshot } from './snapshot.js';
 import { parseDshPageRecords } from './conversation.js';
+import { normalizeDisplayText } from './model.js';
 
 const CHANNEL = '/warroom-dashboard';
 const BASE = '/gungnir-dashboard';
@@ -36,15 +37,14 @@ export function apply(ctx, config = {}) {
         checkSignal(signal);
         let value;
         if (endpoint === 'engagements') value = { engagements: listDashboardEngagements({ home }).filter((item) => item.engagement_id === scope.engagementId) };
-        else if (endpoint === 'sessions') value = { sessions: [{ id: scope.sessionId, title: scope.session.title || scope.sessionId }] };
+        else if (endpoint === 'sessions') value = { sessions: [{ id: scope.sessionId, title: normalizeDisplayText(scope.session.title) || normalizeDisplayText(scope.sessionId) }] };
         else if (endpoint === 'demo') value = createDemoSnapshot();
         else if (endpoint === 'snapshot') value = await readNativeSnapshot(ctx, home, scope, signal);
         else return failure('E_DASHBOARD_ENDPOINT', 'Unknown dashboard endpoint');
         checkSignal(signal);
         return { ok: true, value };
       } catch (error) {
-        if (error.code === 'E_DASHBOARD_SCOPE' || error.code === 'E_DASHBOARD_CANCELLED') return failure(error.code, error.message);
-        return failure(error.code || 'E_DASHBOARD_READ', safeErrorMessage(error));
+        return safeFailure(error);
       }
     });
     if (typeof connectionCtx.effect === 'function') connectionCtx.effect(install, 'gungnir-dashboard rpc');
@@ -141,5 +141,16 @@ function serveStatic(req, res) {
 function checkSignal(signal) { if (signal?.aborted) throw Object.assign(new Error('Request cancelled'), { code: 'E_DASHBOARD_CANCELLED' }); }
 function scopeError(message) { return Object.assign(new Error(message), { code: 'E_DASHBOARD_SCOPE' }); }
 function failure(code, message) { return { ok: false, error: { code, message, details: {} } }; }
-function safeErrorMessage(error) { return error.code?.startsWith('E_DASHBOARD_') ? error.message : 'Dashboard data could not be read'; }
+const SAFE_ERROR_MESSAGES = Object.freeze({
+  E_DASHBOARD_CANCELLED: 'Dashboard request was cancelled',
+  E_DASHBOARD_DATABASE: 'Dashboard database could not be read',
+  E_DASHBOARD_ENDPOINT: 'Unknown dashboard endpoint',
+  E_DASHBOARD_NOT_FOUND: 'Dashboard data was not found',
+  E_DASHBOARD_PATH: 'Dashboard data path is invalid',
+  E_DASHBOARD_SCOPE: 'Session is not authorized for this dashboard data',
+});
+function safeFailure(error) {
+  const knownCode = Object.hasOwn(SAFE_ERROR_MESSAGES, error?.code) ? error.code : 'E_DASHBOARD_READ';
+  return failure(knownCode, SAFE_ERROR_MESSAGES[knownCode] || 'Dashboard data could not be read');
+}
 async function disposeAll(disposers) { for (const dispose of disposers.splice(0).reverse()) if (typeof dispose === 'function') await dispose(); }

@@ -4,8 +4,8 @@
   "node_version": "v22.23.2",
   "exit_code": 0,
   "tests": {
-    "tests": 501,
-    "pass": 495,
+    "tests": 510,
+    "pass": 504,
     "fail": 0,
     "skipped": 6
   },
@@ -17,5 +17,11 @@
     "docs": 0,
     "self-review": 0
   },
-  "skip_reason": "Six existing host checks require DSH_BIN or DSH_PKG_DIR; the dashboard native smoke separately uses an explicit official installation anchor."
+  "skip_reason": "Six existing host checks require DSH_BIN or DSH_PKG_DIR; the dashboard native smoke separately uses an explicit official installation anchor.",
+  "dashboard_tests": {
+    "tests": 41,
+    "pass": 41,
+    "fail": 0,
+    "skipped": 0
+  }
 }

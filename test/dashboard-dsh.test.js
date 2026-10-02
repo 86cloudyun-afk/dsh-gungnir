@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
@@ -14,7 +14,7 @@ function homeFixture() {
   db.prepare(`INSERT INTO engagements (id,target_scope,window_start,window_end,allowed_means,action_class_limit,rhythm,auth_version,auth_object,auth_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run('eng-1','{}','','','','readonly','restricted',1,'{}','h','2026-10-03T00:00:00Z'); db.close();
   return { root, home };
 }
-function makeHost({ home, visible = ['s1'], bindings = { s1: 'eng-1' }, pageRecords = [] } = {}) {
+function makeHost({ home, visible = ['s1'], bindings = { s1: 'eng-1' }, pageRecords = [], titles = {} } = {}) {
   const calls = []; const routes = new Map(); const effects = []; const childDisposers = []; let disposed = false;
   const root = {
     webServer: { register(route) {
@@ -23,7 +23,7 @@ function makeHost({ home, visible = ['s1'], bindings = { s1: 'eng-1' }, pageReco
     } },
     connection: { rpc: { handle(channel, fn) { calls.push({ channel, fn }); return async () => { disposed = true; }; } } },
     sessionController: {
-      async list(request, signal) { assert.deepEqual(request, {}); if (signal.aborted) throw signal.reason; return { items: visible.map((sessionId) => ({ sessionId })) }; },
+      async list(request, signal) { assert.deepEqual(request, {}); if (signal.aborted) throw signal.reason; return { items: visible.map((sessionId) => ({ sessionId, title: titles[sessionId] })) }; },
       async inspect(sessionId, signal) { assert.equal(sessionId, 's1'); if (signal.aborted) throw signal.reason; return { events: pageRecords.map((record) => record.event) }; },
       async page(request, signal) { if (signal.aborted) throw signal.reason; return { records: pageRecords, hasMore: false }; },
     },
@@ -68,6 +68,34 @@ test('native RPC validates visible fixed binding every time and returns Connecti
   const mismatch = await rpc('snapshot', { sessionId: 's1', engagementId: 'eng-2' }, new AbortController().signal, {});
   assert.equal(mismatch.ok, false); assert.equal(mismatch.error.code, 'E_DASHBOARD_SCOPE');
   assert.deepEqual((await rpc('sessions', { sessionId: 's1' }, new AbortController().signal, {})).value, { sessions: [{ id: 's1', title: 's1' }] });
+  rmSync(f.root, { recursive: true, force: true });
+});
+
+test('native session display title is redacted while session identity remains exact', async () => {
+  const f = homeFixture();
+  const host = makeHost({ home: f.home, titles: { s1: 'Campaign token=EXAMPLESECRETVALUE123456' } });
+  const response = await host.calls[0].fn('sessions', { sessionId: 's1' }, new AbortController().signal, {});
+  assert.equal(response.value.sessions[0].id, 's1');
+  assert.equal(response.value.sessions[0].title.includes('EXAMPLESECRETVALUE123456'), false);
+  assert.match(response.value.sessions[0].title, /\[REDACTED:kv-secret\]/);
+  rmSync(f.root, { recursive: true, force: true });
+});
+
+test('native read failures use stable messages without local paths or underlying errors', async () => {
+  const f = homeFixture(); const absent = join(f.root, 'private-dashboard-example-does-not-exist');
+  const host = makeHost({ home: absent });
+  const missing = await host.calls[0].fn('engagements', { sessionId: 's1' }, new AbortController().signal, {});
+  assert.equal(missing.ok, false); assert.equal(missing.error.code, 'E_DASHBOARD_PATH');
+  assert.equal(missing.error.message, 'Dashboard data path is invalid');
+  assert(!JSON.stringify(missing).includes(f.root)); assert(!JSON.stringify(missing).includes('ENOENT'));
+  const corruptHome = join(f.root, 'corrupt-home'); mkdirSync(corruptHome);
+  mkdirSync(join(corruptHome, 'engagements', 'eng-1'), { recursive: true });
+  writeFileSync(join(corruptHome, 'engagements', 'eng-1', 'fact.db'), 'not sqlite');
+  const corruptHost = makeHost({ home: corruptHome });
+  const corrupt = await corruptHost.calls[0].fn('snapshot', { sessionId: 's1', engagementId: 'eng-1' }, new AbortController().signal, {});
+  assert.equal(corrupt.ok, false); assert.equal(corrupt.error.code, 'E_DASHBOARD_DATABASE');
+  assert.equal(corrupt.error.message, 'Dashboard database could not be read');
+  assert(!JSON.stringify(corrupt).includes(corruptHome)); assert(!JSON.stringify(corrupt).includes('not a database'));
   rmSync(f.root, { recursive: true, force: true });
 });
 

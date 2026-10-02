@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
 import { FactStore } from '../packages/warroom-core/src/store.js';
 import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
-import { readDashboardSnapshot, listDashboardEngagements, createDemoSnapshot } from '../packages/warroom-dashboard/src/snapshot.js';
+import { readDashboardSnapshot, listDashboardEngagements, createDemoSnapshot, projectFacts } from '../packages/warroom-dashboard/src/snapshot.js';
 
 const NOW = '2026-10-03T00:45:00.000Z';
 const sha = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -156,4 +156,52 @@ test('demo has a closed four-route, five-rank graph and navigable synthetic conv
 
 test('superseding a fact revision keeps its triple identity',()=>{
  const x=fixture();try{const before=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});const node=before.nodes.find((item)=>item.source_id==='revision-1');assert(node.id.startsWith('fact:'));assert.equal(node.state,'unknown');const db=new DatabaseSync(x.factPath);db.prepare('UPDATE fact_members SET active=0 WHERE adapter_instance=? AND entity_type=? AND source_id=? AND active=1').run('adapter-A','asset','revision-1');db.prepare('INSERT INTO fact_members(adapter_instance,entity_type,source_id,revision_no,content_hash,payload,active,ts) VALUES(?,?,?,?,?,?,?,?)').run('adapter-A','asset','revision-1',3,'h3',JSON.stringify({label:'third revision'}),1,'2026-10-03T02:45:00Z');db.close();const after=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});assert.equal(after.nodes.find((item)=>item.source_id==='revision-1').id,node.id);assert.equal(after.nodes.find((item)=>item.source_id==='revision-1').label,'third revision');}finally{closeFixture(x);}
+});
+
+test('fact display labels are redacted without changing stable IDs or topology',()=>{
+ const x=fixture();try{
+  const before=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});
+  const nodeBefore=before.nodes.find((item)=>item.source_id==='chain-1');
+  const edgesBefore=before.edges.map(({id,from,to,kind,route_ids})=>({id,from,to,kind,route_ids}));
+  const markedEdge=before.edges.find((item)=>item.label==='fork step');
+  const db=new DatabaseSync(x.factPath);
+  db.prepare('UPDATE fact_members SET payload=? WHERE adapter_instance=? AND entity_type=? AND source_id=? AND active=1')
+   .run(JSON.stringify({label:'Chain token=EXAMPLESECRETVALUE123456',steps:[{from:'only-source',to:'asset-end',via:'Route token=EXAMPLESECRETVALUE123456'}]}),'adapter-A','chain','chain-1');
+  db.prepare('INSERT INTO fact_members(adapter_instance,entity_type,source_id,revision_no,content_hash,payload,active,ts) VALUES(?,?,?,?,?,?,?,?)')
+   .run('adapter-A','asset','fallback-node',1,'fallback-hash',JSON.stringify({}),1,'2026-10-03T02:45:00.000Z');
+  db.close();
+  const after=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW});
+  const nodeAfter=after.nodes.find((item)=>item.source_id==='chain-1');
+  assert.equal(nodeAfter.id,nodeBefore.id); assert.equal(nodeAfter.source_id,'chain-1');
+  assert(!nodeAfter.label.includes('EXAMPLESECRETVALUE123456'));
+  assert.match(nodeAfter.label,/\[REDACTED:kv-secret\]/);
+  const edgeAfter=after.edges.find((item)=>item.id===markedEdge.id);
+  assert(edgeAfter); assert(!edgeAfter.label.includes('EXAMPLESECRETVALUE123456'));
+  assert.match(edgeAfter.label,/\[REDACTED:kv-secret\]/);
+  assert.equal(after.nodes.find((item)=>item.source_id==='fallback-node').label,'fallback-node');
+  assert(!JSON.stringify(after).includes('EXAMPLESECRETVALUE123456'));
+  assert.deepEqual(after.edges.map(({id,from,to,kind,route_ids})=>({id,from,to,kind,route_ids})),edgesBefore);
+ }finally{closeFixture(x);}
+});
+
+test('missing-label fallback is redacted while raw source references and triple IDs stay stable',()=>{
+ const sourceId='asset-secret=EXAMPLESECRETVALUE123456';
+ const rows=[
+  {adapter_instance:'adapter-A',entity_type:'asset',source_id:sourceId,active:1,payload:JSON.stringify({})},
+  {adapter_instance:'adapter-A',entity_type:'asset',source_id:'asset-target',active:1,payload:JSON.stringify({})},
+  {adapter_instance:'adapter-A',entity_type:'chain',source_id:'chain-reference',active:1,payload:JSON.stringify({steps:[{from:sourceId,to:'asset-target',via:'chain-step'}]})},
+ ];
+ const project=()=>projectFacts(rows,{warnings:[],unresolved_refs:0,ambiguous_refs:0});
+ const fallback=project();
+ const fallbackNode=fallback.nodes.find((node)=>node.source_id===sourceId);
+ assert.equal(fallbackNode.source_id,sourceId);
+ assert(!fallbackNode.label.includes('EXAMPLESECRETVALUE123456'));
+ assert.match(fallbackNode.label,/\[REDACTED:kv-secret\]/);
+ const target=fallback.nodes.find((node)=>node.source_id==='asset-target');
+ assert.deepEqual(fallback.edges.map(({from,to})=>({from,to})),[{from:fallbackNode.id,to:target.id}]);
+ const originalId=fallbackNode.id;
+ rows[0].payload=JSON.stringify({label:'asset label'});
+ const labeled=project();
+ assert.equal(labeled.nodes.find((node)=>node.source_id===sourceId).id,originalId);
+ assert.deepEqual(labeled.edges.map(({from,to})=>({from,to})),[{from:originalId,to:target.id}]);
 });

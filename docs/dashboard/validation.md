@@ -4,9 +4,9 @@
 
 ## 自动化与浏览器
 
-Dashboard 定向套件 32/32，通过真实临时 SQLite、错误/秘密边界、图结构、桥接协议和 Host/Client 契约回归。六道门禁通过；完整测试计数 501，其中通过 495、失败 0；6 项既有宿主集成检查因未设置 DSH_BIN/DSH_PKG_DIR 按守卫跳过。战图原生检查另以显式官方安装入口实际跑通。[门禁结果](evidence/gates-result.json)基于 main 6adbb9c。
+Dashboard 定向套件 41/41，通过真实临时 SQLite、错误/秘密边界、图结构、桥接协议和 Host/Client 契约回归。六道门禁通过；完整测试计数 510，其中通过 504、失败 0；6 项既有宿主集成检查因未设置 DSH_BIN/DSH_PKG_DIR 按守卫跳过。战图原生检查另以显式官方安装入口实际跑通。[门禁结果](evidence/gates-result.json)基于 main 6adbb9c。
 
-[本地浏览器结果](evidence/browser-result.json)通过实际 HTTP→SQLite→SVG 链路：21 节点/23 边/4 条跳板路线、显式会话选择、对话双向定位、route/task 引用、键盘 Enter/Space、刷新焦点保留、共享跳板候选、折叠/缩放/拖动/适配、长标签与恶意文本、部分图诊断、真实读取失败后的旧图清空。另以 261 节点 SQLite 验证孤立证据、全部连线和折叠后的精确搜索。桌面 1440×1000，窄屏 390×844；无横向页面溢出，零 page errors。两库读取前后 SHA-256 不变。
+[本地浏览器结果](evidence/browser-result.json)通过实际 HTTP→SQLite→SVG 链路：21 节点/23 边/4 条跳板路线、显式会话选择、对话双向定位、route/task 引用、键盘 Enter/Space、刷新焦点保留、共享跳板候选、折叠/缩放/拖动/适配、安全等价证据 8→7 节点折叠、断开路径保留及原 ID 搜索高亮、长标签与恶意文本、部分图诊断、真实读取失败后的旧图清空。另以 261 节点 SQLite 验证孤立证据、全部连线和折叠后的精确搜索。桌面 1440×1000，窄屏 390×844；无横向页面溢出，零 page errors。两库读取前后 SHA-256 不变。
 
 [实际 DSH 结果](evidence/native-result.json)使用当前安装的官方 DSH 0.2.0-rc.2：按 Loader manifest 加载 Node/Client 两端，从 conversation.view 的“战图”页签进入；官方 Session.append/flush 只写临时合成日志，inspect/page 冷读得到 4 条正文，与 21 节点战图联动。官方 cookie 登录跳转到干净 URL；匿名 RPC 返回 401；已登录的跨 engagement 和可见但未绑定的 session 返回 E_DASHBOARD_SCOPE。浏览器验证 opaque iframe 无法读取 parent DOM，原生静态资源 CSP 为 connect-src none。零 page errors，两库哈希不变，宿主与夹具均已关闭/清理。这不代表生产宿主或真实战斗数据已验收。
 

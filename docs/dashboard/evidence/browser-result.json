@@ -7,6 +7,7 @@
     "collapse keeps risk/route notes; full view, zoom, fit, pan and exact-ID search",
     "explicit synthetic demo; desktop and narrow-screen screenshots",
     "partial totals, reference ambiguity, shared-jump choices, expired risk and malicious/long labels",
+    "actual SVG folds equivalent evidence, preserves disconnected paths and original-ID highlight, and expands by keyboard",
     "real failure clears stale demo/scope data and never fabricates a graph",
     "actual 261-node SQLite graph preserves disconnected evidence, edges and exact search through folding",
     "fact/global database hashes unchanged; zero page errors"

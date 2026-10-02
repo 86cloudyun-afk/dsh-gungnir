@@ -1,4 +1,4 @@
-import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary, messageMatchesSelection, retainSelection } from './graph.js';
+import { layoutGraph, focusedSubgraph, collapseEvidence, collapseEvidenceGraph, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary, messageMatchesSelection, retainSelection } from './graph.js';
 import { requestData } from './transport.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -155,7 +155,7 @@ function render() {
 }
 
 function renderGraph(svg, snapshot, focus, options = {}) {
-  const renderSnapshot = svg.id === 'global-graph' && state.collapsed ? withCollapsedEvidence(snapshot) : snapshot;
+  const renderSnapshot = svg.id === 'global-graph' && state.collapsed ? collapseEvidenceGraph(snapshot) : snapshot;
   const layout = layoutGraph(renderSnapshot, options);
   svg.replaceChildren();
   svg.setAttribute('viewBox', `0 0 ${layout.bounds.width} ${layout.bounds.height}`);
@@ -184,16 +184,17 @@ function renderGraph(svg, snapshot, focus, options = {}) {
   const edgeGroup = element('g');
   for (const edge of relevantEdges) {
     const path = edge.points.map((point, index) => `${index ? 'L' : 'M'}${point.x},${point.y}`).join(' ');
-    edgeGroup.append(element('path', { d: path, class: `graph-edge ${edge.kind === 'reference' ? 'reference' : ''} ${edge.kind === 'aggregate' ? 'aggregate' : ''} ${isRelated(edge, focus) ? 'related' : ''}`, 'marker-end': `url(#${svg.id}-arrow)` }, `${edge.label || '关系'} · ${edge.id} · 来源 ${edge.from} → ${edge.to} · routes ${(edge.route_ids || []).join(', ') || '未知'}`));
+    edgeGroup.append(element('path', { d: path, class: `graph-edge ${edge.kind === 'reference' ? 'reference' : ''} ${edge.aggregate || edge.kind === 'aggregate' ? 'aggregate' : ''} ${isRelated(edge, focus) ? 'related' : ''}`, 'marker-end': `url(#${svg.id}-arrow)` }, `${edge.label || '关系'} · ${edge.id} · 来源 ${edge.from} → ${edge.to} · routes ${(edge.route_ids || []).join(', ') || '未知'}`));
   }
   svg.append(edgeGroup);
   const nodeGroup = element('g');
   for (const node of layout.nodes) {
-    const aggregate = node.id === 'aggregate:evidence';
+    const aggregate = node.kind === 'evidence-aggregate' || Boolean(node.aggregate_source_ids?.length);
     const selection = state.selection;
-    const selected = selection?.kind === 'node' ? node.id === selection.id : selection && selection.node_ids?.includes(node.id);
-    const group = element('g', { class: `graph-node status-${safeState(node.state)} ${selected ? 'selected' : ''}`, tabindex: '0', role: 'button', 'aria-label': aggregate ? `展开聚合证据：${node.label}；共享来源 ${(node.aggregate_sources || []).join(', ')}` : nodeDescription(node), 'data-node-id': node.id });
-    group.append(element('title', {}, aggregate ? `展开证据聚合；${node.label}；隐藏来源 ${(node.aggregate_sources || []).join(', ')}；共享路线 ${(node.route_ids || []).join(', ')}` : nodeDescription(node)));
+    const selected = selection?.kind === 'node' ? node.id === selection.id || node.aggregate_source_ids?.includes(selection.id) : selection && selection.node_ids?.some((id) => node.id === id || node.aggregate_source_ids?.includes(id));
+    const aggregateDetail = `展开证据聚合；${node.label}；完整节点 ID ${(node.aggregate_source_ids || []).join(', ')}；来源 ${(node.aggregate_sources || []).join(', ')}；路线 ${(node.route_ids || []).join(', ')}；任务 ${(node.task_ids || []).join(', ')}；状态 ${node.state || '未知'}；历史最高证明 ${node.highest_proof || '未知'}；当前有效性 ${node.current_validity || '未知'}；风险 ${node.risk || node.risk_state || '无'}`;
+    const group = element('g', { class: `graph-node status-${safeState(node.state)} ${selected ? 'selected' : ''}`, tabindex: '0', role: 'button', 'aria-label': aggregate ? aggregateDetail : nodeDescription(node), 'data-node-id': node.id });
+    group.append(element('title', {}, aggregate ? aggregateDetail : nodeDescription(node)));
     group.append(element('rect', { x: String(node.x), y: String(node.y), width: String(node.width), height: String(node.height), rx: '1' }));
     group.append(element('rect', { x: String(node.x + 10), y: String(node.y + (node.height - 9) / 2), width: '9', height: '9', class: 'state-mark' }));
     const baseline = node.height <= 32 ? 22 : 26;
@@ -205,7 +206,10 @@ function renderGraph(svg, snapshot, focus, options = {}) {
   svg.append(nodeGroup);
   if (state.collapsed && svg.id === 'global-graph') {
     const summary = collapseEvidence(state.snapshot, { includeEvidence: false });
-    svg.append(element('text', { x: String(layout.bounds.width - 12), y: '17', 'text-anchor': 'end', class: 'layer-label' }, `证据折叠 ${summary.hidden_node_count} 项 · 风险 ${summary.anomalies.length} 项 · routes ${summary.route_notes.length}`));
+    const foldLabel = summary.hidden_node_count
+      ? `聚合 ${summary.hidden_node_count} 项 · 原样保留 ${summary.retained_node_count} 项`
+      : `无可安全合并项 · 原样保留 ${summary.retained_node_count} 项`;
+    svg.append(element('text', { x: String(layout.bounds.width - 12), y: '17', 'text-anchor': 'end', class: 'layer-label' }, `${foldLabel} · 风险 ${summary.anomalies.length} 项 · routes ${summary.route_notes.length}`));
   }
   const overallSummary = snapshotSummary(state.snapshot);
   const summary = {
@@ -217,31 +221,6 @@ function renderGraph(svg, snapshot, focus, options = {}) {
   const container = svg.parentElement;
   container?.querySelector('.map-count-summary')?.remove();
   container?.prepend(element('div', { class: 'map-count-summary', role: 'status' }, `${summary.partial ? '部分图 · ' : ''}${countLabel('nodes')} · ${countLabel('edges')} · ${countLabel('routes')} · ${countLabel('tasks')} · 未解析 ${summary.unresolved} · 歧义 ${summary.ambiguous}`));
-}
-
-function withCollapsedEvidence(snapshot) {
-  const collapsed = collapseEvidence(snapshot, { includeEvidence: false });
-  if (!collapsed.hidden_node_count) return snapshot;
-  const hiddenIds = new Set(snapshot.nodes.filter((node) => node.layer === 2).map((node) => node.id));
-  const bad = snapshot.nodes.filter((node) => hiddenIds.has(node.id));
-  const aggregate = {
-    id: 'aggregate:evidence', source_id: 'aggregate:evidence', adapter_instance: 'aggregate', entity_type: 'evidence-aggregate',
-    label: `证据聚合 ${collapsed.hidden_node_count}项`,
-    layer: 2, state: bad.some((node) => node.state === 'failed') ? 'failed' : bad.some((node) => node.state === 'pending') ? 'pending' : 'unknown',
-    route_ids: collapsed.aggregate_nodes[0].shared_route_ids, aggregate_sources: bad.map((node) => node.source_id), task_ids: [], highest_proof: null, current_validity: null, updated_at: null,
-  };
-  const remap = (id) => hiddenIds.has(id) ? aggregate.id : id;
-  const seen = new Set();
-  const edges = [];
-  for (const edge of snapshot.edges) {
-    const from = remap(edge.from); const to = remap(edge.to);
-    if (from === to) continue;
-    const key = `${from}\0${to}\0${edge.kind}\0${(edge.route_ids || []).join(',')}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    edges.push({ ...edge, id: `${edge.id}:collapsed`, from, to, kind: hiddenIds.has(edge.from) || hiddenIds.has(edge.to) ? 'aggregate' : edge.kind, label: hiddenIds.has(edge.from) || hiddenIds.has(edge.to) ? '聚合证据依赖' : edge.label });
-  }
-  return { ...snapshot, nodes: [...snapshot.nodes.filter((node) => !hiddenIds.has(node.id)), aggregate], edges };
 }
 
 function renderRoutes(snapshot) {
@@ -319,7 +298,7 @@ function renderAnomalies(snapshot, focus) {
   root.append(element('span', { class: 'anomaly-chip state-failed' }, `失败 ${failed}`));
   root.append(element('span', { class: 'anomaly-chip state-pending' }, `待核验 ${pending}`));
   root.append(element('span', { class: 'anomaly-chip state-unknown' }, `租约过期 ${expired}`));
-  if (state.collapsed) root.append(element('span', { class: 'anomaly-chip state-pending' }, `证据聚合 ${summary.hidden_node_count} 项 · 共享依赖保留`));
+  if (state.collapsed) root.append(element('span', { class: 'anomaly-chip state-pending' }, `已聚合 ${summary.hidden_node_count} 项 · 原样保留 ${summary.retained_node_count} 项 · 共享依赖保留`));
   if (focus) root.append(element('span', { class: 'anomaly-chip' }, `局部 ${focus.node_ids.length} 节点 / ${focus.edge_ids.length} 边 · ${focus.route_notes.length} 条 route 备注保留`));
   if (items.length || warnings.length) {
     const details = element('details', { class: 'diagnostic-details' });
@@ -331,7 +310,7 @@ function renderAnomalies(snapshot, focus) {
 }
 
 function selectNode(id, scroll) {
-  if (id === 'aggregate:evidence') { state.collapsed = false; $('#collapse-evidence').setAttribute('aria-pressed', 'false'); render(); return; }
+  if (id === 'aggregate:evidence' || id.startsWith('aggregate:evidence:')) { state.collapsed = false; $('#collapse-evidence').setAttribute('aria-pressed', 'false'); render(); return; }
   if (!state.snapshot?.nodes.some((node) => node.id === id)) return;
   state.selection = { kind: 'node', id };
   state.selectedId = id; render();
