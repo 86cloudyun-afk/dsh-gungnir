@@ -598,6 +598,10 @@
                 "blue"
               ]
             }
+          },
+          "checklist": {
+            "type": "boolean",
+            "description": "true=随包生成 DELIVERY_CHECKLIST.md（默认 true）"
           }
         },
         "required": [
