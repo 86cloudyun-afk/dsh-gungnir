@@ -1,6 +1,6 @@
 // Broker：唯一副作用通道（ADR-001 D1/D2）+ 命令队列 + 撤销级联 + 代际收集（ADR-003）。
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
   RHYTHM_MIN_INTERVAL_MS, RHYTHM_JITTER_MS, RHYTHM_HOURLY_DRIFT,
@@ -401,6 +401,14 @@ export class Broker {
   exportEvidence(engagementId, { outDir, target = null } = {}) {
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
     return exportEvidence({ broker: this, engagementId, outDir: dir, target });
+  }
+
+  /** 枚举家目录下的战役 id（用于跨战役巡检；库缺失即跳过）。 */
+  listEngagements() {
+    const dir = join(this.home, 'engagements');
+    try {
+      return readdirSync(dir).filter((n) => existsSync(join(dir, n, 'fact.db')));
+    } catch { return []; }
   }
 
   _engWithRow(engagementId) {

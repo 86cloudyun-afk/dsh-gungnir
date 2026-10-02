@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **活跃 route 生命周期**：`heartbeatRoute`（续期租约 + 刷新路由时间 + 留痕）、
+  `sweepRoutes`（租约释放/到期或长时无心跳 → 路由转 `stale`，围栏不再取该出口，
+  只改状态不删记录）；工具 `warroom_jumps` 增 `sweep_routes` / `heartbeat`，CLI `jump sweep-routes|heartbeat`；
+  战役清单由宿主注入（路由属战役库，global 无索引）
 - 文档收口：ACCEPTANCE 增 8 行（备份保留/波次联动/自校验/事实查询/出口实跑/套件入口）、
   README 数字同步（229 例 / 26 工具）、QUICKSTART 增「全部子命令索引」
 - **一致性套件独立入口**：`scripts/conformance.mjs [--module <path>]` + CLI `warroom conformance`
