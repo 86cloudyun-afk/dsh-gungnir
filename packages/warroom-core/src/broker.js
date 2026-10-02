@@ -210,9 +210,12 @@ export class Broker {
     const instance = this.adapter.instanceId ?? 'adapter-1';
     if (receipt.generation !== cmd.generation) {
       store.quarantineStaleGeneration({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
+      this._gate(engagement_id, 'collect', { task_id: cmd.task_id, accepted: false, quarantined: 'generation' });
       return { accepted: false, quarantined: 'generation' };
     }
     const r = store.ingestMembers({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
+    // 留时间戳：效率四段观测（§11）需要"交接/执行"分段的实测边界
+    this._gate(engagement_id, 'collect', { task_id: cmd.task_id, accepted: true, seq: r.seq });
     return { accepted: true, seq: r.seq, results: redactDeep(r.results, this.secrets.values()) };
   }
 
@@ -250,8 +253,8 @@ export class Broker {
 
     // 返工：同一任务被重派（attempt > 1）即计一次返工
     const cmds = this.global.prepare(
-      'SELECT command_id, task_id, attempt, state FROM command_queue WHERE engagement_id = ?'
-    ).all(engagementId);
+      'SELECT command_id, task_id, attempt, state, ts FROM command_queue WHERE engagement_id = ?'
+    ).all(engagementId);   // ts 必须取：四段观测的"派发时刻"基准
     const reworked = cmds.filter((c) => (c.attempt ?? 1) > 1);
     const unresolved = cmds.filter((c) => c.state === 'unresolved');
     const unknown = cmds.filter((c) => c.state === 'unknown');
@@ -279,6 +282,7 @@ export class Broker {
 
     return {
       // 端到端视角
+      segments: this._segments(engagementId, cmds, store),
       tasks: rows.length,
       commands: cmds.length,
       tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'),
@@ -607,6 +611,61 @@ export class Broker {
           : '尚未做过出口验证（requireEgressCheck=true）：请先 warroom egress record');
     }
     return { enforced: true, last: st.last };
+  }
+
+  /**
+   * 效率四段观测（框架 §11）：排队 / 交接 / 执行 / 失败与返工。
+   * 全部由**已有时间戳**算：command_queue.ts（派发）、gate_log.collect（首次回执）、
+   * gate_log.settle（结项）、engagements.created_at（立项）。无数据一律 null，不编造。
+   */
+  _segments(engagementId, cmds, store) {
+    const eng = store.db.prepare('SELECT created_at FROM engagements WHERE id = ?').get(engagementId);
+    const logs = store.db.prepare(
+      "SELECT decision, ts, detail, request_json FROM gate_log WHERE decision IN ('collect','settle','redispatch') ORDER BY id"
+    ).all();
+    const firstByTask = (decision) => {
+      const map = new Map();
+      for (const l of logs) {
+        if (l.decision !== decision) continue;
+        // gate_log 把事件负载写在 detail（JSON 字符串），旧行可能在 request_json
+        const raw = l.request_json ?? l.detail ?? '{}';
+        let req = {};
+        try { req = JSON.parse(raw); } catch { /* 忽略坏行 */ }
+        const tid = req.task_id;
+        if (tid && !map.has(tid)) map.set(tid, Date.parse(l.ts));
+      }
+      return map;
+    };
+    const collects = firstByTask('collect');
+    const settles = firstByTask('settle');
+
+    const handoffs = [];
+    const execs = [];
+    let reworkMs = 0;
+    let reworked = 0;
+    for (const c of cmds) {
+      const dispatchTs = Date.parse(c.ts);
+      const collectTs = collects.get(c.task_id) ?? null;
+      const settleTs = settles.get(c.task_id) ?? null;
+      if (collectTs) handoffs.push(Math.max(0, collectTs - dispatchTs));
+      if (collectTs && settleTs) execs.push(Math.max(0, settleTs - collectTs));
+      if ((c.attempt ?? 1) > 1) {
+        reworked += 1;
+        if (settleTs) reworkMs += Math.max(0, settleTs - dispatchTs);
+      }
+    }
+    const avg = (arr) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
+    const firstDispatch = cmds.length ? Math.min(...cmds.map((c) => Date.parse(c.ts))) : null;
+    const created = eng?.created_at ? Date.parse(eng.created_at) : null;
+
+    return {
+      queue_ms: (created !== null && firstDispatch !== null) ? Math.max(0, firstDispatch - created) : null,
+      handoff_ms: avg(handoffs),
+      exec_ms: avg(execs),
+      samples: { handoff: handoffs.length, exec: execs.length },
+      rework: { tasks: reworked, wall_ms: reworked > 0 ? reworkMs : null },
+      basis: 'command_queue.ts → gate_log.collect → gate_log.settle（无对应事件则为 null）',
+    };
   }
 
   // ── 审计（一切动作可追溯：门闸每次判定都留痕，这里给出查询与导出）────────────
