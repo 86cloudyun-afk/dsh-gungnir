@@ -15,7 +15,9 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 | CI 闸 | 六道本地闸（验收套件 / 工具 schema / 预设允许清单 / 故障矩阵 / 工具文档与看板契约同步 / 自审闸）+ **两个真跑 CI job**：围栏真实容器（`fence`）、执行层跨进程演练（`drill`） |
 | 故障矩阵 | 21 场景（丢回包/乱序/写失败/残留/重启/撤销/备份恢复/密钥/配置/版本/迁移/路由/心跳/知识库/交付边界/门禁/确认边界/归档幂等/门禁同源） |
 | 工具 | 36 个 `warroom_*`（schema 严格校验） |
-| 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（含如实标注的缺口与计划） |
+| 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（逐条状态 + 证据命令） |
+| 最终审计 | [docs/FINAL-AUDIT.md](docs/FINAL-AUDIT.md)（§8 十二项 11/12 闭环；未闭环项均需操作员 DSH 环境） |
+| 故障矩阵 | [docs/FAULT-MATRIX.md](docs/FAULT-MATRIX.md)（21 场景：场景/期望/契约归属） |
 
 ## 六件套与动线（一屏）
 
