@@ -119,7 +119,7 @@ export class KnowledgeBase {
   usageByEngagement(engagementId) {
     const rows = this.db.prepare(`
       SELECT u.code, u.asset, u.result, u.ts, p.title, p.category
-      FROM poc_usage u LEFT JOIN pocs p ON p.code = u.code
+      FROM poc_usage u LEFT JOIN poc p ON p.code = u.code
       WHERE u.engagement_id = ? ORDER BY u.id
     `).all(engagementId);
     const byResult = rows.reduce((acc, r) => {
