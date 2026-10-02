@@ -77,3 +77,12 @@ test('deploy 脚本 --apply 幂等且先备份', async () => {
   const backups = readdirSync(profile).filter((f) => f.startsWith('cordis.patch.yml.bak-warroom-'));
   assert.equal(backups.length, 1, '首次 apply 应留一份备份，第二次（幂等）不留新备份');
 });
+
+test('deploy --print 的挂载 name 等于真实包名 dsh-warroom（防名不匹配回归）', async () => {
+  const { readFileSync } = await import('node:fs');
+  const pkg = JSON.parse(readFileSync(new URL('../packages/warroom-plugin/package.json', import.meta.url), 'utf8'));
+  const snippet = execFileSync('node', ['scripts/deploy-dsh.mjs', '--print'], { encoding: 'utf8' });
+  // 片段里的 name 必须正是真实包名（否则 dsh 挂载 require.resolve → MODULE_NOT_FOUND）
+  assert.match(snippet, new RegExp(`name:\\s*${pkg.name}(\\s|$)`, 'm'));
+  assert.doesNotMatch(snippet, /dsh-warroom-preset/, '不得再出现错误包名 dsh-warroom-preset');
+});
