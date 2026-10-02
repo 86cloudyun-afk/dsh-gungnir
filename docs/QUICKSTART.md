@@ -156,6 +156,15 @@ node bin/warroom.mjs config show            # 查看当前生效配置
 默认值覆盖：`rhythm`（新战役默认节奏档）、`timeoutMin`（sweep 超时）、`adapterKind`、
 `bridgeTimeoutMs`、`fenceImage`、`waveConcurrency`。**拼错字段会报错**，不会被静默忽略。
 
+## 7.95 adapter 一致性自检（写自己的执行层时）
+
+```sh
+node scripts/conformance.mjs                       # 对内置 fake adapter 跑（回归）
+node scripts/conformance.mjs --module ./my.mjs     # 对你自己的 adapter 跑（SPI rev2 契约）
+```
+
+契约要点、失败项含义见 [ADR-003](adr/ADR-003-adapter-lifecycle.md)。
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
