@@ -379,7 +379,7 @@ export class Broker {
   // ── 报告导出（框架 §5：水位 + IOC 附录 + 脱敏）──────────────────────────────
   buildReport(engagementId, { maxFactsPerType = 50 } = {}) {
     const { row, store } = this._engWithRow(engagementId);
-    return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, maxFactsPerType });
+    return buildReport({ store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, home: this.home, maxFactsPerType });
   }
 
   /** 复现校验：给定报告正文，对照当前库判定是否仍可复现。 */
@@ -392,8 +392,8 @@ export class Broker {
     const { row, store } = this._engWithRow(engagementId);
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
     return exportReportFile({
-      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir, format,
-      maxFactsPerType,
+      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, home: this.home,
+      outDir: dir, format, maxFactsPerType,
     });
   }
 
