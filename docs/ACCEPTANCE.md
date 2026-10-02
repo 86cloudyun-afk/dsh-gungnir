@@ -87,11 +87,15 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 密钥轮换 | 旧秘密仍可解；归档 600；缺密钥明确报错 | `test/secrets.test.js` | ✅ |
+| 报告体量控制 | md 截断给计数；JSON 全量 | `test/ioc-report.test.js` | ✅ |
+| 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
+| 故障矩阵扩展 | 11 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
 
 ## 数字快照
 
-- 测试：186 例（`node --test`）
-- CI 闸：6（测试 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 工具文档同步 / 自审闸）
+- 测试：197 例（`node --test`）
+- CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=5（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.7`（批次 1–6 已合并）
+- 标签：`v0.1.0-alpha.7`（批次 1–6 已合并；批次 7 合并时升 alpha.8）
