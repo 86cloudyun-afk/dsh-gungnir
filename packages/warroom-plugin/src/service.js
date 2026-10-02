@@ -8,6 +8,7 @@ import { FakeAdapter } from '../../warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../../warroom-core/src/adapters/redteam-mode.js';
 import { DshRedteamDriver } from '../../warroom-core/src/adapters/dsh-bridge.js';
 import { rehydrate } from '../../warroom-core/src/rehydrate.js';
+import { loadConfig } from '../../warroom-core/src/config.js';
 
 export const SERVICE_NAME = 'warroom';
 
@@ -29,9 +30,11 @@ export function makeAdapter(kind = 'fake', opts = {}) {
  * 工厂：创建 GUNGNIR 服务（host 平面）。
  * @param {{home:string, adapterKind?:string, adapter?:object}} opts
  */
-export function createWarroomService({ home, adapterKind = 'fake', adapter } = {}) {
+export function createWarroomService({ home, adapterKind = null, adapter } = {}) {
   if (!home) throw new Error('createWarroomService 需要 home');
-  const broker = new Broker({ home, adapter: adapter ?? makeAdapter(adapterKind, { home }) });
+  const cfg = loadConfig(home);
+  const kind = adapterKind ?? cfg.adapterKind;
+  const broker = new Broker({ home, adapter: adapter ?? makeAdapter(kind, { home }) });
   const jumps = new JumphostManager({
     globalDb: broker.global,
     getFactStore: (id) => broker._eng(id).store,
