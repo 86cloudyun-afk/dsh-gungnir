@@ -33,6 +33,36 @@ const yamlSnippet = `- insert:
         home: !!js dshHomePath('warroom')
 `;
 
+/**
+ * 把 insert 片段并入现有 overlay，始终产出**合法 YAML**（顶层块序列）。
+ * 兼容三种现状：①缺文件/空白 ②DSH 首启写的 `[]` flow 空数组存根 ③本脚本已写的块序列。
+ * 关键修复：绝不把块序列项 `- insert:` 直接字符串拼在 flow 空数组 `[]` 之后——
+ * 那会得到 `[]` 与块序列混用的非法 YAML，dsh 启动解析 overlay 直接报
+ * 「end of the stream or a document separator is expected」而整条挂载失效。
+ * 注释头保留；对 `[]` 存根则丢弃该 token、改写成等价的块序列。
+ */
+export function mergeOverlay(current, snippet) {
+  const text = current ?? '';
+  const comments = [];
+  let hasEntries = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    const t = line.trim();
+    if (t === '') continue;
+    if (t.startsWith('#')) { comments.push(line); continue; }
+    if (t === '[]') continue;      // flow 空数组存根：丢弃，用块序列取代
+    hasEntries = true;             // 其它任何非注释内容都视为已有条目（块序列）
+  }
+  const body = snippet.trimEnd();
+  if (hasEntries) {
+    // 已有块序列：安全追加另一个顶层条目（原文整体保留）
+    return `${text.trimEnd()}\n\n${body}\n`;
+  }
+  // 空 overlay：保留注释头，写成顶层块序列（不残留 `[]`）
+  const head = comments.length ? `${comments.join('\n')}\n\n` : '';
+  return `${head}${body}\n`;
+}
+
 function report(lines) { console.log(lines.join('\n')); }
 
 if (v.print) {
@@ -64,7 +94,7 @@ if (v.apply) {
     const backup = `${patchPath}.bak-warroom-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     if (existsSync(patchPath)) copyFileSync(patchPath, backup);
     const cur = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '';
-    writeFileSync(patchPath, `${cur.trimEnd()}\n\n${yamlSnippet}`, 'utf8');
+    writeFileSync(patchPath, mergeOverlay(cur, yamlSnippet), 'utf8');
     findings.push(`✓ 已写入 patch 层（备份：${existsSync(patchPath) ? backup : '无原文件'}）`);
     findings.push('· 生效需重启 dsh web（host 平面变更；请在**你的终端**执行，勿从 agent 工具调用发起）');
   }

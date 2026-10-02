@@ -77,3 +77,52 @@ test('deploy 脚本 --apply 幂等且先备份', async () => {
   const backups = readdirSync(profile).filter((f) => f.startsWith('cordis.patch.yml.bak-warroom-'));
   assert.equal(backups.length, 1, '首次 apply 应留一份备份，第二次（幂等）不留新备份');
 });
+
+/**
+ * 轻量校验：overlay 必须能作为「顶层块序列」被 YAML 解析器接受——
+ * 复刻 dsh 的 overlay 解析契约失败点：丢弃注释/空行后，首个有效行须是块序列项（`- `），
+ * 且不得出现 flow 空数组 `[]` 与块序列项混用（旧实现正是在 `[]` 后拼 `- insert:`，
+ * dsh 报 "end of the stream or a document separator is expected"）。
+ */
+function assertValidBlockSeqYaml(text) {
+  const meaningful = text.split('\n').map((l) => l.replace(/\s+$/, ''))
+    .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+  assert.ok(meaningful.length > 0, 'overlay 不应为空');
+  assert.ok(!meaningful.some((l) => l.trim() === '[]'), '不得残留 flow 空数组 [] 存根');
+  assert.ok(meaningful[0].startsWith('- '), `顶层须为块序列，实际首行：${meaningful[0]}`);
+}
+
+test('deploy --apply 对 DSH 默认 [] 存根生成合法 YAML（不再 [] 后拼块序列）', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-deploy-stub-'));
+  const profile = join(home, 'profiles', 'web');
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(profile, { recursive: true });
+  const patch = join(profile, 'cordis.patch.yml');
+  // 复刻 dsh web 首启生成的用户 overlay 存根：注释头 + flow 空数组 []
+  writeFileSync(patch, '# Your patch layer for this dsh profile.\n# a top-level YAML array of loader patch entries.\n[]\n');
+
+  execFileSync('node', ['scripts/deploy-dsh.mjs', '--apply', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  const out = readFileSync(patch, 'utf8');
+  assert.match(out, /id: warroom-gungnir/);
+  assert.match(out, /- insert:/);
+  assert.match(out, /# Your patch layer/, '原注释头应保留');
+  assertValidBlockSeqYaml(out); // 关键：旧实现在此失败（[] 与块序列混用）
+
+  // 幂等：对 [] 存根二次 apply 不重复插入、文件不变
+  execFileSync('node', ['scripts/deploy-dsh.mjs', '--apply', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  const out2 = readFileSync(patch, 'utf8');
+  assert.equal(out, out2, '对 [] 存根的二次 apply 应幂等');
+  assert.equal((out2.match(/id: warroom-gungnir/g) || []).length, 1, '不得重复插入同 id');
+});
+
+test('deploy --apply 对缺文件生成纯块序列（无 [] 残留）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-deploy-missing-'));
+  const profile = join(home, 'profiles', 'web');
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(profile)},{recursive:true})`]);
+  const patch = join(profile, 'cordis.patch.yml');
+  // 不预建 patch 文件
+  execFileSync('node', ['scripts/deploy-dsh.mjs', '--apply', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  const out = readFileSync(patch, 'utf8');
+  assert.match(out, /id: warroom-gungnir/);
+  assertValidBlockSeqYaml(out);
+});
