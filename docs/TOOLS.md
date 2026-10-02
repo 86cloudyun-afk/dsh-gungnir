@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**19**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**21**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -24,6 +24,8 @@
 | `warroom_poc_search` | 知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库 | `{ q:string, category:string }` | ✅ |
 | `warroom_poc_add` | 回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝） | `{ code*:string, title*:string, category*:string, source:string, affected_versions:string, evidence_ref:string, body:string }` | ✅ |
 | `warroom_poc_use` | 登记 POC 在某战役某资产上的使用（跨战役复用留痕） | `{ code*:string, engagement_id*:string, asset:string, result:string }` | ✅ |
+| `warroom_sweep_timeouts` | 超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论） | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
+| `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string }` | ✅ |
 
 ## 约定
 

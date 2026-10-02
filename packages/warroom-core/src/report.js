@@ -36,6 +36,12 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     return { ...rest, payload: R(parsed) };
   });
   const ioc = buildIocDraft({ store, engagementId, globalDb });
+  const meetings = (() => {
+    try {
+      return store.db.prepare('SELECT * FROM meetings ORDER BY created_at').all()
+        .map((m) => ({ ...m, decisions: (() => { try { return JSON.parse(m.decisions ?? '[]'); } catch { return []; } })() }));
+    } catch { return []; }
+  })();
   const digest = sha(JSON.stringify(snap.rows));
   return {
     schema: 'gungnir-report/1',
@@ -49,6 +55,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
     evidence_digests: { fact_members: digest },
     shell: store.shellState() ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
+    meetings: R(meetings),
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -88,6 +95,23 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- ${type}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
   }
   lines.push('');
+  // 链前会议纪要（有则收录：波次与报告的追溯链）
+  const meetings = (() => {
+    try { return store.db.prepare('SELECT * FROM meetings ORDER BY created_at').all(); } catch { return []; }
+  })();
+  if (meetings.length > 0) {
+    lines.push('## 链前会议纪要');
+    lines.push('');
+    for (const m of meetings) {
+      const decisions = (() => { try { return JSON.parse(m.decisions ?? '[]'); } catch { return []; } })();
+      lines.push(`### ${m.title} · ${m.created_at}`);
+      lines.push('');
+      lines.push(`- 纪要：${R(m.notes)}`);
+      if (decisions.length) lines.push(`- 决议：${decisions.map((d) => `\`${R(d)}\``).join('、')}`);
+      lines.push('');
+    }
+  }
+
   lines.push('## 战役元信息');
   lines.push('');
   lines.push(`- 授权对象哈希: \`${engagementRow?.auth_hash ?? '-'}\``);

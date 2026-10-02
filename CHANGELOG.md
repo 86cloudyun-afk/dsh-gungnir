@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **多方维护治理文件**：`CONTRIBUTING.md`（六闸门槛/PR 规范/写作用域/外部 PR 审查流程）、
+  `.github/CODEOWNERS`、PR 模板（六闸勾选项）、ADR 提案与缺陷报告议题模板
+- **证据落盘桥**（对齐作战室第 8 节纪律）：`warroom evidence --engagement <id> --out <dir> [--target <名>]`
+  → 目录内 `report-<seq>.md` / `report-<seq>.json` / `watermark.json` /
+  **`EVIDENCE_INDEX.md`（Confirmed / Leaked credentials(仅引用) / Raw artifacts 三段式）**；
+  明文秘密永不落盘（回归断言索引与报告均无明文）
+- **超时治理**（ADR-003 D3）：`broker.sweepTimeouts` / `warroom_sweep_timeouts` / CLI `sweep`——
+  运行超阈值任务转 `unknown`，**绝不自动重试**（回归断言：清扫不新增命令、不重派），
+  留痕 gate_log，交由 reconcile 依证据定论；默认 30 分钟
+- **围栏真实验收在 CI 通关**（证据 run 36944503518）：internal 网络 + sidecar 双挂 + 任务容器，
+  直连出网被阻断；验收表 §8-9 更新为 ✅ 并附证据链接
+- 报告收录**链前会议纪要**（md 段 + json `meetings`）：波次与报告的追溯链闭合；
+  QUICKSTART 增补波次章节，PRESET.md 标注运行时入口
 - **波次编排**（框架 §3.5 运行时语义）：`warroom wave --engagement <id> --meeting <file>` ——
   会议纪要落库（会不开波不发）→ 按依赖派单 → 独立任务立即并行、依赖满足即刻交接（波内无屏障）
   → 回执按成员级幂等入库 → 执行器报终态后**结项**（`broker.settle`）；成环/悬空依赖如实报错

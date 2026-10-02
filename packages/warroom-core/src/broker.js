@@ -14,6 +14,7 @@ import { SecretVault } from './secrets.js';
 import { KnowledgeBase } from './knowledge.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
+import { exportEvidence } from './evidence.js';
 
 const now = () => new Date().toISOString();
 
@@ -296,6 +297,12 @@ export class Broker {
     });
   }
 
+  /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
+  exportEvidence(engagementId, { outDir, target = null } = {}) {
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    return exportEvidence({ broker: this, engagementId, outDir: dir, target });
+  }
+
   _engWithRow(engagementId) {
     const eng = this._eng(engagementId);
     const row = eng.db.prepare('SELECT * FROM engagements WHERE id = ?').get(engagementId);
@@ -373,6 +380,27 @@ export class Broker {
     if (cmd.state !== runtime.state) this._setCommandState(cmd.command_id, runtime.state);
     this._gate(engagementId, 'settle', { task_id: cmd.task_id, state: runtime.state });
     return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state, runtime_state: runtime.state };
+  }
+
+  /**
+   * 超时治理（ADR-003 D3）：派发时间超过阈值仍在运行的任务 → `unknown`，
+   * **绝不自动重试**（重做渗透动作的代价是重复告警/账号锁死）；由 reconcile 依证据定论。
+   * @param {{timeoutMs?:number}} opts 默认 30 分钟（框架 config taskTimeoutMin）
+   */
+  sweepTimeouts(engagementId, { timeoutMs = 30 * 60 * 1000 } = {}) {
+    const nowMs = this._nowMs();
+    const rows = this.global.prepare(
+      "SELECT command_id, task_id, state, ts FROM command_queue WHERE engagement_id = ? AND state IN ('queued','running','cancel_requested')"
+    ).all(engagementId);
+    const swept = [];
+    for (const r of rows) {
+      const age = nowMs - Date.parse(r.ts);
+      if (age <= timeoutMs) continue;
+      this._setCommandState(r.command_id, 'unknown');
+      this._gate(engagementId, 'timeout_to_unknown', { task_id: r.task_id, age_ms: age, timeout_ms: timeoutMs });
+      swept.push({ task_id: r.task_id, previous: r.state, age_ms: age });
+    }
+    return { swept, timeout_ms: timeoutMs, scanned: rows.length };
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
