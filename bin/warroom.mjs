@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'wave', 'sweep',
+const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -26,6 +26,7 @@ function usage() {
   revoke    撤销授权并级联停止：--engagement <id>
   report    导出报告：--engagement <id> [--out <dir>]
   verify-report  复现校验：<report.md> --engagement <id>
+  audit     审计查询/导出：--engagement <id> [--decision <d>] [--since <iso>] [--export <dir>]
   evidence  证据落盘（报告+水位+三段式 EVIDENCE_INDEX）：--engagement <id> [--out <dir>] [--target <name>]
   sweep     超时治理：--engagement <id> [--timeout-min n]（超时任务转 unknown，不自动重试）
   wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json>
@@ -63,6 +64,7 @@ const { values: v } = parseArgs({
     'tokens-in': { type: 'string' }, 'tokens-out': { type: 'string' },
     'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
     format: { type: 'string' }, meeting: { type: 'string' }, 'timeout-min': { type: 'string' },
+    decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -140,6 +142,12 @@ switch (command) {
     break;
   case 'report':
     out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
+    break;
+  case 'audit':
+    if (v.export) out(broker.auditExport(need('engagement', v.engagement), { outDir: v.export }));
+    else out(broker.audit(need('engagement', v.engagement), {
+      decision: v.decision ?? null, since: v.since ?? null, limit: v.limit ? Number(v.limit) : 200,
+    }));
     break;
   case 'evidence':
     out(broker.exportEvidence(need('engagement', v.engagement), { outDir: v.out, target: v.target }));

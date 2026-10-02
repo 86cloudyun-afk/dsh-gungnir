@@ -37,6 +37,7 @@
       "warroom_sweep_timeouts",
       "warroom_evidence_export",
       "warroom_spray_matrix",
+      "warroom_audit",
       "skill"
     ],
     "deny": [
