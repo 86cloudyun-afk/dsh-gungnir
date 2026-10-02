@@ -87,6 +87,12 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
+| 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
+| 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
+| 蓝队视图 IOC 前置 | 整段搬迁且段集合不变 | `test/ioc-report.test.js` | ✅ |
+| HTML 窄屏适配 | 表格滚动容器 + 媒体查询；零外部资源 | `test/report-html.test.js` | ✅ |
+| 角色动线落地 | 值班/交付/路径口径写进三角色提示词 | `presets/roles/*.md`、`scripts/check-preset.mjs` | ✅ |
 | HTML 目录与锚点 | 中文标题可锚、同名加序号、短报告不出目录 | `test/report-html.test.js` | ✅ |
 | 多战役周报 | 只算窗口内有活动的战役；含交付门禁列 | `test/weekly.test.js` | ✅ |
 | 执行层演练 | fake 与 bridge 两模式全链路；CI job 常跑 | `test/executor-drill.test.js`、CI `drill` job | ✅ |
@@ -135,8 +141,8 @@
 
 ## 数字快照
 
-- 测试：364 例（`node --test`）
+- 测试：377 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.15`（批次 1–14 已合并）
+- 标签：`v0.1.0-alpha.15`（批次 1–14 已合并；批次 15 合并时升 alpha.16）
