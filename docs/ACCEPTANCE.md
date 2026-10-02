@@ -4,10 +4,10 @@
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**394 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**444 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
-CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨进程执行层演练）。
+CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
 端到端演练：`node scripts/executor-drill.mjs [--mode bridge]`；契约自检：`node scripts/conformance.mjs`。
 
 ## 框架 §8 验收清单（12 项）
@@ -31,7 +31,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 
 | 验收项 | 证据 | 状态 |
 |---|---|---|
-| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（36 `warroom_*`，0 内核工具），非提示词拒绝 |
+| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（37 `warroom_*`，0 内核工具），非提示词拒绝 |
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
@@ -67,7 +67,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 | 缺口 | 影响 | 计划 |
 |---|---|---|
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
-| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（36 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
+| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（37 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
 可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
@@ -148,12 +148,12 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 密钥轮换 | 旧秘密仍可解；归档 600；缺密钥明确报错 | `test/secrets.test.js` | ✅ |
 | 报告体量控制 | md 截断给计数；JSON 全量 | `test/ioc-report.test.js` | ✅ |
 | 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
-| 故障矩阵扩展 | 11 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
+| 故障矩阵扩展 | 21 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
 
 ## 数字快照
 
-- 测试：391 例（`node --test`）
-- CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
-- 工具：24 个（schema 严格校验，DSH 挂载要求）
+- 测试：444 例（`node --test`）
+- CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
+- 工具：37 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）

@@ -54,6 +54,8 @@ jobs:
         run: node scripts/gen-docs.mjs --check
       - name: 自审闸（秘密/链接/验收引用/卫生）
         run: node scripts/self-review.mjs
+      - name: 文档快照计数守卫（committed 数字 == 实测，漂移即失败）
+        run: node scripts/check-doc-counts.mjs
 
   native-host:
     # 真实挂载验收（ACCEPTANCE §8-1 / ADR-001 首行）：runner 上真装官方 DSH →
