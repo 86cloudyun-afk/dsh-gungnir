@@ -391,8 +391,11 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   }
   if (wantHtml) {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}${audience === 'full' ? '' : `-${audience}`}.html`);
-    writeFileSync(path, renderHtml({ markdown: check.reproducible ? markdown : markdown + checkLines.join('\n'),
-      title: `GUNGNIR 战役报告 · ${engagementId}${audience === 'full' ? '' : ` · ${audience}`}` }), 'utf8');
+    writeFileSync(path, renderHtml({
+      markdown: check.reproducible ? markdown : markdown + checkLines.join('\n'),
+      title: `GUNGNIR 战役报告 · ${engagementId}${audience === 'full' ? '' : ` · ${audience}`}`,
+      meta: { engagement_id: engagementId, audience, watermark, generated_at: selfCheck.checked_at },
+    }), 'utf8');
     out.paths.html = path;
   }
   if (wantJson) {

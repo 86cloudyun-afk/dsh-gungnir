@@ -61,3 +61,34 @@ test('renderHtml 标题可定制且转义', () => {
   const html = renderHtml({ markdown: '# x', title: 'A & B <报告>' });
   assert.match(html, /<title>A &amp; B &lt;报告&gt;<\/title>/);
 });
+
+test('打印友好：@media print 规则齐全（隐藏交互块/分页控制/白底/链接展开）', () => {
+  const html = renderHtml({ markdown: '# x', title: 't' });
+  assert.match(html, /@media print/);
+  assert.match(html, /details, \.mermaid-source \{ display:none !important; \}/);
+  assert.match(html, /table, pre, blockquote, \.mermaid \{ break-inside:avoid; \}/);
+  assert.match(html, /\.cover \{ break-after:page; \}/);
+  assert.match(html, /a\[href\^="http"\]::after/);
+});
+
+test('封面块：战役/视图/水位/生成时间齐备，且值被转义', () => {
+  const html = renderHtml({
+    markdown: '# 正文', title: '报告标题',
+    meta: { engagement_id: 'eng_<x>', audience: 'blue', watermark: { seq: 7, snapshot_id: 'abcdef0123456789' }, generated_at: '2026-10-02T00:00:00Z' },
+  });
+  assert.match(html, /<section class="cover">/);
+  assert.match(html, /战役<\/dt><dd>eng_&lt;x&gt;<\/dd>/);
+  assert.match(html, /蓝队版（IOC 排查清单）/);
+  assert.match(html, /seq 7 · abcdef0123456789…/);
+  assert.match(html, /print-footer/);
+});
+
+test('导出的 HTML 带封面与打印样式', () => {
+  const h = harness();
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'html', audience: 'client' });
+  const html = readFileSync(r.paths.html, 'utf8');
+  assert.match(html, /<section class="cover">/);
+  assert.match(html, /客户版（攻击路径与修复建议）/);
+  assert.match(html, /@media print/);
+  assert.equal(/<script[^>]+src|<link[^>]+href/.test(html), false, '仍然零外部资源');
+});
