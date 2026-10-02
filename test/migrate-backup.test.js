@@ -73,7 +73,7 @@ test('v2 迁移：老库缺 secret 表时补建（global 库专属迁移）', as
   // 重新打开触发迁移
   const reopened = openGlobalDb(h.home);
   const v = reopened.prepare("SELECT v FROM meta WHERE k = 'schema_version:global'").get().v;
-  assert.equal(v, '7', 'global 库目标版本（v7 为其最新迁移）');
+  assert.equal(v, '8', 'global 库目标版本（v8 为其最新迁移）');
   const tables = reopened.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   assert.ok(tables.includes('secret_store') && tables.includes('secret_grants') && tables.includes('approvals'));
   // fact 库不应被 global 专属迁移污染
