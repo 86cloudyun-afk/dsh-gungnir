@@ -47,17 +47,36 @@ lines.push('- 秘密相关工具只到 `secret_ref` 粒度，解析（resolve）
 lines.push('');
 const content = lines.join('\n');
 
+// 机器可读导出：供外部集成（DSH 挂载、MCP 桥、审计工具）消费
+const schemaTarget = join(repoRoot, 'docs', 'tools.schema.json');
+const schemaExport = {
+  schema: 'gungnir-tools/1',
+  generated_from: 'packages/warroom-tools/src/index.js',
+  tools: TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+    in_allowlist: allow.has(t.name),
+  })),
+  preset: { id: preset.id, roles: preset.roles, allowlist_mode: preset.toolPolicy.mode },
+};
+const schemaContent = JSON.stringify(schemaExport, null, 2) + '\n';
+
 if (write) {
   writeFileSync(target, content, 'utf8');
-  console.log(`[✓] 已写入 docs/TOOLS.md（${TOOLS.length} 个工具）`);
+  writeFileSync(schemaTarget, schemaContent, 'utf8');
+  console.log(`[✓] 已写入 docs/TOOLS.md 与 docs/tools.schema.json（${TOOLS.length} 个工具）`);
 } else if (check) {
-  if (!existsSync(target)) { console.error('[✗] docs/TOOLS.md 不存在，请运行 --write'); process.exit(1); }
-  const cur = readFileSync(target, 'utf8');
-  if (cur !== content) {
-    console.error('[✗] docs/TOOLS.md 与代码不一致（漂移）——运行 `node scripts/gen-docs.mjs --write` 后提交');
+  const problems = [];
+  if (!existsSync(target)) problems.push('docs/TOOLS.md 不存在');
+  else if (readFileSync(target, 'utf8') !== content) problems.push('docs/TOOLS.md 与代码不一致');
+  if (!existsSync(schemaTarget)) problems.push('docs/tools.schema.json 不存在');
+  else if (readFileSync(schemaTarget, 'utf8') !== schemaContent) problems.push('docs/tools.schema.json 与代码不一致');
+  if (problems.length) {
+    console.error(`[✗] ${problems.join('；')}——运行 \`node scripts/gen-docs.mjs --write\` 后提交`);
     process.exit(1);
   }
-  console.log(`[✓] 工具文档同步（${TOOLS.length} 个工具）`);
+  console.log(`[✓] 工具文档与 schema 导出同步（${TOOLS.length} 个工具）`);
 } else {
   process.stdout.write(content);
 }
