@@ -148,3 +148,14 @@ test('CLI preflight --record 留痕（json 里带 recorded）', () => {
   assert.equal(out.recorded.engagement_id, h.eng.engagement_id);
   assert.equal(h.store().db.prepare("SELECT COUNT(*) c FROM gate_log WHERE decision='preflight'").get().c, 1);
 });
+
+test('战役不存在 → 可读结论 + 自举指引（不抛原始 TypeError）', () => {
+  const h = harness();
+  const r = h.broker.preflight('eng_this_does_not_exist');
+  const row = r.checks.find((c) => c.name === '战役存在');
+  assert.equal(row.status, 'fail');
+  assert.match(row.detail, /战役不存在/);
+  assert.match(row.detail, /warroom_engage|warroom engage/, '必须指出该先冻结授权');
+  assert.equal(/auth_version/.test(row.detail), false, '不得把原始 TypeError 文本抛给使用者');
+  assert.equal(r.verdict, 'blocked', 'fail-closed 语义不变');
+});
