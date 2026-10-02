@@ -4,10 +4,10 @@
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**394 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**440 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
-CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨进程执行层演练）。
+CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
 端到端演练：`node scripts/executor-drill.mjs [--mode bridge]`；契约自检：`node scripts/conformance.mjs`。
 
 ## 框架 §8 验收清单（12 项）
@@ -148,12 +148,12 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 密钥轮换 | 旧秘密仍可解；归档 600；缺密钥明确报错 | `test/secrets.test.js` | ✅ |
 | 报告体量控制 | md 截断给计数；JSON 全量 | `test/ioc-report.test.js` | ✅ |
 | 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
-| 故障矩阵扩展 | 11 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
+| 故障矩阵扩展 | 21 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
 
 ## 数字快照
 
-- 测试：391 例（`node --test`）
-- CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
-- 工具：24 个（schema 严格校验，DSH 挂载要求）
+- 测试：440 例（`node --test`）
+- CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
+- 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）
