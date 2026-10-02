@@ -1,9 +1,9 @@
 // 真实挂载验收（闭环第⑤步 · A）：scripts/verify-host.mjs 必须用官方 boot API 真起 web profile，
-// 断言 (1) 注册表无 broken + 预设在册；(2) retain 成功；(3) 工具目录 = 允许集（36 warroom_*，0 内核工具），
+// 断言 (1) 注册表无 broken + 预设在册；(2) retain 成功；(3) 工具目录 = 允许集（warroom_* 全数，0 内核工具），
 // 过了才打 HOST_VERIFIED。与 #143/#146 同风格：本机有官方宝时实跑、缺宝时如实 SKIP（不假装通过）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -31,6 +31,9 @@ test('HOST_VERIFIED：真实挂载验收脚本在本机 DSH 上三项断言全�
   const result = JSON.parse(out.slice(start));
   assert.equal(result.ok, true, `验收未通过：${result.error ?? JSON.stringify(result)}`);
   assert.equal(result.dsh, '0.2.0-rc.2');
-  assert.equal(result.warroom, 36, '必须恰好 36 个 warroom_*');
+  // 计数与**声明同源**：新增工具只改 presets/warroom.preset.json，不在这里写死数字
+  const declared = JSON.parse(readFileSync(join(root, 'presets', 'warroom.preset.json'), 'utf8'))
+    .toolPolicy.allow.filter((n) => n.startsWith('warroom_'));
+  assert.equal(result.warroom, declared.length, `工具目录数量必须等于允许清单（声明 ${declared.length}）`);
   assert.equal(result.checks.length, 3, '三项断言（无 broken+在册 / retain / 工具目录=允许集）');
 });
