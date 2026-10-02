@@ -63,7 +63,7 @@
 |---|---|---|
 | 桶 A 容器隔离的真实运行验收（§8-9 / ADR-001-5） | 拓扑、静态不变量、docker 命令序列与「出网必须失败」负样本均已实现并可一键复跑；缺的只是运行环境（本机 docker daemon 未启动） | 在带 daemon 的机器/CI runner 上跑 `node scripts/fence-verify.mjs --engagement <id> --socks <跳板 route>` |
 | 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
-| 进程级取消证实 | 目前为会话/清单级探针 | v0.2（需执行层提供进程级探针） |
+| 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | 桥协议与驱动就绪，DSH 侧应答器未实现 | v0.2（`docs/DSH-BRIDGE-PROTOCOL.md` 待办） |
 
 ## 数字快照

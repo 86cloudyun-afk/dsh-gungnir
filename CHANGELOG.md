@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **进程级取消证实**（ADR-004 范围项 2）：真实探针 `probes.js`（PID 存活 / TCP 端口监听 /
+  容器 inspect；探针不可用一律 fail-closed 视作未证实）；资源清单支持描述对象
+  （`{kind:'process',pid}` / `{kind:'port',port}` / `{kind:'container',container_id}`）；
+  回归用**真实子进程**：子进程仍在 → unresolved，杀掉后 → confirmed_stopped；
+  reconcile 同样不把"进程仍在"判成完成
 - **知识库**（ADR-004 范围项 3）：`$home/knowledge.db` 全局单份，POC 条目（code/title/14 类归类/
   来源/影响版本/证据引用）+ 跨战役使用留痕；**回填强制脱敏**（内网 IPv4、环回、内部域名后缀、
   未替换占位一律拒绝；显式 `allow_unsanitized` 必须写理由并入审计字段）
