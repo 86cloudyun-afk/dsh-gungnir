@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **出口验证门闸**（框架 §11）：`recordEgressCheck` / `egressStatus` / `assertEgressVerified`
+  ——验证结果入 `egress_checks` 并留痕 gate_log；配置 `requireEgressCheck=true`（+ `egressMaxAgeMin`）
+  时，**出网动作必须有有效期内的 pass**，否则 `E_GATE_EGRESS_UNVERIFIED`（默认关闭，不阻塞既有用法）；
+  工具 `warroom_egress_check`（26 个工具）、CLI `warroom egress status|record`
 - **事实查询下沉并补齐 CLI**：`store.queryFacts({entityType, sourceId, since, includeHistory, adapterInstance, limit})`
   成为工具与 CLI 的唯一实现；`warroom fact --type/--source/--history/--adapter/--limit`
   （默认只看有效事实，`--history` 可看被取代修订与取代总数）；工具 schema 同步扩展

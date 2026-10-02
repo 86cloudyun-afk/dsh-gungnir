@@ -11,6 +11,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   bridgeTimeoutMs: 2000,       // 桥等待执行层应答上限
   fenceImage: 'alpine:latest', // 围栏任务容器镜像
   waveConcurrency: null,       // 波内并发提示（null = 由节奏档决定）
+  requireEgressCheck: false,   // true = 出网前必须有近期通过的出口验证（框架 §11 门闸）
+  egressMaxAgeMin: 60,         // 出口验证的有效期（分钟）
 });
 
 const FILE = 'warroom.json';
@@ -41,6 +43,8 @@ export function loadConfig(home, { allowMissing = true } = {}) {
   if (cfg.waveConcurrency !== null && (!Number.isInteger(cfg.waveConcurrency) || cfg.waveConcurrency <= 0)) {
     errors.push('waveConcurrency 必须是正整数或 null');
   }
+  if (typeof cfg.requireEgressCheck !== 'boolean') errors.push('requireEgressCheck 必须是布尔值');
+  if (!Number.isInteger(cfg.egressMaxAgeMin) || cfg.egressMaxAgeMin <= 0) errors.push('egressMaxAgeMin 必须是正整数');
   const unknown = Object.keys(raw).filter((k) => !(k in DEFAULT_CONFIG));
   if (unknown.length) errors.push(`未知字段：${unknown.join(', ')}（拼错会被静默忽略，故此处报错）`);
   if (errors.length) throw warroomError(ERR.E_GATE_MISSING_TUPLE, `配置校验失败：${errors.join('；')}`);
