@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep',
+const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -26,6 +26,7 @@ function usage() {
   revoke    撤销授权并级联停止：--engagement <id>
   report    导出报告：--engagement <id> [--out <dir>]
   verify-report  复现校验：<report.md> --engagement <id>
+  doctor    一键体检（环境/数据/秘密）：--home <dir>（不依赖战役）
   audit     审计查询/导出：--engagement <id> [--decision <d>] [--since <iso>] [--export <dir>]
   evidence  证据落盘（报告+水位+三段式 EVIDENCE_INDEX）：--engagement <id> [--out <dir>] [--target <name>]
   sweep     超时治理：--engagement <id> [--timeout-min n]（超时任务转 unknown，不自动重试）
@@ -94,6 +95,13 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'doctor': {
+    const { spawnSync } = await import('node:child_process');
+    const r = spawnSync('node', ['scripts/doctor.mjs', '--home', home, ...(v.json ? ['--json'] : [])], { encoding: 'utf8' });
+    process.stdout.write(r.stdout);
+    if (r.status !== 0) process.exit(r.status ?? 1);
+    break;
+  }
   case 'engage': {
     const targets = (v.targets ?? v.target ?? '').split(',').filter(Boolean);
     const overrides = {};
