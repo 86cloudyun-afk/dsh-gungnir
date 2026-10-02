@@ -405,9 +405,9 @@ export class Broker {
   }
 
   /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
-  exportEvidence(engagementId, { outDir, target = null } = {}) {
+  exportEvidence(engagementId, { outDir, target = null, audiences = ['client', 'blue'] } = {}) {
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
-    return exportEvidence({ broker: this, engagementId, outDir: dir, target });
+    return exportEvidence({ broker: this, engagementId, outDir: dir, target, audiences });
   }
 
   /**
