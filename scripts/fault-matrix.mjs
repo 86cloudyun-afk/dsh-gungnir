@@ -1,6 +1,14 @@
 #!/usr/bin/env node
-// 故障注入矩阵（CI 闸）：node scripts/fault-matrix.mjs
-import { runFaultMatrix } from '../packages/warroom-core/src/testing/faults.js';
+// 故障注入矩阵（CI 闸）：node scripts/fault-matrix.mjs [--describe]
+//   --describe：只列出场景表（场景 / 期望行为 / 对应契约），供文档生成与外部评审使用
+import { runFaultMatrix, SCENARIOS } from '../packages/warroom-core/src/testing/faults.js';
+
+if (process.argv.includes('--describe')) {
+  for (const sc of SCENARIOS) {
+    console.log(`${sc.n}\t${sc.name}\t${sc.expects}\t${sc.contract}`);
+  }
+  process.exit(0);
+}
 
 const r = runFaultMatrix();
 for (const c of r.checks) {

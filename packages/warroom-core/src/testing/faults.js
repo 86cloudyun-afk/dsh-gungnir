@@ -36,6 +36,34 @@ const check = (name, fn) => {
 };
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 
+/**
+ * 场景清单（供文档与外部评审）：name 必须与实现里的 check(...) 名称**逐字一致**，
+ * 由 test/fault-matrix.test.js 断言（清单与实现漂移即失败）。
+ */
+export const SCENARIOS = Object.freeze([
+  { n: 1, name: '丢回包 → unknown → lookup 找回 → reconcile 定论', expects: '执行层回执丢失时不丢任务：账本记 unknown，可按 command_id 找回，依证据定论', contract: 'ADR-002 D3 / ADR-003 D5' },
+  { n: 2, name: '乱序回执 + 重复回执 → 成员级幂等（不重复记账、旧修订不覆盖）', expects: '同一成员重复/乱序回执不产生第二条有效事实，低修订不覆盖高修订', contract: 'ADR-002 D5' },
+  { n: 3, name: '事实库写失败 → op_log 补偿 → 恢复后审计回填', expects: '写失败不静默：intent 先落 op_log，恢复后审计补齐', contract: 'ADR-002 D6' },
+  { n: 4, name: '进程残留 → unresolved（不得假称已停止）→ 清残留后 confirmed_stopped', expects: '停止证明必须实测：残留即 unresolved，清理后才 confirmed', contract: 'ADR-003 D4' },
+  { n: 5, name: '重启恢复 → 再水化 → 账本态保留且可继续操作', expects: '重启后账本态与执行层视图重新对齐，任务可继续', contract: 'ADR-003 D5/D6' },
+  { n: 6, name: '撤销跨重启 → 旧 auth_version 被拒', expects: '授权撤销跨进程有效：旧版本请求一律拒绝', contract: 'ADR-001 D3' },
+  { n: 7, name: '备份恢复往返 → 数据回到备份时点且完整性通过', expects: '备份可用于真实恢复；恢复后完整性与内容一致', contract: '框架 §10 数据治理' },
+  { n: 8, name: '密钥缺失 → 解密明确报错（E_SECRET_KEY_INVALID）', expects: '密钥丢失必须显式失败，不得静默返回空值', contract: 'ADR-001 D7' },
+  { n: 9, name: '非法配置 → 构造即失败（未知字段/非法取值）', expects: '配置错误立即暴露，不静默用默认值', contract: '框架 §7' },
+  { n: 10, name: '高版本库 → 拒绝打开（E_SCHEMA_NEWER_THAN_CODE）', expects: '库版本高于代码即拒绝，防降级写坏数据', contract: '框架 §10' },
+  { n: 11, name: '迁移补齐 → 老库缺表自动补建且可继续作业', expects: '老库升级路径可用，迁移后功能正常', contract: '框架 §10' },
+  { n: 12, name: '路由失效 → 围栏拒绝（E_FENCE_NO_ROUTE）', expects: '出口必须来自活跃 route；失效即拒绝出计划', contract: '框架 §3.3/§4' },
+  { n: 13, name: '心跳失效 → unknown（基准 heartbeat）', expects: '长任务以最近心跳为基准；心跳失效才转 unknown', contract: 'ADR-003 D3' },
+  { n: 14, name: '知识库未脱敏 → 拒绝入库（E_KB_UNSANITIZED）', expects: '未脱敏内容不得进知识库；合规内容可入库', contract: '框架 §6 开源边界' },
+  { n: 15, name: '交付物边界 → 客户版无审计明细、HTML 无外部资源', expects: '受众视图不泄露内部细节；交付文件零外部依赖', contract: '框架 §5' },
+  { n: 16, name: '证据落盘边界 → 索引与客户版均无明文', expects: '任何落盘产物都不含明文秘密（三处都查）', contract: 'ADR-001 D7' },
+  { n: 17, name: '交付门禁 → 报告漂移必须拦下', expects: '库变了而报告未重出 → 门禁拦下（不许把过期报告发出去）', contract: 'ADR-002 D4' },
+  { n: 18, name: '交付门禁 → progress 口径不因"没干活"报警', expects: '门禁只能拦"做坏了的事"，不能把"还没做"当异常', contract: '框架 §11 效率口径' },
+  { n: 19, name: '人工确认边界 → 不刷绿门禁 & 自动项拒绝确认', expects: '人工确认有留痕但不改变机器判定；自动项不可被"确认"绕过', contract: '框架 §8 交付清单' },
+  { n: 20, name: '归档幂等 & 时序不编造', expects: '同周归档只覆盖不新增；未知耗时不得写成 0', contract: '框架 §10/§5' },
+  { n: 21, name: '门禁三层同源 → 核心与工具/脚本结论一致', expects: '同一门禁在不同入口给出同一答案（且交付口径不含出口）', contract: '框架 §2 原则' },
+]);
+
 export function runFaultMatrix() {
   checks.length = 0;
 

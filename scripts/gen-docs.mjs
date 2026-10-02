@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TOOLS } from '../packages/warroom-tools/src/index.js';
+import { SCENARIOS as faultMatrixScenarios } from '../packages/warroom-core/src/testing/faults.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(repoRoot, 'docs', 'TOOLS.md');
@@ -125,11 +126,31 @@ async function buildDashboardContract() {
   };
 }
 
+// 故障矩阵文档（由 SCENARIOS 生成；与实现同源，清单漂移会被测试与 docs 闸同时拦下）
+const faultMatrixContent = (() => {
+  const lines = [];
+  lines.push('# 故障矩阵（21 场景）');
+  lines.push('');
+  lines.push('> 本文件由 `scripts/gen-docs.mjs` 生成（数据源：`packages/warroom-core/src/testing/faults.js` 的 `SCENARIOS`）。');
+  lines.push('> 场景清单与实现**逐字一致**由 `test/fault-matrix.test.js` 断言；改场景必须同时改清单并重跑生成器。');
+  lines.push('');
+  lines.push('| # | 场景 | 期望行为 | 契约归属 |');
+  lines.push('|---|---|---|---|');
+  for (const sc of faultMatrixScenarios) {
+    lines.push(`| ${sc.n} | ${sc.name} | ${sc.expects} | ${sc.contract} |`);
+  }
+  lines.push('');
+  lines.push('复跑：`node scripts/fault-matrix.mjs`（CI 同款闸）；只看清单：`node scripts/fault-matrix.mjs --describe`。');
+  return lines.join('\n') + '\n';
+})();
+const faultMatrixTarget = join(repoRoot, 'docs', 'FAULT-MATRIX.md');
+
 const dashboardTarget = join(repoRoot, 'docs', 'dashboards.schema.json');
 const dashboardContent = JSON.stringify(await buildDashboardContract(), null, 2) + '\n';
 
 
 if (write) {
+  writeFileSync(faultMatrixTarget, faultMatrixContent, 'utf8');   // 文档由清单生成（幂等）
   writeFileSync(target, content, 'utf8');
   writeFileSync(schemaTarget, schemaContent, 'utf8');
   writeFileSync(dashboardTarget, dashboardContent, 'utf8');
@@ -140,6 +161,8 @@ if (write) {
   else if (readFileSync(target, 'utf8') !== content) problems.push('docs/TOOLS.md 与代码不一致');
   if (!existsSync(schemaTarget)) problems.push('docs/tools.schema.json 不存在');
   else if (readFileSync(schemaTarget, 'utf8') !== schemaContent) problems.push('docs/tools.schema.json 与代码不一致');
+  if (!existsSync(faultMatrixTarget)) problems.push('docs/FAULT-MATRIX.md 不存在');
+  else if (readFileSync(faultMatrixTarget, 'utf8') !== faultMatrixContent) problems.push('docs/FAULT-MATRIX.md 与场景清单不一致');
   if (!existsSync(dashboardTarget)) problems.push('docs/dashboards.schema.json 不存在');
   else if (readFileSync(dashboardTarget, 'utf8') !== dashboardContent) {
     problems.push('docs/dashboards.schema.json 与看板视图不一致（字段漂移）');
