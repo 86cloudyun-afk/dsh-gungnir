@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **一致性套件跑真实桥接 adapter**（跨进程回归）：新增 `test/conformance-bridge.test.js`；
+  并修掉它逼出的三个真问题——桥接 adapter 的 `manifestOf` 不再只依赖应答器文件
+  （宿主按契约声明资源 + **延迟绑定**实测状态，fail-closed 但不会"一次 false 永远 false"）；
+  应答器 `fixture` 模式缺夹具时**不再静默返回空资源**（改为报错留痕，绝不写假回执）
 - **故障矩阵 11→14 场景**：路由失效→围栏拒绝（`E_FENCE_NO_ROUTE`）、长任务心跳失效→unknown
   （基准标为 heartbeat）、知识库未脱敏→拒绝入库；`addPoc` 改为**显式拒绝未知字段**
   （静默丢字段 = 静默丢证据，与配置校验同一哲学）

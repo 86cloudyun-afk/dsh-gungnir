@@ -57,9 +57,15 @@ function echoReceipts(job) {
 /** fixture 模式：从目录读 <external_id>.facts.json / .probes.json（预置回执）。 */
 function fixtureReceipts(job) {
   const dir = v.fixture ?? join(v.root, 'fixtures');
-  const facts = readJson(join(dir, `${job.external_id}.facts.json`)) ?? { members: [] };
-  const probes = readJson(join(dir, `${job.external_id}.probes.json`)) ?? { resources: [] };
-  return { members: facts.members ?? [], resources: probes.resources ?? [] };
+  const factsPath = join(dir, `${job.external_id}.facts.json`);
+  const probesPath = join(dir, `${job.external_id}.probes.json`);
+  const facts = readJson(factsPath);
+  const probes = readJson(probesPath);
+  if (!facts && !probes) {
+    // fail-closed：夹具缺失时**不要**假装"零事实零资源"（那会让主控以为任务干净结束）
+    throw new Error(`fixture 模式缺少夹具文件：${factsPath} / ${probesPath}`);
+  }
+  return { members: facts?.members ?? [], resources: probes?.resources ?? [] };
 }
 
 async function loadExecutor() {
