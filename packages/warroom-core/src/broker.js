@@ -15,6 +15,7 @@ import { FakeAdapter } from './adapters/fake.js';
 import { SecretVault } from './secrets.js';
 import { KnowledgeBase } from './knowledge.js';
 import { loadConfig } from './config.js';
+import { preflight } from './preflight.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -401,6 +402,11 @@ export class Broker {
   exportEvidence(engagementId, { outDir, target = null } = {}) {
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
     return exportEvidence({ broker: this, engagementId, outDir: dir, target });
+  }
+
+  /** 开工前预检（环境/配置/战役/出口/备份/秘密）——结论三态：ready|degraded|blocked。 */
+  preflight(engagementId) {
+    return preflight({ broker: this, engagementId, home: this.home });
   }
 
   /** 枚举家目录下的战役 id（用于跨战役巡检；库缺失即跳过）。 */
