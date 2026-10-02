@@ -62,15 +62,26 @@ export function resolveWarroomHome(config = {}) {
 /**
  * 读取本预设的 allowlist 工具策略（ADR-001 D1 的隔离核心）。
  * 优先 inline `config.toolPolicy`，否则从 `config.preset`（声明文件路径）读取其 `toolPolicy`。
- * 缺省返回 null（向后兼容：无策略时注册全部工具、不做门控）。
+ * 无路径/无策略 → 返回 null（向后兼容：注册全部工具、不做门控）。
+ * 显式给了 `preset` 路径却读/解析失败 → 抛 `E_PRESET_UNREADABLE`（不得静默当无策略）。
  * @param {{toolPolicy?:object, preset?:string}} [config]
  * @returns {{mode?:string, allow?:string[], deny?:string[]}|null}
  */
 export function loadToolPolicy(config = {}) {
   if (config.toolPolicy && typeof config.toolPolicy === 'object') return config.toolPolicy;
   if (typeof config.preset === 'string' && config.preset) {
-    try { return JSON.parse(readFileSync(config.preset, 'utf8'))?.toolPolicy ?? null; }
-    catch { return null; }
+    let data;
+    try {
+      data = JSON.parse(readFileSync(config.preset, 'utf8'));
+    } catch (e) {
+      // 调用方显式给了路径却读/解析失败：不得静默当成"无策略"。
+      // apply() 在 fail-closed 下会拒绝挂载；failClosed:false 时由调用方捕获后降级。
+      const err = new Error(`warroom 预设声明文件不可读：${config.preset}（${e.message}）`);
+      err.code = 'E_PRESET_UNREADABLE';
+      err.cause = e;
+      throw err;
+    }
+    return data?.toolPolicy ?? null;
   }
   return null;
 }
@@ -86,10 +97,21 @@ export function apply(ctx, config = {}) {
   const disposers = [];
   const registered = [];
 
-  // 消费 allowlist 预设：以声明的 toolPolicy.allow 为单一真相源（ADR-001 D1）。
-  const policy = loadToolPolicy(config);
   // fail-closed 开关（默认开启，框架第 5 原则「宁拒不裸奔」）：显式传 false 才关。
   const failClosed = config.failClosed !== false;
+  // 消费 allowlist 预设：以声明的 toolPolicy.allow 为单一真相源（ADR-001 D1）。
+  let policy;
+  try {
+    policy = loadToolPolicy(config);
+  } catch (e) {
+    // 显式给了 preset 路径却不可读：fail-closed 拒绝；显式关闭时可降级为无策略。
+    if (failClosed) throw e;
+    policy = null;
+  }
+  // 显式给了 preset 路径、文件可读，但声明里没有 toolPolicy → 同样不得静默退回无策略。
+  if (failClosed && !config.toolPolicy && typeof config.preset === 'string' && config.preset && !policy) {
+    throw new Error(`warroom 预设 ${config.preset} 未提供 toolPolicy：fail-closed 拒绝挂载`);
+  }
   // 显式声明了 toolPolicy，却不是合法 allowlist（allow 非数组/为空）→ 拒绝挂载。
   // 不得静默退回"注册全部工具"的无策略分支（那等于悄悄放开允许清单 → 静默降级开会）。
   if (policy && failClosed && (!Array.isArray(policy.allow) || policy.allow.length === 0)) {

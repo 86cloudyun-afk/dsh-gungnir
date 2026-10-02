@@ -69,6 +69,33 @@ test('无 toolPolicy（向后兼容）→ 不受 fail-closed 影响，注册全�
   assert.equal(svc.failClosed, true);
 });
 
+test('fail-closed：config.preset 指向不存在文件 → apply 抛（堵住路径失效静默无策略）', () => {
+  assert.throws(
+    () => entry.apply({ tools: fakeTools().tools, on() {} }, {
+      home: '/tmp/wr-fc-7', preset: '/no/such/warroom.preset.json',
+    }),
+    (e) => e && e.code === 'E_PRESET_UNREADABLE' && /不可读/.test(e.message));
+});
+
+test('fail-closed：config.preset 文件可读但无 toolPolicy 字段 → apply 抛', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wr-fc-empty-'));
+  const preset = join(dir, 'empty.preset.json');
+  writeFileSync(preset, JSON.stringify({ id: 'empty', version: '0.0.0' }));
+  assert.throws(
+    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: '/tmp/wr-fc-8', preset }),
+    /未提供 toolPolicy|fail-closed/);
+});
+
+test('failClosed:false → preset 不可读时降级为无策略（显式旁路）', () => {
+  const f = fakeTools();
+  const svc = entry.apply({ tools: f.tools, on() {} }, {
+    home: '/tmp/wr-fc-9', preset: '/no/such/warroom.preset.json', failClosed: false,
+  });
+  assert.equal(svc.failClosed, false);
+  assert.equal(svc.gateStatus, 'no-policy');
+  assert.equal(f.registered.length, 36);
+});
+
 // ---- 验收：本机真实 DSH 挂载 ----
 function findDshDir() {
   const cands = [
