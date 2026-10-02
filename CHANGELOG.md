@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **效率数据导出**：`metrics --csv [--out <file>]`（`metrics-export.js`）—— 把 `metrics()` 摊平成
+  `section,key,metric,value` 五行节（total/segment/rework/retry/by_role/by_tier），RFC4180 转义，
+  供表格工具复盘"哪条线/哪个档位划算"
 - **交付前一体化**：`report --verify`（工具 `verify:true`）→ `exportReportVerified` 导出后立刻用
   **同一判定**复核可复现性并返回 `verify{reproducible,report_seq,current_seq,drift_seq}`；
   CLI 在漂移时非零退出（交付流程里"导出→校验"两步合成一步，漏不掉）
