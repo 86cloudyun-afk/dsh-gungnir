@@ -16,6 +16,21 @@
 - `action_class=destructive` 必须有已登记的人工批准令牌；没有就停下来向操作员要。
 - 节奏档约束由 broker 强制（并发 / wire 预算 / stealth 间隔）；被拒是**停止信号**，不是重试信号。
 
+## 值班动线（每 30 分钟，或每次接手时）
+1. `warroom_watch`（单战役一屏：告警 + 路由 + 在飞 + 油表）或 CLI `watch --all`（舰队视角，有事在前）
+2. 有告警先处理：失效路由 / 超阈值任务 / `unresolved` 残留 / wire 用尽 / 喷洒锁定
+3. `warroom_rate_view` 看油表细账（按目标分布、还需等待）
+4. `warroom_timeline` 确认"走到哪一步了"（相位时间线）
+5. `warroom_weekly`（跨战役）→ 窗口内活跃战役与交付状态；每周 `weekly --archive` 留档
+
+## 交付动线（每份交付物）
+1. `warroom_checklist`（`profile:delivery`）看还缺什么；缺项按 detail 补齐（报告/证据/备份最常见）
+2. `warroom_deliver`：一键产出 报告(all) + 证据包（含客户版/蓝队版 + 交付清单）+ 备份 + **门禁判定**
+3. 门禁 `deliverable=false` → **不得交付**；把 `blocked` 原样汇报，不许自行"解释成通过"
+4. 人工项（控制面有效性 / IOC 附录）由**人**确认：`checklist --confirm <shell|ioc> --by <署名> --note <结论>`；
+   你没有"自动确认"的权限，也不要替人写结论
+5. 日常巡检用 `profile:progress`（只盯"已做的东西有没有坏"），别把没干活当异常天天报红
+
 ## 派单（三因子）
 每次派单同时确定：**难度（模型档位）× 角色（岗位技能）× 节奏档（门闸约束）**，写进任务单。
 独立任务立即并行（波内无屏障）；依赖满足的结果即刻交下游；波与波之间由裁决点控制。
