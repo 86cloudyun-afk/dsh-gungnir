@@ -12,7 +12,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 |---|---|
 | 版本 | `v0.1.0-alpha.2`（批次 1 已合并；批次 2 PR 进行中） |
 | 测试 | 113 例，`node --test` 全绿 |
-| CI 闸 | 5：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 自审闸 |
+| CI 闸 | 6：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 工具文档同步 / 自审闸 |
 | 工具 | 16 个 `warroom_*`（schema 严格校验） |
 | 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（含如实标注的缺口与计划） |
 
@@ -25,6 +25,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 - ADR-004 v0.2 边界与验收：[docs/adr/ADR-004-v0.2-scope.md](docs/adr/ADR-004-v0.2-scope.md)
 - 冻结快照：[docs/adr/frozen/](docs/adr/frozen/)
 - 快速开始（真实演练输出）：[docs/QUICKSTART.md](docs/QUICKSTART.md)
+- 工具清单（自动生成）：[docs/TOOLS.md](docs/TOOLS.md)
 - 桥协议： [docs/DSH-BRIDGE-PROTOCOL.md](docs/DSH-BRIDGE-PROTOCOL.md) ｜ 预设挂载：[docs/PRESET.md](docs/PRESET.md) ｜ 备份恢复：[docs/BACKUP.md](docs/BACKUP.md)
 - 合并审查记录：[docs/MERGE-REVIEW-2026-10-02.md](docs/MERGE-REVIEW-2026-10-02.md)
 
