@@ -11,9 +11,9 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 | 项 | 现状 |
 |---|---|
 | 版本 | `v0.1.0-alpha.2`（批次 1 已合并；批次 2 PR 进行中） |
-| 测试 | 72 例，`node --test` 全绿 |
-| CI 闸 | 4：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 |
-| 工具 | 11 个 `warroom_*`（schema 严格校验） |
+| 测试 | 113 例，`node --test` 全绿 |
+| CI 闸 | 6：验收套件 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 工具文档同步 / 自审闸 |
+| 工具 | 16 个 `warroom_*`（schema 严格校验） |
 | 验收对照 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)（含如实标注的缺口与计划） |
 
 ## 规格与架构决策（本仓库为唯一真源）
@@ -22,7 +22,10 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 - ADR-001 权限与执行边界（rev1）：[docs/adr/ADR-001-permission-execution-boundary.md](docs/adr/ADR-001-permission-execution-boundary.md)
 - ADR-002 数据与证据契约（rev2）：[docs/adr/ADR-002-data-evidence-contract.md](docs/adr/ADR-002-data-evidence-contract.md)
 - ADR-003 Adapter 生命周期（rev2）：[docs/adr/ADR-003-adapter-lifecycle.md](docs/adr/ADR-003-adapter-lifecycle.md)
+- ADR-004 v0.2 边界与验收：[docs/adr/ADR-004-v0.2-scope.md](docs/adr/ADR-004-v0.2-scope.md)
 - 冻结快照：[docs/adr/frozen/](docs/adr/frozen/)
+- 快速开始（真实演练输出）：[docs/QUICKSTART.md](docs/QUICKSTART.md)
+- 工具清单（自动生成）：[docs/TOOLS.md](docs/TOOLS.md)
 - 桥协议： [docs/DSH-BRIDGE-PROTOCOL.md](docs/DSH-BRIDGE-PROTOCOL.md) ｜ 预设挂载：[docs/PRESET.md](docs/PRESET.md) ｜ 备份恢复：[docs/BACKUP.md](docs/BACKUP.md)
 - 合并审查记录：[docs/MERGE-REVIEW-2026-10-02.md](docs/MERGE-REVIEW-2026-10-02.md)
 
@@ -54,10 +57,11 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 ## 测试与四闸
 
 ```sh
-node --test                          # 验收套件（72 例）
+node --test                          # 验收套件（113 例）
 node scripts/validate-tool-schemas.mjs   # 工具 schema（DSH 挂载硬要求）
 node scripts/check-preset.mjs            # 预设允许清单闭合
 node scripts/fault-matrix.mjs            # 故障注入矩阵（丢回包/乱序/写失败/残留/重启/撤销）
+node scripts/self-review.mjs             # 自审：秘密/链接/验收引用/代码卫生
 ```
 
 ## 数据位置

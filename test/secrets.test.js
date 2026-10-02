@@ -1,4 +1,6 @@
 // 秘密边界验收（ADR-001 D7）：at-rest 加密、权限化 resolve、TTL、全出口脱敏。
+// 注：本文件含**合成示例值**（AWS/GitHub/OpenAI 官方文档示例串），标记 synthetic-example，
+// 供脱敏器形态测试使用，绝非真实凭据。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync, existsSync } from 'node:fs';
