@@ -69,6 +69,7 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 | `packages/shared-types` | 共同契约 | 状态机与迁移表、错误码、四元组/契约/回执校验 |
 | `packages/warroom-core` | host | 事实库（fact.db/global.db）、门闸 broker、跳板池、秘密库、报告、adapter（fake / redteam-mode / DSH 桥） |
 | `packages/warroom-tools` | agent | 37 个 `warroom_*` 工具定义（允许清单制的唯一副作用入口） |
+| `packages/warroom-plugin` | DSH 插件 | host 服务骨架 + `warroom_*` 工具包装（挂载层入口） |
 | `presets/` | 预设 | 三角色（commander/recon/chain）+ 允许清单 |
 
 ## 测试与四闸
