@@ -235,7 +235,10 @@ if (v.verify) {
       findings.push(`· 尚未写入真实 patch：用临时覆盖层预演（${overlay}）`);
     }
     const args = ['--profile', profileName, '--dump-config', ...(overlay ? ['--patch', overlay] : [])];
-    const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // 把目标 home 透传给 spawn 的 dsh：否则 --home 指定的 profile 不会被验证，
+    // dsh 会按自身 DSH_HOME dump 另一套 profile → 误报 preset_found=false。
+    const spawnEnv = home ? { ...process.env, DSH_HOME: home } : process.env;
+    const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: spawnEnv });
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
     const hit = out.includes(`id: ${PRESET_ID}`) && out.includes(ROW_ID);
     verify = { ok: r.status === 0 && hit, status: r.status, preset_found: hit, via: overlay ? 'overlay' : 'profile' };
