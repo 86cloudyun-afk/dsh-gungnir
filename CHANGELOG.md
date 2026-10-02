@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **一致性套件独立入口**：`scripts/conformance.mjs [--module <path>]` + CLI `warroom conformance`
+  ——外部 adapter 作者可对自己的 adapter 跑同一套 SPI rev2 契约检查（8 项，含幂等与资源清单），
+  失败项逐条列出并非零退出。**修掉一个真 bug**：`summarize().failed` 是数组，
+  原脚本用 `> 0` 判断导致坏 adapter 也返回 0
 - **出口验证实跑脚本** `scripts/egress-check.mjs`：经 route 的 SOCKS 出口回显端点比对登记地址，
   或 `--self`（操作节点自身出口，**检测到代理环境变量即拒绝**）；结果自动入账；
   退出码语义化（0 通过 / 1 不匹配 / 2 前置缺失 / 3 SKIP——环境不可用即如实 SKIP，不伪造通过）；
