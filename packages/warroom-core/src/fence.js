@@ -47,6 +47,29 @@ export function buildFencePlan({ engagementId, route, image = 'alpine:latest', s
   };
 }
 
+/**
+ * 从战役库读取活跃跳板路由并生成围栏计划（**fail-closed**：无活跃 route 就不给计划）。
+ * @param {{store:object, engagementId:string, routeId?:string, image?:string, taskCmd?:string[]}} p
+ */
+export function planFenceForEngagement({ store, engagementId, routeId = null, image, taskCmd }) {
+  const routes = store.db.prepare("SELECT * FROM jump_routes WHERE state = 'active' ORDER BY ts").all();
+  if (routes.length === 0 && !routeId) {
+    const e = new Error('没有活跃跳板路由：围栏出口必须来自门闸下发的 route（先 jumphosts.acquire）');
+    e.code = 'E_FENCE_NO_ROUTE';
+    throw e;
+  }
+  const route = routeId ? routes.find((r) => r.route_id === routeId) : routes.at(-1);
+  if (!route) {
+    const e = new Error(`route ${routeId} 不存在或非活跃`);
+    e.code = 'E_FENCE_NO_ROUTE';
+    throw e;
+  }
+  return {
+    ...buildFencePlan({ engagementId, route: { socks: route.socks, route_id: route.route_id }, image, taskCmd }),
+    upstream_source: { route_id: route.route_id, jumphost_id: route.jumphost_id, socks: route.socks, state: route.state },
+  };
+}
+
 /** 静态校验：不变量逐条检查，fail-closed。 */
 export function verifyFencePlan(plan) {
   const errors = [];
@@ -73,6 +96,9 @@ export function verifyFencePlan(plan) {
   if (!plan.sidecar?.upstream || !/^socks5h?:\/\//.test(plan.sidecar.upstream)) {
     errors.push('sidecar 上游必须是门闸下发的 socks 地址');
   } else guarantees.push(`唯一出口 = ${plan.sidecar.upstream}`);
+  if (plan.upstream_source && plan.upstream_source.socks !== plan.sidecar.upstream) {
+    errors.push('围栏上游与 route 记录不一致（可能被手工改写）');
+  }
 
   return { ok: errors.length === 0, errors, guarantees };
 }
