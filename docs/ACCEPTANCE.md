@@ -3,14 +3,18 @@
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
-复跑全部：`node --test`（72 例）→ `node scripts/validate-tool-schemas.mjs` →
-`node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（四闸，CI 同款）。
+复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
+逐闸等价命令：`node --test`（**394 例**）→ `node scripts/validate-tool-schemas.mjs` →
+`node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
+`node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
+CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨进程执行层演练）。
+端到端演练：`node scripts/executor-drill.mjs [--mode bridge]`；契约自检：`node scripts/conformance.mjs`。
 
 ## 框架 §8 验收清单（12 项）
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` | ✅ 文件与校验器就绪；**真实挂载层生效待 DSH 集成波次**（见「缺口」） |
+| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` | ✅ 文件与校验器就绪（**真实 DSH 挂载层生效仍待集成**，见「缺口」——本条是 v0.1 唯一未闭环项） |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
@@ -31,7 +35,7 @@
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
-| 桶 A 隔离实测 | fence.js + fence-verify.mjs | ⚠️ 静态就绪；真实验收待 daemon/CI runner |
+| 桶 A 隔离实测 | CI `fence` job（runner 真跑：`--internal` 网络 + sidecar + 任务容器，直连被阻断）；本地无 daemon 时如实 SKIP | ✅ |
 
 ## ADR-002（数据与证据契约 rev2）
 
@@ -65,7 +69,9 @@
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
 | 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
-| 真实执行层应答器 | 桥协议与驱动就绪，DSH 侧应答器未实现 | v0.2（`docs/DSH-BRIDGE-PROTOCOL.md` 待办） |
+| 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
+可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
+CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTOR_CMD` 指向你环境里的真实派单命令（需 DSH 环境） |
 
 ## 批次 4–6 新增能力的验收映射
 
