@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'wave', 'sweep',
+const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'wave', 'sweep',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -26,6 +26,7 @@ function usage() {
   revoke    撤销授权并级联停止：--engagement <id>
   report    导出报告：--engagement <id> [--out <dir>]
   verify-report  复现校验：<report.md> --engagement <id>
+  evidence  证据落盘（报告+水位+三段式 EVIDENCE_INDEX）：--engagement <id> [--out <dir>] [--target <name>]
   sweep     超时治理：--engagement <id> [--timeout-min n]（超时任务转 unknown，不自动重试）
   wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json>
   shell     status|proof|verify：shell 三字段（--proof X / --validity unknown|likely|confirmed_lost）
@@ -139,6 +140,9 @@ switch (command) {
     break;
   case 'report':
     out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
+    break;
+  case 'evidence':
+    out(broker.exportEvidence(need('engagement', v.engagement), { outDir: v.out, target: v.target }));
     break;
   case 'sweep':
     out(broker.sweepTimeouts(need('engagement', v.engagement), {

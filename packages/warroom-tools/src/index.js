@@ -297,6 +297,17 @@ export const TOOLS = [
       timeoutMs: (args.timeout_min ?? 30) * 60 * 1000,
     }),
   },
+  {
+    name: 'warroom_evidence_export',
+    description: '证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
+  },
 ];
 
 export { ERR };
