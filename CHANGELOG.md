@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **性能门扩展**：规模冒烟新增审计导出、JSON 报告、喷洒矩阵三项阈值；
+  实测 N=5000 时：入库 18ms / 快照 12ms / md 报告 90ms / **json 报告 145ms** / 审计 0.4ms / 矩阵 9ms
 - **`warroom doctor` 一键体检**：Node/sqlite 版本、docker daemon（不可用给 warn 不误报 fail）、
   WARROOM_HOME 可写、global 与各战役库完整性 + schema 版本、秘密密钥权限、知识库存在性；
   支持 `--json`；失败项非零退出，提示项不阻塞
