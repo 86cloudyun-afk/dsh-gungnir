@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **开工前预检** `warroom preflight --engagement <id>`（工具 `warroom_preflight`，28 个工具）：
+  六个维度（环境/配置/战役时间窗与目标/活跃路由与出口验证/备份新鲜度/密钥权限）合成
+  **三态结论 ready|degraded|blocked** + 阻塞项 + 下一步建议；blocked 时 CLI 非零退出
 - 文档收口：ACCEPTANCE 增 7 行验收映射（路由生命周期/任务心跳/拓扑/知识库复用/门禁/桥接一致性）
   与数字同步（251 例 / 27 工具 / 故障矩阵 14 场景）、README 改用 `npm run ci`、QUICKSTART 增门禁速查
 - **一致性套件跑真实桥接 adapter**（跨进程回归）：新增 `test/conformance-bridge.test.js`；
