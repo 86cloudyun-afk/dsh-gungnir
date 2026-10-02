@@ -507,6 +507,17 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.watch(args.engagement_id, { timeoutMin: args.timeout_min ?? null }),
   },
+  {
+    name: 'warroom_rate_view',
+    description: '速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.rateView(args.engagement_id),
+  },
 ];
 
 export { ERR };
