@@ -86,6 +86,24 @@ node bin/warroom.mjs verify-report "$MD" --engagement "$ENG" --json
 # → reproducible: true（水位 + 证据摘要双一致）；导出后有新写入则如实报漂移，退出码 3
 ```
 
+## 7.5 波次编排（可选，把上面第 2–4 步批量做掉）
+
+```sh
+cat > wave.json <<'JSON'
+{ "title": "链前会议 #1", "notes": "先 recon 收面，再 chain 合成到 shell 的路径",
+  "decisions": ["rhythm=restricted"],
+  "tasks": [
+    { "id": "recon-A", "role": "recon", "targets": ["10.0.0.5"], "intent": "recon" },
+    { "id": "chain-B", "role": "chain", "targets": ["10.0.0.5"], "intent": "assess", "depends_on": ["recon-A"] }
+  ] }
+JSON
+node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
+```
+
+- **会不开，波不发**：纪要落库（`meetings` 表），并随报告一起交付（md「链前会议纪要」段 / json `meetings`）
+- **波内无屏障**：独立任务立即并行；依赖满足即刻交接下游（实测顺序 `recon-A → chain-B`）
+- 任务报终态后自动**结项**；成环/悬空依赖如实报错
+
 ## 8. 下一步
 
 - 六道闸自检：`node --test` + `scripts/{validate-tool-schemas,check-preset,fault-matrix,self-review}.mjs`

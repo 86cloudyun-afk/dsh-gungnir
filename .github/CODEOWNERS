@@ -1,0 +1,13 @@
+# 默认所有者
+*                       @86cloudyun-afk
+
+# 契约冻结区：破坏性变更需 arch 复核
+packages/shared-types/  @86cloudyun-afk
+docs/adr/               @86cloudyun-afk
+
+# 执行层集成
+packages/warroom-plugin/            @86cloudyun-afk
+scripts/dsh-bridge-responder.mjs    @86cloudyun-afk
+
+# CI 与治理
+.github/                @86cloudyun-afk

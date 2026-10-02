@@ -284,6 +284,30 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.knowledge.use(args.code, args),
   },
+  {
+    name: 'warroom_sweep_timeouts',
+    description: '超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, timeout_min: { type: 'integer' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.sweepTimeouts(args.engagement_id, {
+      timeoutMs: (args.timeout_min ?? 30) * 60 * 1000,
+    }),
+  },
+  {
+    name: 'warroom_evidence_export',
+    description: '证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
+  },
 ];
 
 export { ERR };
