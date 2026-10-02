@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **DSH 插件包骨架** `packages/warroom-plugin`：host 服务工厂（三种 adapter：fake/local/bridge）、
+  `apply(ctx)` cordis 契约（注册 `ctx.warroom` + dispose 收尾）、DSH 工具包装
+  （16 个工具 → `execute` 绑定 host 服务，包装层做四元组预检）、启动即再水化
 - CLI 全子命令补全（verify-report / shell / spray / metrics），覆盖全部 16 个工具的能力面
 - **挂载部署脚本** `scripts/deploy-dsh.mjs`（--check / --print / --apply）：
   patch 层只允许脚本改（多方维护冲突高发），apply 前自动备份、幂等不重复插入
