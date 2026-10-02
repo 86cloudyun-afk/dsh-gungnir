@@ -49,16 +49,21 @@ export const TOOLS = [
     description: '事实查询（只读）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, entity_type: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' }, entity_type: { type: 'string' }, source_id: { type: 'string' },
+        since: { type: 'string' }, include_history: { type: 'boolean' },
+        adapter_instance: { type: 'string' }, limit: { type: 'integer' },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => {
       const { store } = core.broker._eng(args.engagement_id);
-      const rows = args.entity_type
-        ? store.db.prepare('SELECT * FROM fact_members WHERE entity_type = ? AND active = 1').all(args.entity_type)
-        : store.db.prepare('SELECT * FROM fact_members WHERE active = 1').all();
-      return { count: rows.length, rows };
+      return store.queryFacts({
+        entityType: args.entity_type ?? null, sourceId: args.source_id ?? null,
+        since: args.since ?? null, includeHistory: args.include_history ?? false,
+        adapterInstance: args.adapter_instance ?? null, limit: args.limit ?? 500,
+      });
     },
   },
   {
