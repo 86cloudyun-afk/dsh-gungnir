@@ -1,37 +1,276 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, realpathSync, readdirSync } from 'node:fs';
+import { existsSync, realpathSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { projectFacts } from './model.js';
-const err=(code,msg)=>Object.assign(new Error(msg),{code});
-function dbRead(path){try{if(!existsSync(path))throw Error('missing');const db=new DatabaseSync(path,{readOnly:true});db.exec('PRAGMA query_only=ON');return db;}catch(e){throw err('E_DASHBOARD_DATABASE',`Cannot read dashboard database: ${e.message}`);}}
-function homePath(home){try{if(!existsSync(home))throw Error('missing');return realpathSync(home);}catch(e){throw err('E_DASHBOARD_PATH',`Invalid dashboard home: ${e.message}`);}}
-const tables=db=>new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(x=>x.name));
-const has=(t,n)=>t.has(n);
-function query(db,sql){try{return db.prepare(sql).all();}catch(e){throw err('E_DASHBOARD_DATABASE',`Dashboard schema/read error: ${e.message}`);}}
-function safeRows(db,t,name,sql){if(!has(t,name))return [];return query(db,sql);}
-export function listDashboardEngagements({home}){const base=homePath(home),root=resolve(base,'warroom/engagements');if(!root.startsWith(base+sep))throw err('E_DASHBOARD_PATH','Engagement path escapes home');if(!existsSync(root))return [];let entries;try{entries=readdirSync(root,{withFileTypes:true});}catch(e){throw err('E_DASHBOARD_PATH',`Cannot list engagements: ${e.message}`);}const result=[];for(const entry of entries){if(!entry.isDirectory()||!/^[A-Za-z0-9_-]{1,128}$/.test(entry.name))continue;const dir=resolve(root,entry.name),fp=join(dir,'fact.db');if(!dir.startsWith(root+sep)||!existsSync(fp))continue;const db=dbRead(fp);try{const ts=tables(db);if(!has(ts,'engagements'))continue;const row=query(db,'SELECT id,created_at FROM engagements LIMIT 1')[0];if(row)result.push({engagement_id:row.id,created_at:row.created_at??null});}finally{db.close();}}return result.sort((a,b)=>String(b.created_at??'').localeCompare(String(a.created_at??'')));}
-export function readDashboardSnapshot({home,engagementId,now=new Date().toISOString()}){
- const base=homePath(home),id=String(engagementId??'');if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw err('E_DASHBOARD_PATH','Invalid engagement id');const root=resolve(base,'warroom/engagements'),dir=resolve(root,id);if(!dir.startsWith(root+sep))throw err('E_DASHBOARD_PATH','Engagement path escapes home');
- const fp=join(dir,'fact.db');if(!existsSync(fp))throw err('E_DASHBOARD_NOT_FOUND',`Engagement not found: ${id}`);try{const realRoot=realpathSync(root),realDir=realpathSync(dir);if(!realDir.startsWith(realRoot+sep))throw Error('escape');}catch(e){throw err('E_DASHBOARD_PATH',`Invalid engagement path: ${e.message}`);}
- const f=dbRead(fp),gp=join(base,'global.db');let g;try{g=dbRead(gp);const ft=tables(f),gt=tables(g);if(!has(ft,'engagements'))throw err('E_DASHBOARD_DATABASE','Missing engagements table');const engagement=query(f,'SELECT id,created_at,window_start,window_end FROM engagements LIMIT 1')[0];if(!engagement)throw err('E_DASHBOARD_NOT_FOUND',`Engagement not found: ${id}`);
- f.exec('BEGIN');g.exec('BEGIN');const diagnostics={unresolved_refs:0,ambiguous_refs:0,warnings:[],counts:{},truncated:false};
- const facts=safeRows(f,ft,'fact_members','SELECT id,adapter_instance,entity_type,source_id,payload,active,ts FROM fact_members WHERE active=1 ORDER BY id');const model=projectFacts(facts,diagnostics);
- const routes=safeRows(f,ft,'jump_routes','SELECT route_id,lease_id,jumphost_id,state,ts FROM jump_routes').map(r=>{const lease=has(gt,'leases')?query(g,`SELECT state,expires_at,engagement_id FROM leases WHERE lease_id=${quote(r.lease_id)} AND engagement_id=${quote(id)} LIMIT 1`)[0]:null;const validLease=lease?.state==='active'&&Date.parse(lease.expires_at)>Date.parse(now);const checks=safeRows(f,ft,'egress_checks',`SELECT ts,exit_ip,verdict,route_id FROM egress_checks WHERE route_id=${quote(r.route_id)} ORDER BY ts DESC LIMIT 1`)[0];const current=Boolean(validLease&&r.state==='active'&&checks&&checks.route_id===r.route_id&&Date.parse(checks.ts)<=Date.parse(now));return {route_id:r.route_id,jumphost_id:r.jumphost_id??null,entry_ip:null,exit_ip:checks?.exit_ip??null,state:r.state??'unknown',lease:{state:lease?(validLease?'active':lease.state==='active'?'expired':lease.state):'unknown',expires_at:lease?.expires_at??null,remaining_seconds:lease?Math.max(0,Math.floor((Date.parse(lease.expires_at)-Date.parse(now))/1000)):null},egress:{verdict:checks?.verdict??'unknown',checked_at:checks?.ts??null,current:current&&checks.verdict==='pass'},node_ids:[],edge_ids:[]};});
- const tasks=[];for(const r of model.decoded.filter(x=>x.entity_type==='task')){const p=r.payload;tasks.push({task_id:p.task_id??r.source_id,command_id:typeof p.command_id==='string'?p.command_id:null,state:taskState(p.state),role:safe(p.role),route_id:safe(p.route_id),updated_at:r.ts});}
- if(has(gt,'command_queue'))for(const q of safeRows(g,gt,'command_queue',`SELECT command_id,task_id,state,ts FROM command_queue WHERE engagement_id=${quote(id)}`)){if(!tasks.some(x=>x.task_id===q.task_id))tasks.push({task_id:q.task_id??q.command_id,command_id:q.command_id,state:taskState(q.state),role:null,route_id:null,updated_at:q.ts});}
- for(const r of routes){r.node_ids=model.nodes.filter(n=>n.route_ids.includes(r.route_id)).map(n=>n.id);r.edge_ids=model.edges.filter(e=>e.route_ids.includes(r.route_id)).map(e=>e.id);}
- const seq=has(ft,'fact_seq')?query(f,'SELECT COALESCE(MAX(id),0) AS seq FROM fact_seq')[0].seq:null;diagnostics.counts={nodes:model.nodes.length,edges:model.edges.length,routes:routes.length,tasks:tasks.length,warnings:diagnostics.warnings.length};
- f.exec('COMMIT');g.exec('COMMIT');return {schema:'gungnir-dashboard/1',mode:'live',generated_at:now,engagement:{engagement_id:id,created_at:engagement.created_at??null},watermark:{fact_seq:seq},nodes:model.nodes,edges:model.edges,routes,tasks,conversation:{status:'unavailable',session_id:null,messages:[]},diagnostics};
- }catch(e){try{f.exec('ROLLBACK')}catch{}try{g?.exec('ROLLBACK')}catch{}if(e.code)throw e;throw err('E_DASHBOARD_DATABASE',e.message);}finally{f.close();g?.close();}}
-const safe=x=>typeof x==='string'?x.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,120):null;
-function taskState(s){return ['queued','running','completed','failed','unknown','cancel_requested','cancelled'].includes(s)?s:'unknown';}
-function quote(s){return `'${String(s??'').replaceAll("'","''")}'`;}
-export { projectFacts } from './model.js';
-export function createDemoSnapshot(){
- const routes=['demo-route-01','demo-route-02','demo-route-03','demo-route-04'].map((route_id,i)=>({route_id,jumphost_id:`demo-host-0${i+1}`,entry_ip:['192.0.2.11','192.0.2.12','192.0.2.13','192.0.2.14'][i],exit_ip:null,state:i===3?'unknown':'active',lease:{state:i===2?'expired':i===3?'unknown':'active',expires_at:null,remaining_seconds:null},egress:{verdict:['pass','pending','fail','unknown'][i],checked_at:null,current:i===0},node_ids:[],edge_ids:[]}));
- const specs=[['demo-entry','入口',0,'verified'],['demo-asset-a','资产 A',1,'verified'],['demo-asset-b','资产 B',1,'pending'],['demo-shared-evidence','共享证据',2,'verified'],['demo-chain','链路结论',3,'failed'],['demo-unknown','待核验事实',2,'unknown']];
- const nodes=specs.map(([source_id,label,layer,state])=>({id:`node:${source_id}`,source_id,adapter_instance:'demo-adapter',entity_type:layer===0?'jumphost':layer===1?'asset':layer===2?'evidence':'chain',label,layer,state,route_ids:[],task_ids:[],highest_proof:null,current_validity:'unknown',updated_at:null}));
- const edges=[['demo-entry','demo-asset-a','explicit','route-01'],['demo-entry','demo-asset-b','explicit','route-02'],['demo-asset-a','demo-shared-evidence','reference','route-01'],['demo-asset-b','demo-shared-evidence','reference','route-02'],['demo-shared-evidence','demo-chain','explicit','route-03'],['demo-shared-evidence','demo-unknown','reference','route-04']].map(([a,b,kind,r],i)=>({id:`demo-edge-${i+1}`,from:`node:${a}`,to:`node:${b}`,label:i===2||i===3?'shared evidence':'route note',kind,route_ids:[`demo-${r}`]}));
- routes.forEach((r,i)=>{r.node_ids=nodes.filter((_,n)=>n===0||n===i+1||n===3).map(n=>n.id);r.edge_ids=edges.filter(e=>e.route_ids.includes(r.route_id)).map(e=>e.id);});
- return {schema:'gungnir-dashboard/1',mode:'demo',generated_at:'2026-10-03T00:00:00.000Z',engagement:{engagement_id:'demo-engagement-001',created_at:null},watermark:{fact_seq:null},nodes,edges,routes,tasks:[],conversation:{status:'demo',session_id:'demo-session-001',messages:[]},diagnostics:{unresolved_refs:0,ambiguous_refs:0,warnings:['Synthetic example data; RFC 5737 documentation addresses only.'],counts:{nodes:nodes.length,edges:edges.length,routes:routes.length,tasks:0,warnings:1},truncated:false}};
+import { createDemoSnapshot } from './demo.js';
+import { loadConfig } from '../../warroom-core/src/config.js';
+
+const SNAPSHOT_SCHEMA = 'gungnir-dashboard/1';
+const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const err = (code, message) => Object.assign(new Error(message), { code });
+
+export function listDashboardEngagements({ home }) {
+  const paths = resolveHomePaths(home);
+  if (!existsSync(paths.engagementsRoot)) return [];
+  let directories;
+  try { directories = readdirSync(paths.engagementsRoot, { withFileTypes: true }); }
+  catch (error) { throw err('E_DASHBOARD_PATH', `Cannot list engagements: ${error.message}`); }
+  const result = [];
+  for (const entry of directories) {
+    if (!entry.isDirectory() || !SAFE_SEGMENT.test(entry.name)) continue;
+    const engagement = readEngagement(paths, entry.name, { allowMissing: true });
+    if (engagement) result.push({ engagement_id: engagement.id, created_at: engagement.created_at ?? null });
+  }
+  return result.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
 }
+
+export function readDashboardSnapshot({ home, engagementId, now = new Date().toISOString() }) {
+  const paths = resolveHomePaths(home);
+  const id = String(engagementId ?? '');
+  if (!SAFE_SEGMENT.test(id)) throw err('E_DASHBOARD_PATH', 'Invalid engagement id');
+  const engagement = readEngagement(paths, id);
+  const factDb = openReadOnly(engagement.factPath);
+  let globalDb;
+  try {
+    globalDb = openReadOnly(paths.globalPath);
+    const factTables = tableNames(factDb);
+    const globalTables = tableNames(globalDb);
+    const diagnostics = emptyDiagnostics();
+    factDb.exec('BEGIN');
+    globalDb.exec('BEGIN');
+
+    const factRows = rowsIfTable(factDb, factTables, 'fact_members', `
+      SELECT id, adapter_instance, entity_type, source_id, revision_no, payload, active, ts
+      FROM fact_members WHERE active = 1 ORDER BY id`);
+    const model = projectFacts(factRows, diagnostics);
+    const routes = projectRoutes(factDb, factTables, globalDb, globalTables, id, now, paths.base, diagnostics);
+    const tasks = projectTasks(model.facts, globalDb, globalTables, id, diagnostics);
+    attachRouteAssociations(routes, model.nodes, model.edges);
+    const shellState = readShellState(factDb, factTables, id);
+    if (!tableNames(factDb).has('shell_state')) {
+      diagnostics.warnings.push('Authoritative shell_state table is unavailable; shell proof and validity are unknown.');
+    }
+    const watermark = readWatermark(factDb, factTables);
+    diagnostics.counts = {
+      nodes: model.nodes.length,
+      edges: model.edges.length,
+      routes: routes.length,
+      tasks: tasks.length,
+      warnings: diagnostics.warnings.length,
+    };
+
+    factDb.exec('COMMIT');
+    globalDb.exec('COMMIT');
+    return {
+      schema: SNAPSHOT_SCHEMA,
+      mode: 'live',
+      generated_at: now,
+      engagement: { engagement_id: id, created_at: engagement.created_at ?? null },
+      watermark,
+      nodes: model.nodes,
+      edges: model.edges,
+      routes,
+      tasks,
+      conversation: { status: 'unavailable', session_id: null, messages: [] },
+      diagnostics: { ...diagnostics, shell_state: shellState },
+    };
+  } catch (error) {
+    rollback(factDb);
+    rollback(globalDb);
+    if (typeof error.code === 'string' && error.code.startsWith('E_DASHBOARD_')) throw error;
+    throw err('E_DASHBOARD_DATABASE', `Dashboard schema/read error: ${error.message}`);
+  } finally {
+    factDb.close();
+    globalDb?.close();
+  }
+}
+
+function resolveHomePaths(home) {
+  let base;
+  try { base = realpathSync(home); }
+  catch (error) { throw err('E_DASHBOARD_PATH', `Invalid dashboard home: ${error.message}`); }
+  const engagementsRoot = resolve(base, 'engagements');
+  if (!isWithin(base, engagementsRoot)) throw err('E_DASHBOARD_PATH', 'Engagement path escapes home');
+  const globalPath = join(base, 'global.db');
+  if (existsSync(globalPath)) assertRealPathWithin(base, globalPath, 'global.db');
+  if (existsSync(engagementsRoot)) assertRealPathWithin(base, engagementsRoot, 'Engagement root');
+  return { base, engagementsRoot, globalPath };
+}
+
+function readEngagement(paths, id, { allowMissing = false } = {}) {
+  const dir = resolve(paths.engagementsRoot, id);
+  if (!isWithin(paths.engagementsRoot, dir)) throw err('E_DASHBOARD_PATH', 'Engagement path escapes home');
+  const factPath = join(dir, 'fact.db');
+  if (!existsSync(factPath)) {
+    if (allowMissing) return null;
+    throw err('E_DASHBOARD_NOT_FOUND', `Engagement not found: ${id}`);
+  }
+  assertRealPathWithin(paths.base, dir, 'Engagement directory');
+  assertRealPathWithin(paths.base, factPath, 'fact.db');
+  const db = openReadOnly(factPath);
+  try {
+    if (!tableNames(db).has('engagements')) throw err('E_DASHBOARD_DATABASE', 'Missing engagements table');
+    const engagement = db.prepare('SELECT id, created_at FROM engagements WHERE id = ?').get(id);
+    if (!engagement) {
+      if (allowMissing) return null;
+      throw err('E_DASHBOARD_NOT_FOUND', `Engagement database does not contain requested id: ${id}`);
+    }
+    return { ...engagement, factPath };
+  } catch (error) {
+    if (typeof error.code === 'string' && error.code.startsWith('E_DASHBOARD_')) throw error;
+    throw err('E_DASHBOARD_DATABASE', `Cannot read engagement database: ${error.message}`);
+  } finally {
+    db.close();
+  }
+}
+
+function openReadOnly(path) {
+  try {
+    const realPath = realpathSync(path);
+    const db = new DatabaseSync(realPath, { readOnly: true });
+    db.exec('PRAGMA query_only = ON');
+    return db;
+  } catch (error) {
+    throw err('E_DASHBOARD_DATABASE', `Cannot read dashboard database: ${error.message}`);
+  }
+}
+function assertRealPathWithin(root, path, label) {
+  try {
+    const realRoot = realpathSync(root);
+    const realPath = realpathSync(path);
+    if (!isWithin(realRoot, realPath)) throw Error('symlink escapes WARROOM_HOME');
+  } catch (error) { throw err('E_DASHBOARD_PATH', `${label} path is invalid: ${error.message}`); }
+}
+function isWithin(root, path) { return path.startsWith(`${root}${sep}`); }
+function tableNames(db) { return new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name)); }
+function rowsIfTable(db, tables, table, sql) { return tables.has(table) ? db.prepare(sql).all() : []; }
+function emptyDiagnostics() { return { unresolved_refs: 0, ambiguous_refs: 0, warnings: [], counts: {}, truncated: false }; }
+function rollback(db) { try { db?.exec('ROLLBACK'); } catch {} }
+
+function projectRoutes(factDb, factTables, globalDb, globalTables, engagementId, now, home, diagnostics) {
+  const config = loadEgressMaxAge(home);
+  if (config.invalid) diagnostics.warnings.push('Egress freshness configuration is invalid; current pass cannot be established.');
+  const routes = rowsIfTable(factDb, factTables, 'jump_routes', `
+    SELECT route_id, lease_id, jumphost_id, state, ts FROM jump_routes ORDER BY ts, route_id`);
+  return routes.map((route) => {
+    const lease = globalTables.has('leases')
+      ? globalDb.prepare(`SELECT lease_id, jumphost_id, engagement_id, state, expires_at, heartbeat_at, ts
+          FROM leases WHERE lease_id = ? AND engagement_id = ?`).get(route.lease_id, engagementId)
+      : null;
+    const host = globalTables.has('jumphosts') && route.jumphost_id
+      ? globalDb.prepare('SELECT id, addr_v4, addr_v6 FROM jumphosts WHERE id = ?').get(route.jumphost_id)
+      : null;
+    const check = factTables.has('egress_checks')
+      ? factDb.prepare(`SELECT ts, exit_ip, verdict, route_id, jumphost_id, recovered_at
+          FROM egress_checks WHERE route_id = ? ORDER BY ts DESC, id DESC LIMIT 1`).get(route.route_id)
+      : null;
+    const leaseMatches = Boolean(lease && lease.lease_id === route.lease_id
+      && lease.engagement_id === engagementId && lease.jumphost_id === route.jumphost_id);
+    const expiresAt = lease ? validTime(lease.expires_at) : NaN;
+    const leaseActive = leaseMatches && lease.state === 'active'
+      && Number.isFinite(expiresAt) && expiresAt > Date.parse(now);
+    const checkTime = check ? Date.parse(check.ts) : NaN;
+    const leaseTime = lease ? Date.parse(lease.ts) : NaN;
+    const ageMs = Date.parse(now) - checkTime;
+    const checkCurrent = Boolean(check && leaseActive && route.state === 'active'
+      && check.jumphost_id === route.jumphost_id && check.recovered_at == null
+      && Number.isFinite(checkTime) && Number.isFinite(leaseTime)
+      && checkTime >= leaseTime && checkTime >= Date.parse(route.ts) && checkTime <= Date.parse(now)
+      && Number.isFinite(config.maxAgeMs) && ageMs <= config.maxAgeMs);
+    const state = route.state ?? 'unknown';
+    return {
+      route_id: route.route_id,
+      jumphost_id: route.jumphost_id ?? null,
+      entry_ip: host?.addr_v4 ?? host?.addr_v6 ?? null,
+      exit_ip: check?.exit_ip ?? null,
+      state,
+      lease: {
+        state: !leaseMatches ? 'unknown' : lease.state !== 'active' ? lease.state
+          : !Number.isFinite(expiresAt) ? 'unknown' : leaseActive ? 'active' : 'expired',
+        expires_at: lease?.expires_at ?? null,
+        remaining_seconds: leaseMatches && Number.isFinite(expiresAt)
+          ? Math.max(0, Math.floor((expiresAt - Date.parse(now)) / 1000)) : null,
+      },
+      egress: { verdict: check?.verdict ?? 'unknown', checked_at: check?.ts ?? null, current: checkCurrent && check.verdict === 'pass' },
+      node_ids: [],
+      edge_ids: [],
+    };
+  });
+}
+function validTime(value) { const time = Date.parse(value); return Number.isFinite(time) ? time : NaN; }
+function loadEgressMaxAge(home) {
+  try {
+    const config = loadConfig(home);
+    return { maxAgeMs: config.egressMaxAgeMin * 60_000 };
+  } catch {
+    return { maxAgeMs: NaN, invalid: true };
+  }
+}
+
+function projectTasks(facts, globalDb, globalTables, engagementId, diagnostics) {
+  const queue = globalTables.has('command_queue')
+    ? globalDb.prepare(`SELECT command_id, task_id, contract, state, ts FROM command_queue WHERE engagement_id = ? ORDER BY ts, command_id`).all(engagementId)
+    : [];
+  const factByTask = new Map();
+  for (const row of facts) {
+    if (row.entity_type !== 'task') continue;
+    const taskId = typeof row.payload.task_id === 'string' ? row.payload.task_id : row.source_id;
+    if (!factByTask.has(taskId)) factByTask.set(taskId, row.payload);
+  }
+  const tasks = queue.map((row) => {
+    const contract = parseObject(row.contract);
+    const payload = factByTask.get(row.task_id) ?? {};
+    return {
+      task_id: row.task_id ?? row.command_id,
+      command_id: row.command_id,
+      state: taskState(row.state),
+      role: safeString(contract.role),
+      route_id: safeString(contract.route_id),
+      updated_at: row.ts,
+    };
+  });
+  for (const [taskId, payload] of factByTask) {
+    if (tasks.some((task) => task.task_id === taskId)) continue;
+    diagnostics.warnings.push(`Task fact ${safeString(taskId) ?? 'unknown'} has no command ledger row; omitted from task state.`);
+    void payload;
+  }
+  return tasks;
+}
+function taskState(value) {
+  return ['queued', 'running', 'cancel_requested', 'unknown', 'unresolved', 'done', 'partial', 'failed', 'cancelled', 'confirmed_stopped'].includes(value)
+    ? value : 'unknown';
+}
+function safeString(value) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120) : null; }
+function parseObject(value) {
+  try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; }
+  catch { return {}; }
+}
+function attachRouteAssociations(routes, nodes, edges) {
+  for (const route of routes) {
+    const nodeIds = new Set(nodes.filter((node) => node.route_ids.includes(route.route_id)).map((node) => node.id));
+    const edgeIds = [];
+    for (const edge of edges) {
+      if (!edge.route_ids.includes(route.route_id)) continue;
+      edgeIds.push(edge.id);
+      nodeIds.add(edge.from);
+      nodeIds.add(edge.to);
+    }
+    route.node_ids = [...nodeIds];
+    route.edge_ids = edgeIds;
+  }
+}
+function readShellState(db, tables, engagementId) {
+  if (!tables.has('shell_state')) return { state: 'unknown', highest_proof: null, current_validity: 'unknown', last_verified_at: null };
+  const row = db.prepare(`SELECT highest_proof, current_validity, last_verified_at FROM shell_state
+    WHERE engagement_id = ? ORDER BY id DESC LIMIT 1`).get(engagementId);
+  return row ? {
+    state: 'observed',
+    highest_proof: row.highest_proof ?? null,
+    current_validity: row.current_validity ?? 'unknown',
+    last_verified_at: row.last_verified_at ?? null,
+  } : { state: 'unknown', highest_proof: null, current_validity: 'unknown', last_verified_at: null };
+}
+function readWatermark(db, tables) {
+  return { fact_seq: tables.has('fact_seq') ? db.prepare('SELECT COALESCE(MAX(id), 0) AS seq FROM fact_seq').get().seq : null };
+}
+export { projectFacts, createDemoSnapshot };
