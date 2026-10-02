@@ -2,6 +2,7 @@
 // 单元（hermetic）：allowlist 源头过滤 + 向后兼容 + loadToolPolicy 读 preset 文件。
 // 验收（本机 DSH 0.2.0-rc.2 + 官方 boot API，缺宝 SKIP）：主控会话工具目录 = 36 warroom_*，无内核工具。
 import { test } from 'node:test';
+import { TOOLS } from '../packages/warroom-tools/src/index.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,6 +19,9 @@ function fakeTools() {
   return { registered, tools: { register: (d) => { registered.push(d.name); return () => {}; } }, on() {} };
 }
 
+/** 工具总数（与工具表同源，不再写死数字）。 */
+const TOOLS_LEN = TOOLS.length;
+
 test('allowlist 源头过滤：toolPolicy.allow 为子集时只注册允许集内的 warroom 工具', () => {
   const f = fakeTools();
   const subset = TOOL_NAMES.slice(0, 5);
@@ -29,10 +33,10 @@ test('allowlist 源头过滤：toolPolicy.allow 为子集时只注册允许集�
   assert.equal(svc.registered.length, 5);
 });
 
-test('无 toolPolicy → 向后兼容：注册全部 36，gateStatus=no-policy', () => {
+test('无 toolPolicy → 向后兼容：注册全部工具，gateStatus=no-policy', () => {
   const f = fakeTools();
   const svc = entry.apply({ tools: f.tools, on: f.on }, { home: '/tmp/wr-tp-2' });
-  assert.equal(f.registered.length, 36);
+  assert.equal(f.registered.length, TOOLS_LEN);
   assert.equal(svc.allowlistSize, null);
   assert.equal(svc.gateStatus, 'no-policy');
 });

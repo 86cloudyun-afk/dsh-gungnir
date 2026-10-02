@@ -70,7 +70,14 @@ export function preflight({ broker, engagementId, home = null, meeting = null })
     else add('engagement', '授权时间窗', OK, `${row.window_start ?? '-'} → ${row.window_end ?? '-'}`);
     add('engagement', '授权目标', (row.target_scope ?? '').trim() ? OK : FAIL, row.target_scope ?? '（空）');
   } catch (e) {
-    add('engagement', '战役存在', FAIL, e.message);
+    // 战役不存在时 `_engWithRow().row` 是 undefined，直接取 auth_version 会抛原始 TypeError
+    // （真机症状：blocker="Cannot read properties of undefined (reading 'auth_version')"，
+    //  使用者据此无法判断"该先冻结授权"）。这里给可读结论 + 自举指引，fail-closed 语义不变。
+    const missing = /Cannot read properties of undefined|null is not|not found/i.test(String(e?.message ?? ''));
+    add('engagement', '战役存在', FAIL,
+      missing
+        ? `战役不存在：${engagementId}（请先冻结授权：warroom_engage / CLI \`warroom engage\`）`
+        : e.message);
   }
 
   // 4) 出口（活跃 route + 出口验证）
