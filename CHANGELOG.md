@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **审计查询与导出**：`broker.audit`（按 decision/since 过滤 + 决策分布）、`broker.auditExport`
+  （JSONL，行数一致、写入时已脱敏）；工具 `warroom_audit`（工具数 22→23）、CLI `warroom audit`
+  （查询 / 导出两路）；拒绝路径同样留痕（deny 可追溯）
 - **凭据喷洒矩阵**（框架 §5.1）：`sprayMatrix`（凭据 × 服务 × 账号展开，标注 tried/locked，
   只有 `run` 格子进 ready 列表）+ `sprayApply`（批量登记，重复格子跳过、**锁定结果切断后续**）；
   工具 `warroom_spray_matrix`（工具数 21→22）

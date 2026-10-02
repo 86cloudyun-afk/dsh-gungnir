@@ -1,5 +1,6 @@
 // Broker：唯一副作用通道（ADR-001 D1/D2）+ 命令队列 + 撤销级联 + 代际收集（ADR-003）。
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
   RHYTHM_MIN_INTERVAL_MS, warroomError, ERR, canTransition, isTerminal, makeGeneration,
@@ -493,6 +494,43 @@ export class Broker {
       swept.push({ task_id: r.task_id, previous: r.state, age_ms: age });
     }
     return { swept, timeout_ms: timeoutMs, scanned: rows.length };
+  }
+
+  // ── 审计（一切动作可追溯：门闸每次判定都留痕，这里给出查询与导出）────────────
+  /**
+   * @param {{decision?:string, since?:string, limit?:number}} opts
+   */
+  audit(engagementId, { decision = null, since = null, limit = 200 } = {}) {
+    const store = this._eng(engagementId).store;
+    const where = [];
+    const args = [];
+    if (decision) { where.push('decision = ?'); args.push(decision); }
+    if (since) { where.push('ts >= ?'); args.push(since); }
+    const sql = `SELECT id, ts, decision, code, detail, recovered_at FROM gate_log
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
+    const rows = store.db.prepare(sql).all(...args, limit);
+    const byDecision = store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all();
+    return {
+      rows,
+      total: store.db.prepare('SELECT COUNT(*) AS n FROM gate_log').get().n,
+      by_decision: byDecision,
+    };
+  }
+
+  /** 导出审计日志（JSONL）；行数与查询一致，内容已脱敏（写入时即脱敏）。 */
+  auditExport(engagementId, { outDir } = {}) {
+    const store = this._eng(engagementId).store;
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'audit');
+    mkdirSync(dir, { recursive: true });
+    const rows = store.db.prepare('SELECT id, ts, decision, code, detail, request_json, recovered_at FROM gate_log ORDER BY id').all();
+    const path = join(dir, `audit-log.jsonl`);
+    writeFileSync(path, rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+    return {
+      path,
+      lines: rows.length,
+      summary: store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(),
+      watermark: { seq: store.seq() },
+    };
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
