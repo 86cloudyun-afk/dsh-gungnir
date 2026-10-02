@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **执行三桶一等公民**（框架 §4）：`buckets.js` —— 桶 A（容器+sidecar，**必须有活跃 route**，
+  任务容器只接 `--internal` 且 DNS 不落宿主）、桶 B（本机直连，**不允许经 socks**）、
+  桶 C（跳板侧，需指定跳板，**情报与凭据不落跳板**）；每种桶给出 allowed/forbidden/不变量清单；
+  配置新增 `bucket: A|B|C`（严格校验）；预检按配置校验自洽并**语义分层**
+  （没取出口=提示，桶配置矛盾=阻塞）；补齐缺失错误码 `E_FENCE_NO_ROUTE`
 - **预检带演练计划**（`preflight --meeting wave.json` / 工具 `meeting_tasks`）：
   把波次里每个任务的目标**逐个对着冻结授权核范围**，越界 → `blocked` 并列出越界目标；
   同时输出层数与同时在飞上限；计划成环也在预检阶段直接拦下（不等到派单才炸）
