@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **报告受众差异化**：`report --audience client|blue|full` —— 客户版（攻击路径 + 影响 + 修复建议；
+  不铺逐条事实/审计明细/知识库记账/跳板台账，并显式说明细则在内部版）、
+  蓝队版（IOC 优先口径 + 审计摘要 + 知识库复用 + 跳板台账）、全量（默认）；
+  **三种受众都保留水位/证据摘要/自校验**（可复现性不因受众改变）
 - **波次计划标注执行桶与出口**：`planWave` 每任务带 `bucket` / `egress`（none|direct|route）/
   `needs_egress`，并给 `buckets` 分桶计数；`runWave` 在**开会之前**做桶自洽校验——
   需经 route 的任务若没有活跃出口则拒绝开工（不留半条会议纪要，改记 `wave_rejected` 审计）
