@@ -115,11 +115,14 @@ export const TOOLS = [
     description: '导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' }, out_dir: { type: 'string' },
+        format: { type: 'string', enum: ['md', 'json', 'both'] },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportReport(args.engagement_id, { outDir: args.out_dir }),
+    run: (core, args) => core.broker.exportReport(args.engagement_id, { outDir: args.out_dir, format: args.format ?? 'md' }),
   },
   {
     name: 'warroom_status',

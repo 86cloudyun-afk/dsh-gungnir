@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **IOC 自动聚合**（v0.2 项提前落地）：结构化条目（kind/ref/source/evidence_ref/confidence/
+  manual_confirm），去重（kind+ref）与清单摘要哈希；凭据只出引用、明文不进报告
+- **报告 JSON 双格式**（`gungnir-report/1`）：与 markdown 同水位同摘要（同一份证据两个视图），
+  JSON 同样过 redactor；`report --format md|json|both`（CLI/工具/API 三入口）
 - **自审闸**（CI 第五闸，`scripts/self-review.mjs`）：秘密扫描（合成示例需显式标记）、
   文档相对链接可达、验收表引用路径存在、代码卫生（src 无 console.log / 测试无 skip·only /
   未标注来源的 TODO）、CI 四闸覆盖自检；闸门自身有齿（注入真凭据形态与死链必须失败）
