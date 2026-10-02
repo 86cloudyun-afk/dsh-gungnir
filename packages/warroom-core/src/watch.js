@@ -29,6 +29,8 @@ export function buildWatch({ broker, engagementId, timeoutMin = null }) {
   });
   const egress = broker.egressStatus(engagementId);
   const shell = store.shellState() ?? null;
+  // 油表摘要（值班一屏：告警与用量看一次就够，不必再跑第二条命令）
+  const rate = broker.rateView(engagementId);
 
   const warnings = [];
   const staleRoutes = routes.filter((r) => r.state === 'stale');
@@ -40,6 +42,8 @@ export function buildWatch({ broker, engagementId, timeoutMin = null }) {
   if (overdue.length > 0) warnings.push(`${overdue.length} 个任务超过超时阈值（${Math.round(timeout / 60000)} 分钟）——sweep 会转 unknown`);
   const unresolved = cmds.filter((c) => c.state === 'unresolved');
   if (unresolved.length > 0) warnings.push(`${unresolved.length} 个任务停在 unresolved：需人工处理残留资源后 reconcile`);
+  if (rate.wire.exhausted) warnings.push('wire 预算已用尽：出网动作会被节奏闸拒绝（换档或等新窗口）');
+  if (rate.spray.locked > 0) warnings.push(`喷洒台账已有 ${rate.spray.locked} 次锁定：同（服务×账号）一律停止重试`);
 
   return {
     engagement_id: engagementId,
@@ -55,6 +59,15 @@ export function buildWatch({ broker, engagementId, timeoutMin = null }) {
       in_flight: inFlight,
     },
     egress: { valid: egress.valid, last: egress.last, max_age_min: egress.max_age_min },
+    rate: {
+      rhythm: rate.rhythm,
+      wire_used: rate.wire.used, wire_cap: rate.wire.cap, wire_remaining: rate.wire.remaining,
+      wire_exhausted: rate.wire.exhausted,
+      next_allowed_in_ms: rate.pacing.next_allowed_in_ms,
+      min_interval_ms: rate.pacing.min_interval_ms,
+      concurrency_cap: rate.concurrency.cap,
+      spray_total: rate.spray.total, spray_locked: rate.spray.locked,
+    },
     shell,
     warnings,
   };
@@ -78,6 +91,15 @@ export function renderWatch(view) {
   lines.push('');
   lines.push(`出口验证：${view.egress.valid ? '有效' : '无效/未做'}`
     + `${view.egress.last ? `（最近 ${view.egress.last.verdict}，${view.egress.last.exit_ip}）` : ''}`);
+  const r = view.rate;
+  const ms = (x) => (x === null || x === undefined ? '—' : `${Math.round(x)}ms`);
+  lines.push(`油表（${r.rhythm}）：wire ${r.wire_used}${r.wire_cap > 0 ? `/${r.wire_cap}（剩 ${r.wire_remaining}）` : ''}`
+    + `${r.wire_exhausted ? ' ⚠️ 已用尽' : ''} · 并发上限 ${r.concurrency_cap}`
+    + ` · 本次要求间隔 ${ms(r.min_interval_ms)}`
+    + `${r.next_allowed_in_ms > 0 ? `（还需等 ${ms(r.next_allowed_in_ms)}）` : '（可立即出网）'}`);
+  if (r.spray_total > 0) {
+    lines.push(`喷洒台账：${r.spray_total} 次${r.spray_locked > 0 ? ` · ⚠️ 锁定 ${r.spray_locked}` : ''}`);
+  }
   lines.push(`壳状态：最高证明 ${view.shell?.highest_proof ?? '—'} · 当前有效性 ${view.shell?.current_validity ?? 'unknown'}`);
   if (view.warnings.length > 0) {
     lines.push('');

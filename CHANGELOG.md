@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **值班一屏**：`watch` 内置**油表摘要**（wire 用量/上限/剩余、并发上限、本次要求间隔与还需等待、
+  喷洒次数与锁定），并新增两条告警（**wire 用尽**、**喷洒锁定**）——值班不必再跑第二条命令
 - **报告修复建议段**（`remediation.js`）：**事实自带修复说明优先**（`payload.remediation|fix|advice`）；
   没有就按类型/关键词给通用建议，并在段首**明确标注**"其中 N 条为通用建议，请结合资产实际处置，勿当逐条结论照抄"；
   只对 vuln/credential/chain 出建议（asset/session 不凑数），无 vuln 事实则整段不出现
