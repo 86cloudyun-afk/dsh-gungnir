@@ -1,7 +1,8 @@
 // 真实挂载闭环 ④：apply 消费 allowlist 预设（toolPolicy）并接 DSH 工具门控。
 // 单元（hermetic）：allowlist 源头过滤 + 向后兼容 + loadToolPolicy 读 preset 文件。
-// 验收（本机 DSH 0.2.0-rc.2 + 官方 boot API，缺宝 SKIP）：主控会话工具目录 = 36 warroom_*，无内核工具。
+// 验收（本机 DSH 0.2.0-rc.2 + 官方 boot API，缺宝 SKIP）：主控会话工具目录 = 允许清单全集 warroom_*（与 TOOL_NAMES 同源），无内核工具。
 import { test } from 'node:test';
+import { TOOLS } from '../packages/warroom-tools/src/index.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,21 +19,24 @@ function fakeTools() {
   return { registered, tools: { register: (d) => { registered.push(d.name); return () => {}; } }, on() {} };
 }
 
+/** 工具总数（与工具表同源，不再写死数字）。 */
+const TOOLS_LEN = TOOLS.length;
+
 test('allowlist 源头过滤：toolPolicy.allow 为子集时只注册允许集内的 warroom 工具', () => {
   const f = fakeTools();
   const subset = TOOL_NAMES.slice(0, 5);
   const svc = entry.apply({ tools: f.tools, on: f.on }, {
-    home: '/tmp/wr-tp-1', toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] },
+    home: mkdtempSync(join(tmpdir(), 'wr-tp-')), toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] },
   });
   assert.deepEqual([...f.registered].sort(), [...subset].sort(), '只应注册允许集内的 warroom 工具');
   assert.equal(svc.allowlistSize, 6);
   assert.equal(svc.registered.length, 5);
 });
 
-test('无 toolPolicy → 向后兼容：注册全部 36，gateStatus=no-policy', () => {
+test('无 toolPolicy → 向后兼容：注册全部工具，gateStatus=no-policy', () => {
   const f = fakeTools();
-  const svc = entry.apply({ tools: f.tools, on: f.on }, { home: '/tmp/wr-tp-2' });
-  assert.equal(f.registered.length, 36);
+  const svc = entry.apply({ tools: f.tools, on: f.on }, { home: mkdtempSync(join(tmpdir(), 'wr-tp-')) });
+  assert.equal(f.registered.length, TOOLS_LEN);
   assert.equal(svc.allowlistSize, null);
   assert.equal(svc.gateStatus, 'no-policy');
 });
@@ -62,7 +66,7 @@ const KERNEL = ['bash', 'pwsh', 'write', 'edit', 'str_replace_editor', 'apply_pa
   'subagent', 'subagent_fork', 'subagent_control', 'list_agents',
   'workflow', 'job_list', 'job_output', 'job_kill', 'run_code', 'fs_read', 'fs_write'];
 
-test('实挂：主控会话工具目录 = 36 个 warroom_*，无 bash/write/subagent/workflow/run_code 等内核工具', async (t) => {
+test('实挂：主控会话工具目录 = 允许清单全集 warroom_*（数量与 TOOL_NAMES 同源），无 bash/write/subagent/workflow/run_code 等内核工具', async (t) => {
   if (!dshDir) return t.skip('未找到本机 DSH（设置 DSH_PKG_DIR）');
   const { runProfile } = await import(pathToFileURL(join(dshDir, 'lib', 'profile-boot.js')).href);
   const dshRequire = createRequire(join(dshDir, 'package.json'));
@@ -98,8 +102,8 @@ test('实挂：主控会话工具目录 = 36 个 warroom_*，无 bash/write/suba
     gen.users--;
 
     const warroom = visible.filter((n) => n.startsWith('warroom_')).sort();
-    assert.deepEqual(warroom, [...TOOL_NAMES].sort(), '必须恰好是 36 个 warroom_* 工具');
-    assert.equal(warroom.length, 36);
+    assert.deepEqual(warroom, [...TOOL_NAMES].sort(), '必须恰好等于允许清单全集（TOOL_NAMES）');
+    assert.equal(warroom.length, TOOL_NAMES.length);
     const kernelHit = visible.filter((n) => KERNEL.includes(n));
     assert.deepEqual(kernelHit, [], `工具目录不得含内核工具，实际命中：${kernelHit.join(', ')}`);
   } finally {

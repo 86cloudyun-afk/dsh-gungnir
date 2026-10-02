@@ -1,7 +1,7 @@
 // DSH 桥驱动：进程内应答器跑完整链路 + 一致性套件 + 超时语义（unknown，不自动重试）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileBridgeDriver, DshRedteamDriver } from '../packages/warroom-core/src/adapters/dsh-bridge.js';
@@ -61,6 +61,17 @@ function makeAdapter() {
   return { adapter, driver, root };
 }
 
+/** 常驻模式下事实是异步落盘的：collect 前先等 facts 文件出现（最多 5 秒）。 */
+async function waitFacts(root, externalId, timeoutMs = 5000) {
+  const p = join(root, 'inbox', `${externalId}.facts.json`);
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (existsSync(p)) return JSON.parse(readFileSync(p, 'utf8'));
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`等待 facts 超时：${p}`);
+}
+
 test('桥驱动走完整链路：派单 → 状态 → 事实 → 停止证实', async () => {
   const { adapter } = makeAdapter();
   const r = adapter.dispatch('cmd-bridge-1', {
@@ -118,8 +129,12 @@ test('Broker 端到端：桥驱动 + 事实入库 + 停止证实（unknown → r
       fake_members: [{ entity_type: 'asset', source_id: 'e2e-a1', revision_no: 1, content_hash: 'h-e2e', payload: {} }],
     },
   });
-  assert.equal(ex.state, 'running');
+  assert.ok(['running', 'done'].includes(ex.state), `派单状态异常：${ex.state}`);
+  await waitFacts(bridgeRoot, ex.task_id);
   const col = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  const duplicate = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  assert.equal(duplicate.accepted, true);
+  assert.ok(duplicate.results.every((r) => r.action === 'duplicate_ignored'), '重复收集不得新增有效事实');
   assert.equal(col.accepted, true);
   assert.equal(broker._eng(eng.engagement_id).store.effectiveCount(), 1);
 

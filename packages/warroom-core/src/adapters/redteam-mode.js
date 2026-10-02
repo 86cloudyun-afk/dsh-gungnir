@@ -113,6 +113,10 @@ export class RedteamModeAdapter {
     return st ? { ...st, role: rec.role } : null;
   }
 
+  get supportsBackgroundObservation() {
+    return typeof this.driver.observationOf === 'function';
+  }
+
   observe(taskIdOrCommandId) {
     const rec = this._byTask(taskIdOrCommandId);
     return this.driver.observationOf?.(rec.external_id) ?? null;

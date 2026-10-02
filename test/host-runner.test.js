@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
@@ -9,6 +9,7 @@ import { FileBridgeDriver } from '../packages/warroom-core/src/adapters/dsh-brid
 import { createWarroomService } from '../packages/warroom-plugin/src/service.js';
 import { dshTools } from '../packages/warroom-plugin/src/tools.js';
 import { toToolDefinition } from '../packages/warroom-plugin/src/dsh-entry.mjs';
+import { createHostDelivery } from '../packages/warroom-plugin/src/host-delivery.js';
 
 // Inert source: no targets, processes, models or network are contacted.
 class InertAdapter extends FakeAdapter {
@@ -37,6 +38,49 @@ function setup({ adapter = new InertAdapter(), home, delivery } = {}) {
   const result = service.broker.execute(req, { deferDispatch: true, parent });
   return { service, adapter, notices, req, parent, result };
 }
+
+for (const reload of [false, true]) test(`later notice acknowledgement preserves earlier accepted notice replay (${reload ? 'reload' : 'next tick'})`, async (t) => {
+  const h = setup({ delivery: { deliver: async () => ({ status: 'pending' }) } });
+  let service = h.service;
+  t.after(async () => { await service.dispose(); rmSync(h.service.home, { recursive: true, force: true }); });
+  await service.tasks.tick();
+  let stopped = false;
+  h.adapter.manifestOf = () => [{ id: `${h.result.task_id}-session`, kind: 'session', check: () => stopped }];
+  service.broker.cancel(h.req.engagement_id, h.result.task_id);
+  await service.tasks.tick(); stopped = true; await service.tasks.tick();
+  const notices = service.broker.global.prepare('SELECT notice_id, state FROM task_notifications ORDER BY rowid').all();
+  assert.deepEqual(notices.map((n) => n.state), ['unresolved', 'confirmed_stopped']);
+  const events = []; const queue = []; let stored = []; let flushes = 0;
+  const agent = { id: h.parent.session_id, status: 'idle',
+    session: { header: { id: h.parent.session_id, createdAt: h.parent.created_at } },
+    inbox: { get hasPending() { return queue.length > 0; } },
+    followup(message) {
+      queue.push(message);
+      events.push({ seq: events.length, type: 'agent/inbox/spliced', data: { inserted: [message] } });
+    } };
+  const ctx = { agents: { get: () => agent }, sessions: { flush: async () => {
+    stored = [...events]; queue.length = 0;
+    if (++flushes === 2) throw new Error('accepted notice acknowledgement lost');
+    return true;
+  } }, sessionPersistence: { open: async () => ({ header: agent.session.header,
+    read: async (offset, length) => ({ events: stored.slice(offset, offset + length) }), close: async () => {} }) } };
+  service.tasks.delivery = createHostDelivery(ctx);
+  await service.tasks.tick();
+  assert.deepEqual(service.broker.global.prepare('SELECT delivery_state FROM task_notifications ORDER BY rowid').all()
+    .map((n) => n.delivery_state), ['pending', 'delivered']);
+  if (reload) {
+    await service.dispose();
+    service = createWarroomService({ home: h.service.home, adapter: h.adapter,
+      hostDelivery: createHostDelivery(ctx), autoStart: false });
+  }
+  await service.tasks.tick();
+  assert.deepEqual(notices.map((n) => events.filter((e) => e.data.inserted[0].id === n.notice_id).length), [1, 1],
+    'consumed earlier notice must remain discoverable after the later acknowledgement');
+  assert.equal(h.adapter.dispatches, 1, 'delivery recovery must not redispatch the worker');
+  assert.deepEqual(service.broker.global.prepare('SELECT delivery_state FROM task_notifications ORDER BY rowid').all()
+    .map((n) => n.delivery_state), ['delivered', 'delivered']);
+  assert.equal(service.broker.global.prepare('SELECT delivery_cursor FROM task_owners').get().delivery_cursor, 2);
+});
 
 test('host owns worker after queued tool return and completion updates ledger before notice', async () => {
   const h = setup();

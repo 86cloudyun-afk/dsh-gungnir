@@ -5,7 +5,7 @@ import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
   RHYTHM_MIN_INTERVAL_MS, RHYTHM_JITTER_MS, RHYTHM_HOURLY_DRIFT,
   warroomError, ERR, canTransition, isTerminal, makeGeneration,
-  ALL_TASK_STATES,
+  ALL_TASK_STATES, ACTION_CLASS,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
 import { join } from 'node:path';
@@ -86,7 +86,14 @@ export class Broker {
 
   // ── 执行（唯一副作用通道）────────────────────────────────────────────────────
   execute(req = {}, { deferDispatch = false, parent } = {}) {
-    if (deferDispatch) validateParent(parent);
+    if (deferDispatch) {
+      validateParent(parent);
+      // Deferred work has no public collect fallback: refuse before any durable registration or reservation.
+      if (typeof this.adapter.observe !== 'function' || this.adapter.supportsBackgroundObservation === false) {
+        throw Object.assign(new Error('adapter does not support host background observation'),
+          { code: 'E_HOST_OBSERVATION_UNSUPPORTED' });
+      }
+    }
     // 契约形态 → broker 预分配 task_id → 四元组全量校验（ADR-001 D2）
     validateContract(req.contract);
     // command_id 是派发幂等键（ADR-003 D1）：先持久化后派发、可按 ID 找回。
@@ -228,8 +235,16 @@ export class Broker {
 
   assertHostAuthorization(cmd, owner) {
     const { row, auth } = this._auth(cmd.engagement_id);
+    if (!ACTION_CLASS.includes(auth.action_class_limit)) {
+      throw warroomError(ERR.E_GATE_CLASS_EXCEEDS_LIMIT, 'authorization action_class_limit invalid');
+    }
+    const nowMs = this._nowMs();
+    const start = Date.parse(auth.window_start), end = Date.parse(auth.window_end);
+    if (![nowMs, start, end].every(Number.isFinite) || start > end) {
+      throw warroomError(ERR.E_GATE_WINDOW_CLOSED, 'authorization window or clock invalid');
+    }
     checkAgainstAuth({ auth: { ...auth, auth_version: row.auth_version }, auth_version: owner.auth_version,
-      nowMs: this._nowMs(), contract: JSON.parse(cmd.contract), manual_approval_token: owner.approval_id });
+      nowMs, contract: JSON.parse(cmd.contract), manual_approval_token: owner.approval_id });
     if (JSON.parse(cmd.contract).action_class === 'destructive') {
       const approval = this.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(owner.approval_id);
       if (!approval || approval.engagement_id !== cmd.engagement_id || Date.parse(approval.expires_at) <= this._nowMs()) {
@@ -1034,19 +1049,62 @@ export class Broker {
   redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (cmd.engagement_id !== engagementId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
+    }
     if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, 'host-owned task requires a fresh authorized command, never automatic redispatch');
     }
     if (!['failed', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
     }
-    const row = this._auth(engagementId).row;
+    let contract;
+    try { contract = JSON.parse(cmd.contract); }
+    catch { throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted contract is invalid JSON'); }
+    validateContract(contract ?? {});
+    if (contract.engagement_id !== cmd.engagement_id || contract.task_id !== cmd.task_id) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'persisted contract 不属于该任务');
+    }
+    // 原契约与队列都必须保留原授权版本；不能将历史越权重派洗成当前授权。
+    const [original, current] = [contract.generation, cmd.generation].map((value) => {
+      const match = typeof value === 'string' && /^[0-9]+:[0-9]+:[0-9]+$/.exec(value);
+      const parts = match && match[0] === value ? value.split(':').map(Number) : [];
+      if (parts.length !== 3 || parts.some((n) => !Number.isSafeInteger(n)) ||
+          parts[0] < 1 || parts[1] < 0 || parts[2] < 1) {
+        throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted generation required');
+      }
+      return parts;
+    });
+    if (current[2] !== cmd.attempt || !Number.isSafeInteger(cmd.attempt + 1)) {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted attempt inconsistent or exhausted');
+    }
+    if (original[0] !== current[0]) {
+      throw warroomError(ERR.E_GATE_AUTH_EXPIRED, 'original authorization version was changed');
+    }
+    validateFourTuple({ engagement_id: engagementId, auth_version: original[0],
+      task_id: cmd.task_id, action_class: contract.action_class });
+    const { row, auth } = this._auth(engagementId);
+    if (!ACTION_CLASS.includes(auth.action_class_limit)) {
+      throw warroomError(ERR.E_GATE_CLASS_EXCEEDS_LIMIT, 'authorization action_class_limit invalid');
+    }
+    const nowMs = this._nowMs();
+    const start = Date.parse(auth.window_start), end = Date.parse(auth.window_end);
+    if (![nowMs, start, end].every(Number.isFinite) || start > end) {
+      throw warroomError(ERR.E_GATE_WINDOW_CLOSED, 'authorization window or clock invalid');
+    }
+    checkAgainstAuth({ auth: { ...auth, auth_version: row.auth_version },
+      auth_version: original[0], nowMs, contract });
+    // 重派接口没有新人工批准；destructive 不继承已消费的令牌。
+    // 不支持重派的 adapter 不得因 optional call 而假报 running。
+    if (typeof this.adapter.redispatch !== 'function') {
+      throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, 'adapter does not support redispatch');
+    }
     const attempt = cmd.attempt + 1;
-    const generation = makeGeneration(row.auth_version, this.dispatchCounter, attempt);
+    const generation = makeGeneration(original[0], current[1], attempt);
     this._setCommandState(cmd.command_id, 'running');
     this.global.prepare('UPDATE command_queue SET attempt = ?, generation = ? WHERE command_id = ?')
       .run(attempt, generation, cmd.command_id);
-    this.adapter.redispatch?.(cmd.command_id, { ...JSON.parse(cmd.contract), generation }, attempt);
+    this.adapter.redispatch(cmd.command_id, { ...contract, generation }, attempt);
     this._gate(engagementId, 'redispatch', { task_id: cmd.task_id, attempt, reason });
     return { task_id: cmd.task_id, attempt, generation, state: 'running' };
   }

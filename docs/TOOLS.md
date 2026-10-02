@@ -5,7 +5,7 @@
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
-| `warroom_execute` | 唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发 | `{ command_id*:string, engagement_id*:string, auth_version*:integer, action_class*:readonly|active|destructive, contract*:object, manual_approval_token:string }` | ✅ |
+| `warroom_execute` | 派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。 | `{ command_id*:string, engagement_id*:string, auth_version*:integer, action_class*:readonly|active|destructive, contract*:object, manual_approval_token:string }` | ✅ |
 | `warroom_collect` | 回执入库（成员级幂等 + 代际隔离） | `{ engagement_id*:string, task_id*:string, receipt*:object }` | ✅ |
 | `warroom_cancel` | 请求取消（幂等）；停止由资源清单逐项探针证实 | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |
 | `warroom_fact_query` | 事实查询（只读） | `{ engagement_id*:string, entity_type:string, source_id:string, since:string, include_history:boolean, adapter_instance:string, limit:integer }` | ✅ |
@@ -28,9 +28,9 @@
 | `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string, audiences:array, checklist:boolean }` | ✅ |
 | `warroom_spray_matrix` | 凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子 | `{ engagement_id*:string, credentials*:array, services*:array, accounts:array }` | ✅ |
 | `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
-| `warroom_jumps` | 跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期） | `{ engagement_id*:string, action:status|release|sweep|sweep_routes|heartbeat, route_id:string }` | ✅ |
+| `warroom_jumps` | 跳板台账与收口：status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期） | `{ engagement_id*:string, action:status|release|sweep|sweep_routes|heartbeat, route_id:string }` | ✅ |
 | `warroom_secret_rotate` | 轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解 | `{ confirm*:boolean }` | ✅ |
-| `warroom_egress_check` | 出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
+| `warroom_egress_check` | 出口验证：record（记录可信宿主的验证结果）/ status（查询，含有效期） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
 | `warroom_heartbeat` | 长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判） | `{ engagement_id*:string, task_id*:string, note:string }` | ✅ |
 | `warroom_preflight` | 开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked | `{ engagement_id*:string, meeting_tasks:array, record:boolean }` | ✅ |
 | `warroom_aggregate` | 跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库 | `{ sessions_db*:string }` | ✅ |

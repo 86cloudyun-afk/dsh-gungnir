@@ -1,0 +1,5 @@
+{
+  "install": "bash .cursor/operator-doctrine-install.sh && bash .cursor/pentest-toolkit-install.sh",
+  "start": "true",
+  "terminals": []
+}

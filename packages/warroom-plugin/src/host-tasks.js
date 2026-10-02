@@ -201,8 +201,10 @@ export class HostTaskRunner {
           db.exec('BEGIN IMMEDIATE');
           try {
             db.prepare('UPDATE task_notifications SET delivery_state = ? WHERE notice_id = ?').run(result.status, notice.notice_id);
-            if (result.status === 'delivered') db.prepare('UPDATE task_owners SET delivery_cursor = ? WHERE command_id = ?')
-              .run(result.cursor ?? owner.delivery_cursor, notice.command_id);
+            // A pending notice may already be accepted. Keep its replay evidence until all acknowledgements settle.
+            if (result.status === 'delivered') db.prepare(`UPDATE task_owners SET delivery_cursor = ? WHERE command_id = ?
+              AND NOT EXISTS (SELECT 1 FROM task_notifications WHERE command_id = ? AND delivery_state = 'pending')`)
+              .run(result.cursor ?? owner.delivery_cursor, notice.command_id, notice.command_id);
             db.exec('COMMIT');
           } catch (e) { db.exec('ROLLBACK'); throw e; }
         }

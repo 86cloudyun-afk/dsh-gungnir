@@ -28,6 +28,15 @@ export function configPath(home) { return join(home, FILE); }
 export function loadConfig(home, { allowMissing = true } = {}) {
   const path = configPath(home);
   if (!existsSync(path)) {
+    // 常见误配：把配置写成了 config.json / warroom.yml 之类。**静默用默认值**会让主人以为已生效
+    // （真机踩过：写了 adapterKind=bridge 却因为文件名不对而仍走 fake）。这里明确报错。
+    const misplaced = ['config.json', 'warroom.yaml', 'warroom.yml', 'config.yaml', 'config.yml']
+      .map((f) => join(home, f)).filter((f) => existsSync(f));
+    if (misplaced.length > 0) {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE,
+        `配置文件名不对：本程序读 ${path}，但发现 ${misplaced.join('、')}。`
+        + '请改名或改用 `warroom config set <key> <value>`。');
+    }
     if (!allowMissing) throw warroomError(ERR.E_GATE_MISSING_TUPLE, `配置文件不存在：${path}`);
     return { ...DEFAULT_CONFIG, _source: 'defaults' };
   }

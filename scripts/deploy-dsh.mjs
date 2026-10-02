@@ -27,6 +27,7 @@ const { values: v } = parseArgs({
     check: { type: 'boolean' }, print: { type: 'boolean' }, apply: { type: 'boolean' },
     verify: { type: 'boolean' }, home: { type: 'string' }, profile: { type: 'string' },
     role: { type: 'string' }, patch: { type: 'string' }, json: { type: 'boolean', default: false },
+    adapter: { type: 'string' },
   },
 });
 
@@ -42,6 +43,7 @@ const roleFile = join(root, 'presets', 'roles', `${role}.md`);
 
 /** 生成要写入 profile patch 的 YAML（真实契约）。 */
 function buildSnippet() {
+  const adapter = v.adapter ?? null;
   // 角色文本在**运行期**从仓库文件读入（!!js 在 loader 作用域求值）：
   // 避免把长 markdown 塞进 YAML 标量（多级缩进会直接把 patch 变成非法 YAML）。
   const roleExpr = `process.getBuiltinModule('node:fs').readFileSync('${roleFile}','utf8')`;
@@ -66,7 +68,7 @@ function buildSnippet() {
           - id: ${PRESET_ID}
             name: ${join(root, 'packages', 'warroom-plugin', 'src', 'dsh-entry.mjs')}
             config:
-              role: ${role}
+              role: ${role}${adapter ? `\n              adapterKind: ${adapter}` : ''}
               preset: ${join(root, 'presets', 'warroom.preset.json')}
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
@@ -115,22 +117,44 @@ export function hostStaleness(processStartMs, patchMtimeMs) {
   return { stale: false, reason: 'host-loaded-patch' };
 }
 
-/** 找出宿主进程启动时刻（拿不到返回 null）：先按端口找监听者，再退回 pgrep。 */
-function hostProcessStartMs(profile, port = Number(process.env.DSH_PORT ?? 3080)) {
-  const pids = [];
-  const lsof = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
-  if (lsof.status === 0) pids.push(...(lsof.stdout ?? '').trim().split('\n').filter(Boolean));
+/** 当前监听指定 TCP 端口的 LISTEN 进程 PID（拿不到返回空数组）。 */
+function listenersOnPort(port) {
+  const r = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+  return r.status === 0 ? (r.stdout ?? '').trim().split('\n').filter(Boolean) : [];
+}
+
+/** 指定 PID 是否正监听目标端口（`-a` 把 -p 与 -iTCP AND 起来，否则 lsof 默认 OR 语义会误判）。 */
+function pidListensOnPort(pid, port) {
+  const r = spawnSync('lsof', ['-nP', '-a', '-p', String(pid), `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
+    { encoding: 'utf8' });
+  return r.status === 0 && (r.stdout ?? '').trim() !== '';
+}
+
+/**
+ * 找出"本 profile 宿主"的进程启动时刻（拿不到返回 null）。
+ * 宿主在本机的唯一可区分身份是它**监听的目标端口**：同名 profile（如 `web`）能在不同 DSH_HOME
+ * 下并行起多个宿主，argv 都是 `--profile web`、彼此无从区分，但各绑不同端口。因此检测一律以
+ * 目标端口为锚——即便回落到 `pgrep -f --profile <name>`，命中的进程也必须【同时监听目标端口】
+ * 才算数；否则会误抓其它 DSH_HOME 下同名 profile 的并行宿主（并行测试里该误命中会让本应
+ * "无宿主"的部署偶发误判为"有宿主"，即 cli-deploy 实测到的 flake 根因）。
+ * 生产行为不变：真有本 profile 宿主时它监听目标端口，仍被检出。
+ */
+export function hostProcessStartMs(profile, port = Number(process.env.DSH_PORT ?? 3080)) {
+  let pids = listenersOnPort(port);
   if (pids.length === 0) {
+    // 回落：按命令行找 dsh 宿主，但必须仍绑定本 profile 的目标端口（把回落收敛到该 profile/端口）
+    const named = [];
     for (const pattern of [`bin.js --profile ${profile}`, `--profile ${profile} --host`]) {
       const r = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf8' });
-      pids.push(...(r.stdout ?? '').trim().split('\n').filter(Boolean));
+      named.push(...(r.stdout ?? '').trim().split('\n').filter(Boolean));
     }
+    pids = [...new Set(named)].filter((pid) => pidListensOnPort(pid, port));
   }
   for (const pid of pids) {
     const ps = spawnSync('ps', ['-o', 'lstart=', '-p', pid], { encoding: 'utf8' });
     const text = (ps.stdout ?? '').trim();
     if (!text) continue;
-    // 确认是本 profile 的 dsh 宿主，避免抓到无关占用端口的进程
+    // 再确认是本 profile 的 dsh 宿主，避免抓到无关占用端口的进程
     const cmd = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout ?? '';
     if (!cmd.includes('bin.js') || !cmd.includes(`--profile ${profile}`)) continue;
     const ms = Date.parse(text);
@@ -181,6 +205,12 @@ if (existsSync(presetFile)) {
 } else findings.push(`✗ 预设文件缺失：${presetFile}`);
 // 没有 dsh 只是"无法现场验证装配"，不影响写入挂载（CI runner 上就是这样）
 findings.push(bin ? `✓ dsh 可用（${bin}）` : '· 未找到 dsh 可执行（--verify 不可用；挂载仍可写入）');
+if (v.adapter && !['fake', 'local', 'bridge'].includes(v.adapter)) {
+  findings.push(`✗ --adapter 只接受 fake|local|bridge（收到 ${v.adapter}）`);
+}
+if ((v.adapter ?? 'fake') === 'fake') {
+  findings.push('· adapter=fake：派单只会产出**占位事实**，不是真执行。接真通道见 docs/DSH-EXECUTOR-IMPL.md');
+}
 
 let already = false;
 if (patchPath && existsSync(patchPath)) {

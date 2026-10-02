@@ -156,7 +156,8 @@ async function handleJob(job) {
     }
     return;
   }
-  if (job.background) publish(job, 'running');
+  // Daemon CLI jobs retain #162 fast acknowledgment; --once drains legacy work.
+  if (!v.once || job.background) publish(job, 'running');
   const stop = readJson(join(outbox, `${job.external_id}.stop.json`));
   if (stop?.generation === job.contract.generation) { handleStop(stop); return; }
   let result;
@@ -181,7 +182,7 @@ async function handleJob(job) {
   const current = readJson(join(claims, `${job.external_id}.json`)) ?? claimed;
   const stopped = readJson(join(outbox, `${job.external_id}.stop.json`));
   const cancelled = current.cancel_requested || stopped?.generation === job.contract.generation;
-  const state = cancelled ? 'unresolved' : job.background ? 'done' : 'running';
+  const state = cancelled ? 'unresolved' : (!v.once || job.background) ? 'done' : 'running';
   atomicWrite(join(claims, `${job.external_id}.json`), { ...current, state: 'completed', final_event: { state, event_seq } });
   publish(job, state, event_seq);
   if (v.verbose) console.log(`[job] ${job.external_id} role=${job.role} members=${members.length} resources=${resources.length}`);
@@ -222,7 +223,7 @@ function tick() {
       if (job?.protocol === 'gungnir-bridge/1') {
         const work = handleJob(job).catch((e) => {
           // A claimed action may have run. Failures never release its durable idempotency key.
-          if (job.background && typeof job.contract?.generation === 'string' &&
+          if ((!v.once || job.background) && typeof job.contract?.generation === 'string' &&
               /^[A-Za-z0-9_-]+$/.test(job.external_id)) publish(job, 'unknown');
           process.stderr.write(`[job-error] ${job.external_id}: ${e.message}\n`);
         });

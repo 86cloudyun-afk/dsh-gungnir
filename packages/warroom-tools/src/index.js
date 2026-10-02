@@ -6,7 +6,7 @@ import { ERR } from '../../shared-types/src/index.js';
 export const TOOLS = [
   {
     name: 'warroom_execute',
-    description: '唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发',
+    description: '派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。',
     input_schema: {
       type: 'object',
       properties: {
@@ -384,7 +384,7 @@ export const TOOLS = [
   },
   {
     name: 'warroom_jumps',
-    description: '跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）',
+    description: '跳板台账与收口：status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）',
     input_schema: {
       type: 'object',
       properties: {
@@ -397,6 +397,9 @@ export const TOOLS = [
     },
     run: (core, args) => {
       const action = args.action ?? 'status';
+      if (!['status', 'release', 'sweep', 'sweep_routes', 'heartbeat'].includes(action)) {
+        throw new Error(`warroom_jumps unsupported action: ${String(action)}`);
+      }
       if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
       if (action === 'sweep_routes') return core.jumps.sweepRoutes();
@@ -422,7 +425,7 @@ export const TOOLS = [
   },
   {
     name: 'warroom_egress_check',
-    description: '出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸）',
+    description: '出口验证：record（记录可信宿主的验证结果）/ status（查询，含有效期）',
     input_schema: {
       type: 'object',
       properties: {
@@ -435,7 +438,11 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => {
-      if ((args.action ?? 'status') === 'record') {
+      const action = args.action ?? 'status';
+      if (!['status', 'record'].includes(action)) {
+        throw new Error(`warroom_egress_check unsupported action: ${String(action)}`);
+      }
+      if (action === 'record') {
         return core.broker.recordEgressCheck(args.engagement_id, {
           jumphost_id: args.jumphost_id, exit_ip: args.exit_ip,
           route_id: args.route_id ?? null, verdict: args.verdict ?? 'pass',

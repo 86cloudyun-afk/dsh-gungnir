@@ -1,5 +1,7 @@
 # 上游兼容风险（只读核对）
 
+以下为原 #163 旧候选的历史只读兼容评估。当前 main 上的防御性整合另见 [新候选验证](VALIDATION-STANDBY-INTEGRATION-2026-10-02.md)，不以本历史记录证明新 tree。
+
 本地防御性调度分支固定在 `70a5a775127b77dd143ff9e39cd2cc0f94097255`。
 主任务通知的上游 `0edf4f97543756539fe53fbbaad02eda471aa1af` 已通过 GitHub compare 只读核对；
 没有 fetch/checkout/merge/rebase 其代码。

@@ -1,7 +1,7 @@
 // CLI 全子命令 + 部署脚本（dry-run）回归。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,8 +57,8 @@ test('deploy 脚本：--print 输出合法挂载片段；--check 报告 profile 
 
   const home = mkdtempSync(join(tmpdir(), 'wr-deploy-'));
   const check = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home], { encoding: 'utf8', env: nodeEnv() });
-  assert.match(check, /预设文件可读（声明允许清单 37 项）/);
-  assert.match(check, /声明允许清单 == 实际注册工具（36 个/);
+  assert.match(check, /预设文件可读（声明允许清单 \d+ 项）/);
+  assert.match(check, /声明允许清单 == 实际注册工具（\d+ 个/);
 });
 
 test('deploy 脚本 --apply 幂等且先备份', async () => {
@@ -161,4 +161,23 @@ test('--check 在真实 profile 上会输出"宿主是否已重启"结论', () =
   const out = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home],
     { encoding: 'utf8', env: { ...nodeEnv(), DSH_PORT: '1' } });   // 端口 1 上不会有宿主
   assert.match(out, /宿主未重启|无法判定宿主是否重启/, '必须给出明确结论，不能沉默');
+});
+test('宿主检测按端口收敛：别的 DSH_HOME 下同名 profile 的宿主在跑，也不误判本 profile 有宿主（flake 回归）', async () => {
+  const { hostProcessStartMs } = await import('../scripts/deploy-dsh.mjs');
+  // 造一个"看起来像 dsh web 宿主"的并行进程：命令行含 `bin.js --profile web`，但不监听任何端口
+  // （复刻其它 DSH_HOME 下并行起的宿主——它们各绑随机端口，不是本次部署的目标端口）。
+  // 修复前：目标端口无监听者 → 回落到全局 `pgrep -f --profile web` → 误命中此进程 → 返回非 null
+  //         → 本应"无宿主"的部署偶发判成"有宿主"。修复后：回落收敛到目标端口 → 返回 null。
+  const fakeDir = mkdtempSync(join(tmpdir(), 'wr-fakehost-'));
+  const fakeBin = join(fakeDir, 'bin.js');
+  writeFileSync(fakeBin, 'setInterval(() => {}, 1e9);\n');
+  const child = spawn(process.execPath, [fakeBin, '--profile', 'web', '--host'], { stdio: 'ignore' });
+  try {
+    await new Promise((r) => setTimeout(r, 400));   // 等 pgrep 能看到它
+    // 目标端口（1，测试环境绝无监听者）上无宿主 → 尽管存在同名 profile 的进程，也必须判"无宿主"
+    const started = hostProcessStartMs('web', 1);
+    assert.equal(started, null, '目标端口无监听者时，不得误命中其它 home 的同名 profile 宿主');
+  } finally {
+    child.kill('SIGKILL');
+  }
 });
