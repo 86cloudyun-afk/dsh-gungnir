@@ -76,6 +76,31 @@ function buildSnippet() {
 `;
 }
 
+/**
+ * 把片段合并进既有 patch 层，**始终产出合法的顶层块序列 YAML**。
+ * 真机故障：DSH 首启生成的存根是「注释头 + flow 空数组 `[]`」，
+ * 直接追加 `- insert:` 会得到 `[]` 与块序列项混用 → dsh 解析失败
+ * （`end of the stream or a document separator is expected`），整条挂载失效。
+ * 由并行会话在真机复现并给出实现（PR #138），此处并入本契约版本。
+ */
+export function mergeOverlay(current, snippet) {
+  const text = current ?? '';
+  const comments = [];
+  let hasEntries = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    const t = line.trim();
+    if (t === '') continue;
+    if (t.startsWith('#')) { comments.push(line); continue; }
+    if (t === '[]') continue;          // flow 空数组存根：丢弃，改用块序列
+    hasEntries = true;                 // 其它任何非注释内容 → 视为已有块序列
+  }
+  const body = snippet.trimEnd();
+  if (hasEntries) return `${text.trimEnd()}\n\n${body}\n`;
+  const head = comments.length ? `${comments.join('\n')}\n\n` : '';
+  return `${head}${body}\n`;
+}
+
 function dshBin() {
   const candidates = [process.env.DSH_BIN, 'dsh'].filter(Boolean);
   for (const bin of candidates) {
@@ -135,7 +160,7 @@ if (v.apply) {
     const backup = `${patchPath}.bak-warroom-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     const cur = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '';
     if (existsSync(patchPath)) copyFileSync(patchPath, backup);
-    writeFileSync(patchPath, `${cur.trimEnd()}\n\n${snippet}`, 'utf8');
+    writeFileSync(patchPath, mergeOverlay(cur, snippet), 'utf8');
     findings.push(`✓ 已写入 patch 层（备份：${existsSync(backup) ? backup : '无原文件'}）`);
     findings.push('· 生效需重启 dsh web（host 平面变更）——请在**你的终端**执行，勿从 agent 工具调用发起');
   }
