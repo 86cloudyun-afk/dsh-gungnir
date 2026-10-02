@@ -18,6 +18,7 @@ import { loadConfig } from './config.js';
 import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
 import { buildWatch } from './watch.js';
+import { buildRateView } from './rate-view.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -451,6 +452,11 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /** 速率与预算视图（wire 用量/预算/最小间隔/喷洒台账，只读）。 */
+  rateView(engagementId) {
+    return buildRateView({ broker: this, engagementId });
   }
 
   /** 巡检统一视图（路由/任务/出口/壳/告警，只读）。 */

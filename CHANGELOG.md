@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **速率与预算视图**（"油表"）：`warroom rate --engagement <id> [--text|--json]`（工具 `warroom_rate_view`，
+  32 个工具）—— wire 用量/上限/剩余、按目标分布、本次要求间隔（含抖动区间）与"还需等待"、
+  并发上限、喷洒台账（含锁定次数）；**只读**（回归断言水位与 rate_ledger 不变）
 - **效率数据导出**：`metrics --csv [--out <file>]`（`metrics-export.js`）—— 把 `metrics()` 摊平成
   `section,key,metric,value` 五行节（total/segment/rework/retry/by_role/by_tier），RFC4180 转义，
   供表格工具复盘"哪条线/哪个档位划算"
