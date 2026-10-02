@@ -77,6 +77,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/host-verify"
           node scripts/verify-host.mjs --install-anchor "$anchor" --require-host \
             2>&1 | tee "$RUNNER_TEMP/host-verify/host-verified.log"
+      - name: 依赖真 DSH 的测试真跑（装完 DSH 后执行，杜绝 node --test 装 DSH 前静默 skip 的假绿）
+        run: |
+          set -euo pipefail
+          # 让 findDshDir() 命中刚装好的官方 DSH（否则这些实挂用例会 t.skip → CI 假绿）。
+          export DSH_PKG_DIR="$RUNNER_TEMP/dsh-host/lib/node_modules/@deepseek-ai/dsh"
+          # 硬门闸：锚点不存在就直接失败，绝不让实挂用例在 CI 里静默跳过后仍判绿。
+          test -f "$DSH_PKG_DIR/lib/profile-boot.js"
+          node --test 2>&1 | tee "$RUNNER_TEMP/host-verify/native-node-test.log"
       - name: 保留验收证据
         if: always()
         uses: actions/upload-artifact@v4
