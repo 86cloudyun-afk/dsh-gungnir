@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **交付门禁语义**：`checklist --strict` 按口径判定退出码——`delivery`（授权/水位/报告可复现/证据/审计/备份
+  必须齐全）与 `progress`（**只盯"已做的东西没有坏"**：没干活不算异常，但报告一旦存在就不得漂移、
+  备份一旦存在就不得过期）；返回值新增 `gate/blocked/deliverable/profile`
 - **交付包标准化**：证据落盘默认**随包生成交付清单**（`DELIVERY_CHECKLIST.md`），并在
   `EVIDENCE_INDEX.md` 增「交付自检」段点名结果；一个目录 = 报告（含受众视图）+ 水位 + 索引 +
   交付清单；`checklist:false` 可关闭
