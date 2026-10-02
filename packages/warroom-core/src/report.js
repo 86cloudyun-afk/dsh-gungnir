@@ -3,6 +3,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { KnowledgeBase } from './knowledge.js';
+import { renderHtml } from './html.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
@@ -362,12 +363,21 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   const markdown = check.reproducible ? built.markdown.replace(/(\n## 声明)/, `${checkLines.join('\n')}$1`) : built.markdown + checkLines.join('\n');
 
   const out = { paths: {}, watermark, evidence_digests, self_check: selfCheck };
-  if (format === 'md' || format === 'both') {
+  const wantMd = format === 'md' || format === 'both' || format === 'all';
+  const wantJson = format === 'json' || format === 'both' || format === 'all';
+  const wantHtml = format === 'html' || format === 'all' || format === 'both';
+  if (wantMd) {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
     writeFileSync(path, markdown, 'utf8');
     out.paths.markdown = path;
   }
-  if (format === 'json' || format === 'both') {
+  if (wantHtml) {
+    const path = join(outDir, `${engagementId}-report-${watermark.seq}${audience === 'full' ? '' : `-${audience}`}.html`);
+    writeFileSync(path, renderHtml({ markdown: check.reproducible ? markdown : markdown + checkLines.join('\n'),
+      title: `GUNGNIR 战役报告 · ${engagementId}${audience === 'full' ? '' : ` · ${audience}`}` }), 'utf8');
+    out.paths.html = path;
+  }
+  if (wantJson) {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
     const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home, metrics });
     json.audience = audience;
