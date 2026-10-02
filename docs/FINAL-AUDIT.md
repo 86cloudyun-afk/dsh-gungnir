@@ -7,11 +7,11 @@
 
 | 项 | 结果 |
 |---|---|
-| 框架 §8 十二项 | **11/12 已闭环**；第 1 项（允许清单在**真实 DSH 挂载层**生效）需 DSH 环境，属 v0.2 集成 |
+| 框架 §8 十二项 | **12/12 已闭环**（§8-1 真实 DSH 挂载层已由官方 boot API 实挂验收闭环 → HOST_VERIFIED，CI `native-host` job 每推送复跑；详见 [ACCEPTANCE](ACCEPTANCE.md) §8-1 与 `scripts/verify-host.mjs`） |
 | ADR-001（权限与执行边界） | 5/5 闭环（含桶 A 真实容器验收，由 CI `fence` job 真跑） |
 | ADR-002（数据与证据契约） | 6/6 闭环 |
 | ADR-003（Adapter 生命周期） | 9/9 闭环 |
-| 本地六闸 | `node scripts/ci.mjs --quiet` → **全部通过**（440 例测试 / 36 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
+| 本地六闸 | `node scripts/ci.mjs --quiet` → **全部通过**（444 例测试 / 37 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
 | CI 真跑 job | `fence`（真实容器围栏）、`drill`（跨进程执行层演练）、`native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）、`test` → 皆绿 |
 | 端到端演练 | `node scripts/executor-drill.mjs` → 全链路通过（11 步）；`--mode bridge` 亦通过 |
 | 契约自检 | `node scripts/conformance.mjs` → 8/8（且对真实桥接 adapter 亦通过） |
@@ -21,7 +21,7 @@
 
 | # | 验收项 | 复跑命令 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本（bash/写文件/进程工具不可见） | `node scripts/check-preset.mjs`；`node --test test/preset.test.js` | ✅ 文件与校验器闭环；**真实挂载层未验**（见三） |
+| 1 | 允许清单负样本（bash/写文件/进程工具不可见） | `node scripts/check-preset.mjs`；`node --test test/preset.test.js`；`node scripts/verify-host.mjs`（官方 boot API 实挂）；`node --test test/dsh-host-verified.test.js` | ✅ 文件与校验器闭环；**真实挂载已闭环**（dsh 0.2.0-rc.2，实挂主控会话工具目录 = 允许集、0 内核工具 → HOST_VERIFIED；CI `native-host` 复跑） |
 | 2 | broker 负样本（缺四元组 / 请求 ⊄ 授权 / 版本过期） | `node --test test/gates.test.js` | ✅ |
 | 3 | 撤销 + 时间窗：级联取消 + 探针证实停止 | `node --test test/gates.test.js test/gate-controls.test.js` | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回 | `node --test test/dispatch.test.js`；`node scripts/fault-matrix.mjs`（①） | ✅ |
@@ -36,19 +36,20 @@
 
 ## 三、未闭环项（如实，且都因环境依赖）
 
+> §8-1（允许清单在真实 DSH 挂载层生效）原列此处，已于 2026-10-02 闭环：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，实测主控会话工具目录 = 允许集（`warroom_*` 全数、0 内核工具）→ **HOST_VERIFIED**，CI `native-host` job 每推送复跑。详见 [ACCEPTANCE](ACCEPTANCE.md) §8-1。
+
 | 项 | 现状 | 闭环条件 |
 |---|---|---|
-| §8-1 允许清单在真实 DSH 挂载层生效 | 预设文件、允许清单闭合校验、工具 schema 校验全部就绪；**未在真实 DSH 会话里跑过** | 在挂载了本预设的 DSH 会话里跑一次：确认 `bash/write/edit/subagent/workflow/redteam_*/ops_*` 不可见，`warroom_*` 可见 |
 | 真实派单命令对接 | 桥、应答器、执行器插件、示例 stub、实装指引全部就绪；CI 每推一次都跑跨进程演练 | 把 `GUNGNIR_EXECUTOR_CMD` 指向你环境里的派单命令（见 [DSH-EXECUTOR-IMPL.md](DSH-EXECUTOR-IMPL.md)） |
 
-> 这两项都需要**操作员的 DSH 环境**，不是本仓可以自行完成的代码工作；
+> 这一项需要**操作员的 DSH 环境**，不是本仓可以自行完成的代码工作；
 > 仓库侧的准备（契约、fail-closed 行为、演练、CI 常跑）已全部做完。
 
 ## 四、交付物清单（本仓）
 
 - **编排层代码**：`packages/*`（shared-types / warroom-core / warroom-tools / warroom-plugin）
 - **CLI**：`bin/warroom.mjs`（30+ 子命令，见 [QUICKSTART.md](QUICKSTART.md) 一图流）
-- **工具**：36 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
+- **工具**：37 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
 - **预设与角色**：`presets/warroom.preset.json` + `presets/roles/{commander,recon,chain}.md`
 - **契约**：`docs/adr/*`（四份 ADR）、`docs/dashboards.schema.json`（看板字段）、`docs/tools.schema.json`
 - **可读文档**：QUICKSTART / ACCEPTANCE / FAULT-MATRIX / DSH-EXECUTOR(-IMPL) / CI-INTEGRATION / BACKUP / MERGE-REVIEW-1..16
