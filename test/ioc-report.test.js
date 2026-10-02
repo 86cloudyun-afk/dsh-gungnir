@@ -130,3 +130,23 @@ test('报告收录链前会议纪要（md 与 json 双视图）', () => {
   assert.equal(json.meetings[0].title, '链前会议·报告用例');
   assert.deepEqual(json.meetings[0].decisions, ['rhythm=restricted']);
 });
+
+test('报告体量控制：每类事实上限生效且给出未列出计数，JSON 仍含全量', () => {
+  const h = harness();
+  const members = Array.from({ length: 8 }, (_, i) => ({
+    entity_type: 'asset', source_id: `bulk-${i}`, revision_no: 1, content_hash: `h-${i}`, payload: { i },
+  }));
+  const ex = h.broker.execute({ ...h.base, command_id: 'bulk-1', contract: h.contract({ fake_members: members }) });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const built = h.broker.buildReport(h.eng.engagement_id, { maxFactsPerType: 3 });
+  assert.match(built.markdown, /另有 \*\*5\*\* 条同类事实未逐条列出/);
+  assert.equal(built.size.facts, 8);
+  assert.ok(built.size.md_bytes > 0);
+
+  const both = h.broker.exportReport(h.eng.engagement_id, { format: 'both', maxFactsPerType: 2 });
+  const json = JSON.parse(readFileSync(both.paths.json, 'utf8'));
+  assert.equal(json.facts.effective.length, 8, 'JSON 视图必须是全量');
+  const md = readFileSync(both.paths.markdown, 'utf8');
+  assert.match(md, /另有 \*\*6\*\* 条/);
+});
