@@ -12,7 +12,8 @@
 //   · 测试例数   = `node --test` 的 `# tests` 总数（与环境无关：guarded 用例 SKIP 仍计入 # tests）
 //   · 工具数     = warroom-tools TOOLS（并交叉校验 plugin TOOL_NAMES 与预设 allow 的 warroom_ 项三者一致）
 //   · 故障矩阵   = packages/warroom-core/src/testing/faults.js 的 SCENARIOS 条数
-// 锚点：文档里分别写作「N 例」「N 个 `warroom_*`」/「N `warroom_*`」「N 场景」，正则精确匹配、不脆。
+// 锚点：文档里分别写作「N 例」「N 个 `warroom_*`」/「N `warroom_*`」/「N 工具」「N 场景」，正则精确匹配、不脆。
+//   （FINAL-AUDIT.md 亦在扫描之列；其数字快照行「… / N 工具 / …」由新增的「N 工具」锚点覆盖。）
 //
 // **不**纳入自动校验：「真跑 CI job 数」。该事实在文档里用中文数字（「两个/三个真跑 job」）表达，
 // 且各处口径不一（README/ACCEPTANCE 数 fence+drill；FINAL-AUDIT 把 test 也算进「三者」），
@@ -66,7 +67,7 @@ async function buildFacts() {
     { key: 'tests', label: '测试例数（node --test # tests）', value: measureTests(),
       patterns: [/\d+\s?例/g] },
     { key: 'tools', label: 'warroom_* 工具数', value: await measureTools(),
-      patterns: [/\d+\s?个?\s?`?warroom_/g, /工具[^0-9]{0,4}\d+\s?个/g] },
+      patterns: [/\d+\s?个?\s?`?warroom_/g, /工具[^0-9]{0,4}\d+\s?个/g, /\d+\s?工具/g] },
     { key: 'faults', label: '故障矩阵场景数（SCENARIOS）', value: await measureFaults(),
       patterns: [/\d+\s?场景/g] },
   ];
