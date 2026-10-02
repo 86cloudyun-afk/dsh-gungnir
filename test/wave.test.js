@@ -71,3 +71,50 @@ test('空任务波被拒；波内事实按成员级幂等入库（重复波不�
   runWave({ broker: h.broker, engagementId: h.eng.engagement_id, wave: { ...wave, title: '幂等波#2' } });
   assert.equal(h.store().effectiveCount(), 1, '重复内容不得产生第二条有效事实');
 });
+
+test('演练模式：只出计划（依赖序 + 并发层 + 会议预览），不落库不派单', () => {
+  const h = harness();
+  const before = {
+    commands: h.broker.global.prepare('SELECT COUNT(*) c FROM command_queue').get().c,
+    meetings: listMeetings({ store: h.store() }).length,
+    facts: h.store().effectiveCount(),
+  };
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id, dryRun: true,
+    wave: {
+      title: '演练用会议', notes: '先 recon 再 chain',
+      tasks: [
+        { id: 'A', role: 'recon', targets: ['10.0.0.5'], resources: ['container'] },
+        { id: 'C', role: 'recon', targets: ['10.0.0.6'] },
+        { id: 'B', role: 'chain', targets: ['10.0.0.5'], depends_on: ['A'], action_class: 'active' },
+      ],
+    },
+  });
+  assert.equal(r.dry_run, true);
+  assert.equal(r.plan.order.at(-1), 'B', 'B 依赖 A，应在最后');
+  assert.equal(r.plan.layers[0].length, 2, 'A 与 C 同层可并行');
+  assert.deepEqual(r.plan.layers[1], ['B']);
+  assert.equal(r.plan.meeting_preview.title, '演练用会议');
+  assert.equal(r.plan.tasks.find((t) => t.id === 'A').resource_kinds[0], 'container');
+
+  // 演练不产生任何副作用
+  assert.equal(h.broker.global.prepare('SELECT COUNT(*) c FROM command_queue').get().c, before.commands);
+  assert.equal(listMeetings({ store: h.store() }).length, before.meetings);
+  assert.equal(h.store().effectiveCount(), before.facts);
+});
+
+test('演练与执行共用依赖判定：成环在演练阶段就报错', () => {
+  const h = harness();
+  assert.throws(() => runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id, dryRun: true,
+    wave: { title: '环', notes: 'x', tasks: [
+      { id: 'X', role: 'recon', targets: ['10.0.0.5'], depends_on: ['Y'] },
+      { id: 'Y', role: 'recon', targets: ['10.0.0.5'], depends_on: ['X'] },
+    ] },
+  }), /依赖无法满足/);
+  // 悬空依赖同样在演练阶段暴露
+  assert.throws(() => runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id, dryRun: true,
+    wave: { title: '悬空', notes: 'x', tasks: [{ id: 'Z', role: 'recon', targets: ['10.0.0.5'], depends_on: ['无'] }] },
+  }), /依赖无法满足/);
+});
