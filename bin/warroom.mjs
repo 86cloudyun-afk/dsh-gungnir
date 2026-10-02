@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report',
+const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'wave',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -26,6 +26,7 @@ function usage() {
   revoke    撤销授权并级联停止：--engagement <id>
   report    导出报告：--engagement <id> [--out <dir>]
   verify-report  复现校验：<report.md> --engagement <id>
+  wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json>
   shell     status|proof|verify：shell 三字段（--proof X / --validity unknown|likely|confirmed_lost）
   spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
   metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
@@ -59,7 +60,7 @@ const { values: v } = parseArgs({
     result: { type: 'string' }, role: { type: 'string' },
     'tokens-in': { type: 'string' }, 'tokens-out': { type: 'string' },
     'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
-    format: { type: 'string' },
+    format: { type: 'string' }, meeting: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -138,6 +139,16 @@ switch (command) {
   case 'report':
     out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
     break;
+  case 'wave': {
+    const { readFileSync } = await import('node:fs');
+    const { runWave, listMeetings } = await import('../packages/warroom-core/src/wave.js');
+    const file = v.meeting ?? argv[1];   // 支持 --meeting <file> 或位置参数
+    if (!file) { console.error('wave 需要会议文件 JSON（{title, notes, tasks:[…]}）：--meeting <file>'); process.exit(2); }
+    const plan = JSON.parse(readFileSync(file, 'utf8'));
+    const r = runWave({ broker, engagementId: need('engagement', v.engagement), wave: plan });
+    out({ ...r, meetings: listMeetings({ store: broker._eng(v.engagement).store }).length });
+    break;
+  }
   case 'verify-report': {
     const { readFileSync } = await import('node:fs');
     const reportPath = argv[1];
