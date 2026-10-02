@@ -63,7 +63,23 @@ GUNGNIR（指挥层）与执行层（DSH 侧红队模式）通过 **spool 目录
 - 事实入库是**成员级幂等**：同一 `(adapter_instance, entity_type, source_id)` 只有最大
   `revision_no` 生效；晚到的旧修订保留为历史行、不覆盖、不重复记账。
 
+## 参考应答器（已实现）
+
+```sh
+# 常驻：每 50ms 扫一次 outbox，按 contract 生成回执
+node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge"
+
+# 彩排/测试：单次处理；fixture 模式从预置目录读回执（可编排异常：资源残留、空事实等）
+node scripts/dsh-bridge-responder.mjs --root <root> --once --mode fixture --fixture <dir>
+```
+
+- **echo 模式**：按 `contract.fake_members` 生成事实、按 `contract.resources` 推导资源探针。
+- **fixture 模式**：读 `<external_id>.facts.json` / `.probes.json`，用于编排「资源未停」「空回执」等场景。
+- 幂等：同一 `external_id` 的 job/stop 只处理一次；所有写入原子（tmp + rename）。
+- 跨进程验证见 `test/dsh-responder.test.js`：GUNGNIR 与应答器分属不同进程，仅经 spool 通信。
+
 ## 待办（v0.2 集成波次）
 
-- DSH 侧应答器实现：监听 `outbox/` → 调红队模式插件服务派单 → 写 `inbox/` 回执与事实。
+- 应答器接入真实执行层：把 `handleJob` 的 echo 分支替换为「调红队模式插件服务派单」
+  （参考实现已给出进程骨架、协议消费与幂等/原子写）。
 - 出口与授权仍由 GUNGNIR 门闸约束（执行层的网络流量必须经跳板池，见框架 §12）。
