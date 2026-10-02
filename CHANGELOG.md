@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **报告全景补强**：md 增「审计摘要（门闸判定分布）」与「跳板与隧道台账」两段，
+  JSON（`gungnir-report/1`）增 `audit_summary` 与 `jump_routes` 字段——一份报告说清战役全貌
 - **审计查询与导出**：`broker.audit`（按 decision/since 过滤 + 决策分布）、`broker.auditExport`
   （JSONL，行数一致、写入时已脱敏）；工具 `warroom_audit`（工具数 22→23）、CLI `warroom audit`
   （查询 / 导出两路）；拒绝路径同样留痕（deny 可追溯）
