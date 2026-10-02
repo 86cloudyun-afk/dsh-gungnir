@@ -1,0 +1,16 @@
+{
+  "fixture": "temporary synthetic SQLite files; no real home",
+  "checks": [
+    "actual SQLite HTTP snapshot and explicit single-session choice",
+    "route-only/task-only keyboard navigation, reverse linking and refresh retention",
+    "node-to-conversation linking and SVG Enter/Space focus",
+    "collapse keeps risk/route notes; full view, zoom, fit, pan and exact-ID search",
+    "explicit synthetic demo; desktop and narrow-screen screenshots",
+    "partial totals, reference ambiguity, shared-jump choices, expired risk and malicious/long labels",
+    "real failure clears stale demo/scope data and never fabricates a graph",
+    "actual 261-node SQLite graph preserves disconnected evidence, edges and exact search through folding",
+    "fact/global database hashes unchanged; zero page errors"
+  ],
+  "page_errors": [],
+  "ok": true
+}
