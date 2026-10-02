@@ -272,7 +272,12 @@ export const TOOLS = [
       },
       additionalProperties: true,
     },
-    run: (core, args) => core.broker.knowledge.search(args),
+    // 返回**对象**（宿主工具契约：数组会被拒为 "value must be an object"；
+    // 与 CLI 的 {count,rows} 同形，避免两处语义分叉）
+    run: (core, args) => {
+      const rows = core.broker.knowledge.search(args);
+      return { count: rows.length, rows };
+    },
   },
   {
     name: 'warroom_poc_add',
