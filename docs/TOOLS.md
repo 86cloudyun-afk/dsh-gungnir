@@ -32,7 +32,7 @@
 | `warroom_secret_rotate` | 轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解 | `{ confirm*:boolean }` | ✅ |
 | `warroom_egress_check` | 出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
 | `warroom_heartbeat` | 长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判） | `{ engagement_id*:string, task_id*:string, note:string }` | ✅ |
-| `warroom_preflight` | 开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked | `{ engagement_id*:string }` | ✅ |
+| `warroom_preflight` | 开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked | `{ engagement_id*:string, meeting_tasks:array }` | ✅ |
 
 ## 约定
 

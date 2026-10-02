@@ -785,6 +785,14 @@
         "properties": {
           "engagement_id": {
             "type": "string"
+          },
+          "meeting_tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "可选：波次任务列表（逐个核对是否在授权范围内）"
           }
         },
         "required": [
