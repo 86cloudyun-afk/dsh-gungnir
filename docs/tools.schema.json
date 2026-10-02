@@ -722,6 +722,10 @@
             "type": "string",
             "description": "acquire 用：本次要出网的目标（域名/IP）"
           },
+          "jumphost_id": {
+            "type": "string",
+            "description": "acquire/release 用：显式指定跳板（按轮换策略挑机器）"
+          },
           "hosts": {
             "type": "array",
             "description": "import 用：跳板清单（来自操作员的 advisory/jumphosts.md）",
