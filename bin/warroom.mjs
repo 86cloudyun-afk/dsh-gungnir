@@ -34,7 +34,7 @@ function usage() {
   spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
   metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
   secret    put|grant|status
-  jump      import|acquire|list|sweep
+  jump      import|acquire|list|status|release|sweep（--route <route_id>）
   adapter   fake|redteam（默认 fake）
 
 全局：--home <dir>（默认 $WARROOM_HOME 或 ./.warroom） --json --help`);
@@ -58,7 +58,7 @@ const { values: v } = parseArgs({
     label: { type: 'string' }, plaintext: { type: 'string' }, 'secret-ref': { type: 'string' },
     purpose: { type: 'string' }, 'ttl-seconds': { type: 'string' }, id: { type: 'string' },
     host: { type: 'string' }, 'addr-v4': { type: 'string' },
-    proof: { type: 'string' }, validity: { type: 'string' },
+    proof: { type: 'string' }, validity: { type: 'string' }, route: { type: 'string' },
     'credential-ref': { type: 'string' }, service: { type: 'string' }, account: { type: 'string' },
     result: { type: 'string' }, role: { type: 'string' },
     'tokens-in': { type: 'string' }, 'tokens-out': { type: 'string' },
@@ -227,6 +227,10 @@ switch (command) {
       out({ imported: v.id });
     } else if (sub === 'acquire') {
       out(jumps.acquire({ engagement_id: need('engagement', v.engagement), target: need('target', v.target) }));
+    } else if (sub === 'status') {
+      out(jumps.status(v.engagement ?? null));
+    } else if (sub === 'release') {
+      out(jumps.releaseRoute({ route_id: need('route', v.route), engagementId: need('engagement', v.engagement) }));
     } else if (sub === 'list') {
       out({
         hosts: broker.global.prepare('SELECT * FROM jumphosts').all(),

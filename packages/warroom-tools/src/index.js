@@ -345,6 +345,26 @@ export const TOOLS = [
       return core.broker.audit(engagement_id, opts);
     },
   },
+  {
+    name: 'warroom_jumps',
+    description: '跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        action: { type: 'string', enum: ['status', 'release', 'sweep'] },
+        route_id: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const action = args.action ?? 'status';
+      if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
+      if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
+      return core.jumps.status(args.engagement_id);
+    },
+  },
 ];
 
 export { ERR };
