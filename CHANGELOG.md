@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **凭据喷洒矩阵**（框架 §5.1）：`sprayMatrix`（凭据 × 服务 × 账号展开，标注 tried/locked，
+  只有 `run` 格子进 ready 列表）+ `sprayApply`（批量登记，重复格子跳过、**锁定结果切断后续**）；
+  工具 `warroom_spray_matrix`（工具数 21→22）
 - **应答器执行器插件**（ADR-004 项 4 收尾）：`--executor <path>` 挂载
   `{ name, run(job) }`；内置 `echo-executor`（彩排）与 `dsh-redteam-executor`
   （按 `GUNGNIR_EXECUTOR_CMD` 调外部执行器，stdin job → stdout 回执）；

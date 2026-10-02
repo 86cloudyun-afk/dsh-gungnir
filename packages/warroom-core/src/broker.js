@@ -308,6 +308,59 @@ export class Broker {
       tried: store.sprayTried({ credential_ref, service, account }),
     };
   }
+  /**
+   * 喷洒矩阵（框架 §5.1）：把「凭据 × 服务 × 账号」展开成可执行的格子，
+   * 每格带断点与锁定状态——已试过/已锁定的格子不出现在 plan.ready 中（防重复、防锁死）。
+   * @param {{credentials:string[], services:string[], accounts:string[]}} p
+   */
+  sprayMatrix(engagementId, { credentials = [], services = [], accounts = ['default'] } = {}) {
+    const store = this._eng(engagementId).store;
+    const cells = [];
+    for (const credential_ref of credentials) {
+      for (const service of services) {
+        for (const account of accounts) {
+          const tried = store.sprayTried({ credential_ref, service, account });
+          const locked = store.sprayLocked({ service, account });
+          cells.push({
+            credential_ref, service, account,
+            tried, locked,
+            action: locked ? 'skip-locked' : tried ? 'skip-tried' : 'run',
+          });
+        }
+      }
+    }
+    const ready = cells.filter((c) => c.action === 'run');
+    return {
+      cells,
+      ready,
+      summary: {
+        cells: cells.length,
+        run: ready.length,
+        skip_tried: cells.filter((c) => c.action === 'skip-tried').length,
+        skip_locked: cells.filter((c) => c.action === 'skip-locked').length,
+      },
+    };
+  }
+
+  /**
+   * 批量登记矩阵执行结果：只接受 ready 格子（未试过、未锁定）；
+   * locked 结果会立即把该(服务×账号)的后续格子转为跳过（防锁死扩散）。
+   */
+  sprayApply(engagementId, results = []) {
+    const applied = [];
+    const skipped = [];
+    for (const r of results) {
+      const check = this.sprayCheck(engagementId, r);
+      if (check.locked) { skipped.push({ ...r, reason: 'locked' }); continue; }
+      if (check.tried && r.result !== 'locked') { skipped.push({ ...r, reason: 'already-tried' }); continue; }
+      this._eng(engagementId).store.sprayRecord({
+        credential_ref: r.credential_ref, service: r.service, account: r.account, result: r.result,
+      });
+      applied.push({ ...r });
+    }
+    return { applied, skipped, summary: { applied: applied.length, skipped: skipped.length } };
+  }
+
   sprayRecord(engagementId, args) {
     const store = this._eng(engagementId).store;
     const check = this.sprayCheck(engagementId, args);
