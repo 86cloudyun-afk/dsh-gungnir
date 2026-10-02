@@ -35,6 +35,16 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: R(parsed) };
   });
+  // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
+  const auditSummary = (() => {
+    try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
+    catch { return []; }
+  })();
+  const routes = (() => {
+    try { return store.db.prepare('SELECT * FROM jump_routes ORDER BY ts').all(); }
+    catch { return []; }
+  })();
+
   const ioc = buildIocDraft({ store, engagementId, globalDb });
   const meetings = (() => {
     try {
@@ -56,6 +66,8 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     evidence_digests: { fact_members: digest },
     shell: store.shellState() ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
     meetings: R(meetings),
+    audit_summary: auditSummary,
+    jump_routes: routes,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -153,6 +165,16 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('');
   }
 
+  // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
+  const auditSummary = (() => {
+    try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
+    catch { return []; }
+  })();
+  const routes = (() => {
+    try { return store.db.prepare('SELECT * FROM jump_routes ORDER BY ts').all(); }
+    catch { return []; }
+  })();
+
   const ioc = buildIocDraft({ store, engagementId, globalDb });
   lines.push(`## IOC / 清理附录（自动聚合 ${ioc.summary.total} 项，人工确认后交付）`);
   lines.push('');
@@ -164,6 +186,23 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
+  if (auditSummary.length > 0) {
+    lines.push('## 审计摘要（门闸判定分布）');
+    lines.push('');
+    for (const a of auditSummary) lines.push(`- \`${a.decision}\`：${a.n}`);
+    lines.push('- 明细导出：`warroom audit --engagement <id> --export <dir>`（JSONL）');
+    lines.push('');
+  }
+  if (routes.length > 0) {
+    lines.push('## 跳板与隧道台账');
+    lines.push('');
+    for (const r of routes) {
+      lines.push(`- \`${r.route_id}\` 跳板 ${r.jumphost_id} · ${r.socks} · 状态 ${r.state} · ${r.ts}`);
+    }
+    lines.push('- 收口：`warroom jump release --lease <lease_id>` / `jump sweep`（未证实释放进隔离）');
+    lines.push('');
+  }
+
   lines.push('## 声明');
   lines.push('');
   lines.push('- 本报告由 WARROOM/GUNGNIR 生成；无漏洞利用代码，无明文凭据（凭据仅以引用形式出现）。');
