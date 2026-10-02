@@ -49,16 +49,21 @@ export const TOOLS = [
     description: '事实查询（只读）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, entity_type: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' }, entity_type: { type: 'string' }, source_id: { type: 'string' },
+        since: { type: 'string' }, include_history: { type: 'boolean' },
+        adapter_instance: { type: 'string' }, limit: { type: 'integer' },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => {
       const { store } = core.broker._eng(args.engagement_id);
-      const rows = args.entity_type
-        ? store.db.prepare('SELECT * FROM fact_members WHERE entity_type = ? AND active = 1').all(args.entity_type)
-        : store.db.prepare('SELECT * FROM fact_members WHERE active = 1').all();
-      return { count: rows.length, rows };
+      return store.queryFacts({
+        entityType: args.entity_type ?? null, sourceId: args.source_id ?? null,
+        since: args.since ?? null, includeHistory: args.include_history ?? false,
+        adapterInstance: args.adapter_instance ?? null, limit: args.limit ?? 500,
+      });
     },
   },
   {
@@ -388,6 +393,30 @@ export const TOOLS = [
         throw Object.assign(new Error('轮换属于高风险动作：需 confirm=true'), { code: 'E_GATE_MISSING_TUPLE' });
       }
       return core.broker.secrets.rotateKey();
+    },
+  },
+  {
+    name: 'warroom_egress_check',
+    description: '出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        action: { type: 'string', enum: ['status', 'record'] },
+        jumphost_id: { type: 'string' }, exit_ip: { type: 'string' },
+        route_id: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'fail'] },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if ((args.action ?? 'status') === 'record') {
+        return core.broker.recordEgressCheck(args.engagement_id, {
+          jumphost_id: args.jumphost_id, exit_ip: args.exit_ip,
+          route_id: args.route_id ?? null, verdict: args.verdict ?? 'pass',
+        });
+      }
+      return core.broker.egressStatus(args.engagement_id);
     },
   },
 ];

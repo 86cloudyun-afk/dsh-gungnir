@@ -105,7 +105,9 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
 
 - **会不开，波不发**：纪要落库（`meetings` 表），并随报告一起交付（md「链前会议纪要」段 / json `meetings`）
 - **先演练**：`--dry-run` 只出计划（依赖序 + 同层并行分组 + 会议预览），不派单不落库
-- **波内无屏障**：独立任务立即并行；依赖满足即刻交接下游（实测顺序 `recon-A → chain-B`）
+- **波内无屏障但受节奏档约束**：独立任务立即并行、依赖满足即刻交接下游，同时在飞不超过档位上限
+  （open=3 / restricted=2 / stealth=1）；名额占满先结项释放，波末未结项会如实报错
+- **顺序实测**：`recon-A → chain-B`（B 依赖 A 时最后派发）
 - 任务报终态后自动**结项**；成环/悬空依赖如实报错
 
 ## 7.8 其余运维子命令（一览）
@@ -134,6 +136,12 @@ node bin/warroom.mjs secret rotate --confirm # 轮换秘密库密钥（旧密钥
 node bin/warroom.mjs doctor                 # 体检（含最近备份新鲜度）
 ```
 
+- 出口验证（建议每次换出口/开工时跑）：
+  ```sh
+  node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG" [--route <route_id>]
+  node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG" --self   # 操作节点自身出口
+  ```
+  通过后可用配置 `requireEgressCheck: true` 把"出网前必须有有效出口验证"变成硬门闸
 - 备份不随密钥走：`backups/` 与 `secrets/` 需**分别**保管（见 [BACKUP.md](BACKUP.md)）
 - 轮换前先备份整个 `secrets/`：历史密钥丢失 = 对应历史密文不可恢复
 - stealth 档出网间隔在 **8~25s 抖动**并按小时漂移（不形成固定周期指纹）
@@ -147,6 +155,32 @@ node bin/warroom.mjs config show            # 查看当前生效配置
 
 默认值覆盖：`rhythm`（新战役默认节奏档）、`timeoutMin`（sweep 超时）、`adapterKind`、
 `bridgeTimeoutMs`、`fenceImage`、`waveConcurrency`。**拼错字段会报错**，不会被静默忽略。
+
+## 7.95 adapter 一致性自检（写自己的执行层时）
+
+```sh
+node scripts/conformance.mjs                       # 对内置 fake adapter 跑（回归）
+node scripts/conformance.mjs --module ./my.mjs     # 对你自己的 adapter 跑（SPI rev2 契约）
+```
+
+契约要点、失败项含义见 [ADR-003](adr/ADR-003-adapter-lifecycle.md)。
+
+## 7.99 全部子命令索引
+
+```sh
+# 起步与维护
+init | doctor | config show|init | backup [--keep N] | restore --from <dir> [--apply] | maintain
+# 战役
+engage | exec | collect | status | cancel | revoke | wave [--dry-run] | sweep
+# 情报与证据
+fact | audit [--export] [--format csv] | report --format both | verify-report | evidence
+# 出口与跳板
+jump import|acquire|list|status|release|sweep | egress status|record
+# 秘密与知识
+secret put|grant|status|rotate | poc_search|poc_add|poc_use（工具）
+# 执行层
+conformance [--module <path>] | metrics | spray check|record
+```
 
 ## 8. 下一步
 

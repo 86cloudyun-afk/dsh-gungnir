@@ -103,6 +103,35 @@ export class FactStore {
     }
   }
 
+  /**
+   * 事实查询（只读）：按类型/来源/时间/是否含历史修订过滤。
+   * @param {{entityType?:string, sourceId?:string, since?:string, includeHistory?:boolean,
+   *          adapterInstance?:string, limit?:number}} opts
+   */
+  queryFacts({ entityType = null, sourceId = null, since = null, includeHistory = false,
+               adapterInstance = null, limit = 500 } = {}) {
+    const where = [];
+    const args = [];
+    if (!includeHistory) where.push('active = 1');
+    if (entityType) { where.push('entity_type = ?'); args.push(entityType); }
+    if (sourceId) { where.push('source_id LIKE ?'); args.push(`%${sourceId}%`); }
+    if (adapterInstance) { where.push('adapter_instance = ?'); args.push(adapterInstance); }
+    if (since) { where.push('ts >= ?'); args.push(since); }
+    const sql = `SELECT * FROM fact_members ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY entity_type, source_id, revision_no DESC LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...args, limit);
+    const byType = this.db.prepare(`SELECT entity_type, COUNT(*) AS n FROM fact_members
+      ${includeHistory ? '' : 'WHERE active = 1'} GROUP BY entity_type ORDER BY n DESC`).all();
+    return {
+      count: rows.length,
+      rows,
+      by_type: byType,
+      superseded_total: includeHistory
+        ? this.db.prepare('SELECT COUNT(*) AS n FROM fact_members WHERE active = 0').get().n
+        : undefined,
+    };
+  }
+
   appendGateLog({ decision, code = null, detail = null, request = null, recovered_at = null }) {
     this.db.prepare(`INSERT INTO gate_log (ts, decision, code, detail, request_json, recovered_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(this._now(), decision, code, detail,
