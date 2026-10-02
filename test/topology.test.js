@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { harness } from '../packages/warroom-core/src/testing.js';
-import { buildTopology, toMermaid } from '../packages/warroom-core/src/topology.js';
+import { buildTopology, toMermaid, toMermaidGrouped } from '../packages/warroom-core/src/topology.js';
 
 test('steps 引用成边；无引用的弱点被如实计数', () => {
   const facts = [
@@ -72,4 +72,43 @@ test('无边时不出现拓扑段（不画空图）', () => {
   const r = h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
   const md = readFileSync(r.paths.markdown, 'utf8');
   assert.equal(md.includes('攻击路径拓扑'), false);
+});
+
+test('分组视图：子图 + 图例 + 关键跳加粗（通往控制面）', () => {
+  const facts = [
+    { entity_type: 'asset', source_id: '10.1.1.1', payload: JSON.stringify({ note: 'web' }) },
+    { entity_type: 'vuln', source_id: 'CVE-X', payload: JSON.stringify({ asset: '10.1.1.1' }) },
+    { entity_type: 'session', source_id: 'sess-1', payload: '{}' },
+    { entity_type: 'chain', source_id: 'chain-x', payload: JSON.stringify({
+      steps: [{ from: '10.1.1.1', to: 'CVE-X', via: '暴露面' }, { from: 'CVE-X', to: 'sess-1', via: 'RCE' }],
+    }) },
+  ];
+  const t = buildTopology(facts);
+  const viz = toMermaidGrouped(t);
+  assert.match(viz.mermaid, /subgraph 资产/);
+  assert.match(viz.mermaid, /subgraph 控制面/);
+  assert.match(viz.mermaid, /==>\|RCE\|/, '通往控制面的边应加粗');
+  assert.match(viz.mermaid, /-->\|暴露面\|/, '普通支撑边保持普通箭头');
+  assert.equal(viz.critical.length, 1);
+  assert.equal(viz.critical[0].to, 'sess-1');
+});
+
+test('报告：拓扑段含图例与关键跳清单；无关键跳时不出现清单', () => {
+  const h = harness();
+  const ex = h.broker.execute({
+    ...h.base, command_id: 'viz-1',
+    contract: h.contract({
+      fake_members: [
+        { entity_type: 'asset', source_id: '10.2.2.2', revision_no: 1, content_hash: 'h1', payload: {} },
+        { entity_type: 'vuln', source_id: 'CVE-Y', revision_no: 1, content_hash: 'h2', payload: { asset: '10.2.2.2' } },
+        { entity_type: 'shell', source_id: 'shell-y', revision_no: 1, content_hash: 'h3', payload: { achieved_via: 'CVE-Y' } },
+      ],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.match(md, /图例：\*\*粗箭头/);
+  assert.match(md, /关键跳清单/);
+  assert.match(md, /subgraph 控制面/);
 });
