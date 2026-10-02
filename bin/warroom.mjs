@@ -24,6 +24,7 @@ function usage() {
             [--strict（必过项未全通过即非零退出）] [--profile delivery|progress]
   rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
+            --all 则指挥层视角：所有战役的巡检汇总
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
             [--sessions-db <path>] [--out <file>]
@@ -97,6 +98,7 @@ const { values: v } = parseArgs({
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
+    all: { type: 'boolean', default: false },
     profile: { type: 'string' }, backup: { type: 'boolean', default: true },
     'no-backup': { type: 'boolean', default: false }, days: { type: 'string' },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
@@ -177,7 +179,16 @@ switch (command) {
     break;
   }
   case 'watch': {
-    const { renderWatch } = await import('../packages/warroom-core/src/watch.js');
+    const { renderWatch, renderFleetWatch } = await import('../packages/warroom-core/src/watch.js');
+    if (v.all) {
+      // 舰队视图不需要单个战役
+      const f = broker.fleetWatch({ timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
+      if (v.text || !v.json) {
+        console.log(renderFleetWatch(f));
+        if (v.json) out(f);
+      } else out(f);
+      break;
+    }
     const v2 = broker.watch(need('engagement', v.engagement), { timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
     if (v.text || !v.json) {
       console.log(renderWatch(v2));

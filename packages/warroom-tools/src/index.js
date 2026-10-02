@@ -563,6 +563,17 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.weekly({ days: args.days }),
   },
+  {
+    name: 'warroom_fleet',
+    description: '舰队视图（只读）：所有战役的巡检汇总（在飞/超阈/路由/告警/交付门禁）',
+    input_schema: {
+      type: 'object',
+      properties: { timeout_min: { type: 'integer' } },
+      required: ['timeout_min'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.fleetWatch({ timeoutMin: args.timeout_min || null }),
+  },
 ];
 
 export { ERR };
