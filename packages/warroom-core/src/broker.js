@@ -11,6 +11,7 @@ import { openEngagementDb, openGlobalDb } from './db.js';
 import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
 import { SecretVault } from './secrets.js';
+import { KnowledgeBase } from './knowledge.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 
@@ -24,6 +25,7 @@ export class Broker {
     this.home = home;
     this.global = openGlobalDb(home);
     this.secrets = new SecretVault({ root: join(home, 'secrets'), db: this.global, nowMs: () => this._nowMs() });
+    this.knowledge = new KnowledgeBase({ home });
     this.adapter = adapter ?? new FakeAdapter();
     this._nowMs = nowMs ?? (() => Date.now());
     this.engagements = new Map(); // engagement_id -> { db, store }

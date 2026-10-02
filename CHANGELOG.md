@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **知识库**（ADR-004 范围项 3）：`$home/knowledge.db` 全局单份，POC 条目（code/title/14 类归类/
+  来源/影响版本/证据引用）+ 跨战役使用留痕；**回填强制脱敏**（内网 IPv4、环回、内部域名后缀、
+  未替换占位一律拒绝；显式 `allow_unsanitized` 必须写理由并入审计字段）
+- 工具面 `warroom_poc_search / add / use`（工具数 19），预设允许清单与工具文档同步刷新
 - **工具文档自动生成与同步校验**（`scripts/gen-docs.mjs`，CI 第六闸）：`docs/TOOLS.md` 由代码生成，
   `--check` 检出漂移（含"新增工具必须进允许清单"的约定说明）
 - **规模冒烟与性能门**（`scripts/bench.mjs`）：事实入库 / 快照 / 报告 / 复现校验的耗时阈值；
