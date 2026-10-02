@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { renderChecklist } from './checklist.js';
+import { assertSafeSegment, resolveUnder } from './paths.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -18,15 +19,17 @@ const sha = (s) => createHash('sha256').update(s).digest('hex');
  */
 export function exportEvidence({ broker, engagementId, outDir, target = null, audiences = ['client', 'blue'], checklist = true }) {
   if (!outDir) throw new Error('exportEvidence 需要 outDir');
-  const dir = target ? join(outDir, target) : outDir;
+  // target / audience 必须是单段名：禁止 ../ 逃出证据目录
+  const dir = target ? resolveUnder(outDir, assertSafeSegment(target, 'target')) : outDir;
   mkdirSync(dir, { recursive: true });
 
   const exported = broker.exportReport(engagementId, { outDir: dir, format: 'both' });
   // 受众视图单独归档：客户版与蓝队版各有独立文件，便于按人发放
   const audienceFiles = [];
   for (const audience of audiences ?? []) {
-    const a = broker.exportReport(engagementId, { outDir: join(dir, audience), format: 'both', audience });
-    audienceFiles.push({ audience, markdown: a.paths.markdown, json: a.paths.json ?? null });
+    const safeAudience = assertSafeSegment(audience, 'audience');
+    const a = broker.exportReport(engagementId, { outDir: resolveUnder(dir, safeAudience), format: 'both', audience: safeAudience });
+    audienceFiles.push({ audience: safeAudience, markdown: a.paths.markdown, json: a.paths.json ?? null });
   }
   const store = broker._eng(engagementId).store;
   const members = store.db.prepare('SELECT * FROM fact_members WHERE active = 1 ORDER BY entity_type, source_id').all();
