@@ -2,6 +2,22 @@
 // 输入是我们自己生成的 markdown 子集（标题/列表/表格/代码块/引用），因此用受限转换器而非引入依赖。
 // mermaid 图同时以 <pre class="mermaid"> 与源码块存在：有渲染器的环境看到图，没网的环境照样读得懂。
 
+/** 封面块（纸面第一页）：谁的报告、什么视图、水位锚点。 */
+function coverBlock(meta, title) {
+  const rows = [
+    ['战役', meta.engagement_id ?? '—'],
+    ['视图', meta.audience === 'client' ? '客户版（攻击路径与修复建议）'
+      : meta.audience === 'blue' ? '蓝队版（IOC 排查清单）' : '内部全量'],
+    ['水位', meta.watermark ? `seq ${meta.watermark.seq} · ${String(meta.watermark.snapshot_id ?? '').slice(0, 16)}…` : '—'],
+    ['生成时间', meta.generated_at ?? '—'],
+  ];
+  return `<section class="cover">
+  <div class="kicker">GUNGNIR · 战役报告</div>
+  <h1>${esc(title)}</h1>
+  <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+</section>`;
+}
+
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
@@ -111,8 +127,11 @@ export function markdownToHtml(md) {
   return out.join('\n');
 }
 
-/** 自包含 HTML 外壳（无外部资源；mermaid 若本地有渲染器可选启用）。 */
-export function renderHtml({ markdown, title = 'GUNGNIR 战役报告' }) {
+/**
+ * 自包含 HTML 外壳（无外部资源；mermaid 若本地有渲染器可选启用）。
+ * @param {{markdown:string, title?:string, meta?:object}} p meta 用于封面（战役/受众/水位等）
+ */
+export function renderHtml({ markdown, title = 'GUNGNIR 战役报告', meta = null }) {
   return `<!doctype html>
 <html lang="zh">
 <head>
@@ -139,10 +158,35 @@ export function renderHtml({ markdown, title = 'GUNGNIR 战役报告' }) {
   ul { padding-left:1.3rem; }
 </style>
 <style>.mermaid { background:#f6f1e7; color:var(--fg); padding:1rem; border-radius:6px; }</style>
+<style>
+  /* 打印友好：白底、隐藏交互块、表格与代码块尽量不跨页、链接打印出 URL */
+  @media print {
+    :root { --bg:#fff; --fg:#000; --muted:#333; --line:#999; --accent:#000; }
+    body { background:#fff; padding:0; font-size:11pt; }
+    main { max-width:none; }
+    details, .mermaid-source { display:none !important; }   /* 交互块不进纸面 */
+    .cover { break-after:page; }
+    h1 { break-after:avoid; }
+    h2 { break-after:avoid; break-before:auto; }
+    table, pre, blockquote, .mermaid { break-inside:avoid; }
+    pre { white-space:pre-wrap; background:#f4f4f4; color:#000; border:1px solid var(--line); }
+    a[href^="http"]::after { content:" (" attr(href) ")"; font-size:.85em; color:#333; }
+    .print-footer { display:block; margin-top:2rem; border-top:1px solid var(--line);
+                    padding-top:.5rem; color:#333; font-size:.85em; }
+  }
+  @media screen { .print-footer { display:none; } }
+  .cover { border-bottom:2px solid var(--accent); padding-bottom:1rem; margin-bottom:2rem; }
+  .cover .kicker { text-transform:uppercase; letter-spacing:.12em; font-size:.78rem; color:var(--muted); }
+  .cover h1 { border:none; margin:.3rem 0 .5rem; }
+  .cover dl { display:grid; grid-template-columns:max-content 1fr; gap:.2rem 1rem; margin:0; font-size:.92rem; }
+  .cover dt { color:var(--muted); }
+</style>
 </head>
 <body>
 <main>
+${meta ? coverBlock(meta, title) : ''}
 ${markdownToHtml(markdown)}
+<div class="print-footer">${esc(meta?.generated_at ?? '')} · GUNGNIR · 本文件自包含（无外部资源），可离线留存与打印</div>
 </main>
 </body>
 </html>
