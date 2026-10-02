@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **备份/维护内建**：`maintenance.js`（`backupHome` / `latestBackup` / `checkpointHome`）由
+  脚本、CLI（`warroom backup` / `maintain`）、`doctor` 共用；`doctor` 新增**备份新鲜度**检查
+  （>7 天或从未备份给 warn）；`scripts/backup.mjs` 改为复用 API（行为不变）
 - **报告体量控制**：md 报告每类事实默认最多列 50 条（`--max-facts` / `max_facts_per_type` 可调），
   超出只给计数与提示（**全量仍在 JSON 视图**）；返回 `size{md_bytes,facts}`
 - **密钥轮换**（高级秘密管理）：`rotateKey()` 归档旧密钥（`keys/<key_id>.bin`，600）→ 换新密钥 →
