@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **体检增报告可复现性检查**：对每个战役最近一份报告复用 `report.js` 的同一判定
+  （水位 + 证据摘要），漂移 → warn 并提示重出；无报告时 ok
 - **证据落盘带交付视图**：`evidence --audience client|blue`（默认两种都出）—— 客户版与蓝队版
   各自独立归档（`<dir>/client/`、`<dir>/blue/`），`EVIDENCE_INDEX.md` 增「交付视图」一节并指明
   内部全量位置；`audiences: []` 可关闭
