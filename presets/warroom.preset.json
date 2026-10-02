@@ -50,6 +50,7 @@
       "warroom_checklist",
       "warroom_deliver",
       "warroom_weekly",
+      "warroom_fleet",
       "skill"
     ],
     "deny": [
