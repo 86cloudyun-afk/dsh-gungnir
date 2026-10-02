@@ -39,7 +39,16 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
 > 折叠标量（`>-`）会因此变成非法 YAML（实测报 `bad indentation of a mapping entry`）。
 > 表达式在 loader 作用域求值，`process.getBuiltinModule('node:fs')` 可用。
 
-**生效**：host 平面变更需重启 `dsh web`（在操作员自己的终端执行；agent 不重启承载会话的 web 进程）。
+**生效**：host 平面变更需重启 `dsh web`——**只能由操作员在自己的终端执行**：
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery
+```
+
+> ⛔ **不要从 agent 侧重启**（`launchctl kickstart` / `launchctl submit` / 杀进程都不行）。实测事故（2026-10-02）：
+> 用 `launchctl submit` 提交"重启 + 自检"脚本后，launchd 按节流间隔（~10s）**反复重跑**该任务，
+> 每次重跑都 `kickstart -k`，导致 **17:15:20–17:34:14 之间 108 次重启**，宿主不停掉线、
+> 会话被打断。agent 侧只做只读诊断与配置准备，重启留给操作员——这条是纪律，不是建议。
 重启后新建会话选预设「红队指挥（GUNGNIR）」，直接发**开工指令**（靶标 + 范围）：
 宿主截获该指令并冻结结构化授权对象（开工指令即授权事件，ADR-001 D3）。
 

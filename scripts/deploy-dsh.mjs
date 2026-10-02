@@ -201,7 +201,9 @@ if (v.apply) {
     if (existsSync(patchPath)) copyFileSync(patchPath, backup);
     writeFileSync(patchPath, mergeOverlay(cur, snippet), 'utf8');
     findings.push(`✓ 已写入 patch 层（备份：${existsSync(backup) ? backup : '无原文件'}）`);
-    findings.push('· 生效需重启 dsh web（host 平面变更）——请在**你的终端**执行，勿从 agent 工具调用发起');
+    findings.push('· 生效需重启 dsh web：launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery');
+    findings.push('  只能在操作员终端执行——agent 侧用 launchctl submit/kickstart 会与守护进程竞争，'
+      + '实测导致重启循环（2026-10-02：19 分钟内 108 次）');
   }
 }
 
