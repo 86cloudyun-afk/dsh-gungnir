@@ -62,6 +62,10 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 
 全部子命令支持 `--json`；默认 home 为 `$WARROOM_HOME` 或 `./.warroom`。
 
+## 对话战图（只读）
+
+运行 `node bin/dashboard.mjs --home "$WARROOM_HOME" --port 0` 打开 GUNGNIR 全局/局部战图。未提供 home 时显示真实空状态，不会创建目录；演示数据只在页面显式选择后显示。DSH 的 native Client slot、固定 session binding 和会话冷读说明见 [对话战图使用指南](docs/dashboard/usage.md)。
+
 ## 包结构
 
 | 包 | 平面 | 内容 |

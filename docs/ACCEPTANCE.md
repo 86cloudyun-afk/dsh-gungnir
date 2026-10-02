@@ -1,5 +1,9 @@
 # 验收对照表（v0.1 · 2026-10-02）
 
+## GUNGNIR 对话战图交付（2026-10-03）
+
+Dashboard 定向测试 **32/32**。临时 SQLite 与 Chrome 通过 21/261 节点、桌面/窄屏、对话双向定位、路线/任务引用、折叠与错误清空验证；当前安装的 DSH 0.2.0-rc.2 在独立临时 HOME/cwd 中通过实际 Client 页签、会话冷读、opaque iframe 和认证/作用域拒绝验证。两轮浏览器均无页面错误，事实库与全局库哈希未变。测试会话和数据库均为合成夹具；不改变既有生产 `HOST_VERIFIED` 记录。复现命令和截图见 [战图验收记录](dashboard/validation.md)，接入说明见 [使用指南](dashboard/usage.md)。
+
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
