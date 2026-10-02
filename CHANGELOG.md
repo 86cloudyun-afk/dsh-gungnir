@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 4 行（四段观测/聚合只读边界/检索加权/拓扑分组）、
+  数字同步（280 例 / 29 工具）、QUICKSTART 增「一图流（从零到报告）」
 - **跨会话聚合视图（只读边界，框架 §7）**：`aggregate.js` —— 各战役库与 DSH 聚合库
   （`pentest-sessions.db`）**一律 `readOnly` 打开**，合并出战果总表（战役数/事实数/shell 数/分类统计），
   输出 `gungnir-aggregate/1`；工具 `warroom_aggregate`（29 个工具）、CLI

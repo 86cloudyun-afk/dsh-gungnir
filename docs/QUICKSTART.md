@@ -204,6 +204,24 @@ node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG"
 node bin/warroom.mjs doctor                  # 环境/数据/秘密/备份/出口门闸 体检
 ```
 
+## 7.98 一图流（从零到报告）
+
+```sh
+node bin/warroom.mjs init --home "$WARROOM_HOME" --target 10.0.0.0/24 --with-jumphost-sample
+export WARROOM_HOME
+node bin/warroom.mjs config init                 # 也能手改：bucket= A|B|C、rhythm、timeoutMin…
+node bin/warroom.mjs engage --target 10.0.0.0/24 --rhythm restricted --json   # ← ENG
+node bin/warroom.mjs jump acquire --engagement "$ENG" --target 10.0.0.5 --json
+node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG"
+node bin/warroom.mjs preflight --engagement "$ENG" --meeting wave.json --json   # ready|degraded|blocked
+node bin/warroom.mjs wave --dry-run --engagement "$ENG" --meeting wave.json
+node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json
+node bin/warroom.mjs report --engagement "$ENG" --format both
+node bin/warroom.mjs evidence --engagement "$ENG" --out findings/evidence/10.0.0.5
+node bin/warroom.mjs aggregate --sessions-db "$DSH_HOME/storages/pentest-sessions.db" --out aggregate.json
+node bin/warroom.mjs backup --keep 7
+```
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
