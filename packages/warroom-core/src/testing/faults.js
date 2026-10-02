@@ -308,6 +308,58 @@ export function runFaultMatrix() {
     assert(sec.secret_ref.startsWith('sec_'), '秘密应只以引用存在');
   });
 
+  // ⑰ 交付门禁：报告漂移 → 门禁必须拦下（deliverable=false 且列出未过项）
+  check('交付门禁 → 报告漂移必须拦下', () => {
+    const c = ctx();
+    const ex = c.broker.execute({ ...c.base, command_id: 'f-17', contract: c.contract() });
+    c.broker.collect(c.eng.engagement_id, ex.task_id, c.adapter.collect(ex.task_id));
+    c.broker.settle(c.eng.engagement_id, ex.task_id);
+
+    const first = c.broker.deliver(c.eng.engagement_id, { outDir: join(c.home, 'deliver-1') });
+    assert(first.gate.deliverable === true, `交付包应达标：${JSON.stringify(first.gate.blocked)}`);
+
+    // 交付之后再写入 → 旧报告漂移
+    const ex2 = c.broker.execute({ ...c.base, command_id: 'f-17b', contract: c.contract() });
+    c.broker.collect(c.eng.engagement_id, ex2.task_id, c.adapter.collect(ex2.task_id));
+    c.broker.settle(c.eng.engagement_id, ex2.task_id);
+
+    const second = c.broker.deliver(c.eng.engagement_id, { outDir: join(c.home, 'deliver-1') });
+    // 第二次交付：报告被重出，因此又应达标——但**旧报告文件**仍在目录里；
+    // 这里验证的是"清单看的是最新一份且必须与库一致"，故加载最新报告后应达标
+    assert(second.gate.deliverable === true, '重出报告后应重新达标（说明门禁会随产物更新）');
+
+    // 构造真正的漂移：手工把库推进但不重出报告
+    const store = c.broker._eng(c.eng.engagement_id).store;
+    store.db.prepare(`INSERT INTO fact_members
+      (adapter_instance, entity_type, source_id, revision_no, content_hash, payload, generation, active, ts)
+      VALUES ('drift', 'asset', 'drift-1', 1, 'h', '{}', '1:1:1', 1, '2026-01-01T00:00:00Z')`).run();
+    const checkNow = c.broker.checklist(c.eng.engagement_id, {
+      reportsDir: join(c.home, 'deliver-1', 'reports'), evidenceDir: join(c.home, 'deliver-1'),
+    });
+    assert(checkNow.deliverable === false, '库变化后未重出报告 → 门禁必须拦下');
+    assert(checkNow.blocked.some((b) => b.startsWith('report：')), JSON.stringify(checkNow.blocked));
+  });
+
+  // ⑱ 交付门禁不得误伤：还没干活不算异常（progress 口径）
+  check('交付门禁 → progress 口径不因"没干活"报警', () => {
+    const c = ctx();
+    const progress = c.broker.checklist(c.eng.engagement_id, { profile: 'progress' });
+    assert(progress.deliverable === true, `未开工不该被判不可交付：${JSON.stringify(progress.blocked)}`);
+    assert(progress.gate.length <= 2, `progress 必过项应很少，实际 ${progress.gate.length}`);
+
+    // 但"已做的东西坏了"必须拦：造一个漂移报告
+    const ex = c.broker.execute({ ...c.base, command_id: 'f-18', contract: c.contract() });
+    c.broker.collect(c.eng.engagement_id, ex.task_id, c.adapter.collect(ex.task_id));
+    c.broker.settle(c.eng.engagement_id, ex.task_id);
+    c.broker.exportReport(c.eng.engagement_id, { format: 'md' });
+    const store = c.broker._eng(c.eng.engagement_id).store;
+    store.db.prepare(`INSERT INTO fact_members
+      (adapter_instance, entity_type, source_id, revision_no, content_hash, payload, generation, active, ts)
+      VALUES ('drift2', 'asset', 'drift-2', 1, 'h', '{}', '1:1:1', 1, '2026-01-01T00:00:00Z')`).run();
+    const after = c.broker.checklist(c.eng.engagement_id, { profile: 'progress' });
+    assert(after.deliverable === false, '报告漂移属"已做的东西坏了"，progress 也必须拦');
+  });
+
   const failed = checks.filter((x) => !x.ok);
   return { total: checks.length, passed: checks.length - failed.length, failed, checks: [...checks] };
 }
