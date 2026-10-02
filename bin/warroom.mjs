@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  heartbeat  长时任务心跳：--engagement <id> --task <task_id> [--note n]
   conformance  adapter 一致性套件自检：[--module <path>]
   egress    出口验证：status | record --jumphost <id> --ip <ip> [--verdict pass|fail] [--route r]
   fact      事实查询（只读）：--engagement <id> [--type t] [--source s] [--since iso]
@@ -82,7 +83,7 @@ const { values: v } = parseArgs({
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
-    verdict: { type: 'string' }, module: { type: 'string' },
+    verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -112,6 +113,9 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'heartbeat':
+    out(broker.heartbeat(need('engagement', v.engagement), need('task', v.task), { note: v.note ?? null }));
+    break;
   case 'conformance': {
     const { spawnSync } = await import('node:child_process');
     const r = spawnSync('node', ['scripts/conformance.mjs', ...(v.module ? ['--module', v.module] : []), ...(v.json ? ['--json'] : [])], { encoding: 'utf8' });
