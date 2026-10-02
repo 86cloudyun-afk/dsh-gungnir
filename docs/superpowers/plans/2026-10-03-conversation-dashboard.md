@@ -99,4 +99,4 @@
 - [x] Document real-data startup, DSH mount config, conversation limits, demo mode and validation commands; sync ACCEPTANCE without treating local proof as HOST_VERIFIED.
 - [x] Run relevant tests, full six gates and meaningful Playwright desktop/mobile interactions; retain actual screenshots. Update test-count references with existing script after the final added tests.
 - [x] Deliver implementation report, targeted tests, real browser/native evidence and review inputs.
-- [ ] Complete independent final review, push the feature branch, open a PR and attach it to this chat.
+- [x] Complete independent final review, push the feature branch, open a PR and attach it to this chat. Delivered as [PR #166](https://github.com/86cloudyun-afk/dsh-gungnir/pull/166).

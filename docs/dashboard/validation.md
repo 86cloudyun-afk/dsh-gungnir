@@ -2,6 +2,8 @@
 
 日期：2026-10-03。数据为可清理的合成夹具，浏览器使用独立 Chrome context；真实 DSH 运行验证采用独立临时 DSH_HOME、工作区与随机 loopback 端口。未向模型发送 prompt，未改动生产配置或会话。
 
+独立代码终审及修复定向复核通过：显示标签/标题脱敏、原生错误固定消息和折叠拓扑均完成反例复核；复核者独立运行定向测试 41/41。受审代码版本为 860dd07，交付为 [PR #166](https://github.com/86cloudyun-afk/dsh-gungnir/pull/166)。
+
 ## 自动化与浏览器
 
 Dashboard 定向套件 41/41，通过真实临时 SQLite、错误/秘密边界、图结构、桥接协议和 Host/Client 契约回归。六道门禁通过；完整测试计数 510，其中通过 504、失败 0；6 项既有宿主集成检查因未设置 DSH_BIN/DSH_PKG_DIR 按守卫跳过。战图原生检查另以显式官方安装入口实际跑通。[门禁结果](evidence/gates-result.json)基于 main 6adbb9c。
