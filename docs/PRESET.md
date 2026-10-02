@@ -43,6 +43,21 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
 重启后新建会话选预设「红队指挥（GUNGNIR）」，直接发**开工指令**（靶标 + 范围）：
 宿主截获该指令并冻结结构化授权对象（开工指令即授权事件，ADR-001 D3）。
 
+## 预设"消失"的两个真机陷阱（都踩过）
+
+| 症状 | 根因 | 处置 |
+|---|---|---|
+| 下拉里没有该预设，宿主日志报 `Duplicate agent preset: <id>` | patch **语法坑**：注释掉 `- insert:` 的唯一子项却没注释父行 → 悬空 `- insert:` → 解析错误连带预设注册失败 | 剪除脚本已修（父行连带注释）+ 回归钉住 |
+| 注册表里有该预设，但带 `broken:"Preset services require isolate realms: warroom"`，客户端**不让你选** | 预设作用域内 `ctx.provide('warroom', …)`：宿主审计要求"预设提供的服务必须声明 isolate realm" | 挂载入口**默认不再 provide**（工具注册已够用）；确需服务时在预设行声明 isolate realm 并开 `provideService: true` |
+
+自查命令（不用重启就能看客户端真正拿到的列表）：
+
+```js
+// 以 --patch 叠加一个只读探针，await registry.list() 打印
+const value = await ctx.agentPresets.list();
+console.error(JSON.stringify(value));
+```
+
 ## 真机验证记录（2026-10-02，dsh 0.2.0-rc.2）
 
 | 验证项 | 手段 | 结果 |
