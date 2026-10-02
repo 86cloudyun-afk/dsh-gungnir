@@ -7,6 +7,7 @@ import { renderHtml } from './html.js';
 import { buildRemediation } from './remediation.js';
 import { buildTimeline } from './timeline.js';
 import { buildGantt, renderGantt } from './gantt.js';
+import { buildImpact, renderImpact } from './impact.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
@@ -89,6 +90,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
+  // 影响面摘要（与 md 版同源同算法）
+  const impact = buildImpact(facts, store.shellState());
+
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
 
@@ -118,6 +122,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     kb_usage: kbUsage,
     topology: R(topology),
     remediation: R(remediation),
+    impact: R(impact),
     timing: {
       tasks: gantt.tasks.map((t) => ({
         task_id: t.task_id, dispatched_at: t.dispatched_at,
@@ -164,6 +169,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const effective = facts.filter((f) => f.active === 1);
   const quarantined = facts.filter((f) => f.active !== 1);
   const grouped = groupBy(effective, (f) => f.entity_type);
+  // 影响面摘要（客户视角）：只依据已落库证据，未评估的写"未评估"
+  const impact = buildImpact(facts, store.shellState());
 
   const lines = [];
   lines.push(`# GUNGNIR 战役报告 · ${engagementId}`);
@@ -213,6 +220,12 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- 节奏档: ${engagementRow?.rhythm ?? '-'}`);
   lines.push(`- 时间窗: ${engagementRow?.window_start ?? '-'} → ${engagementRow?.window_end ?? '-'}`);
   lines.push('');
+  // 影响面摘要：客户最关心的一段，放在最前（工程视图可跳过）
+  lines.push('## 影响面摘要');
+  lines.push('');
+  lines.push(renderImpact(impact));
+  lines.push('');
+
   lines.push('## shell 状态');
   lines.push('');
   const shells = store.db.prepare('SELECT * FROM shell_state').all();
