@@ -408,6 +408,23 @@ export function runFaultMatrix() {
     assert(timeline.events.some((e) => e.ts === null), '无时间戳事件应保留 ts=null（而不是补当前时间）');
   });
 
+  // ㉑ 门禁三层同源：核心 checklist / 工具 / 外部门禁脚本 结论必须一致
+  check('门禁三层同源 → 核心与工具/脚本结论一致', async () => {
+    const c = ctx();
+    const core = c.broker.checklist(c.eng.engagement_id);
+    // 工具层：经插件服务（第二个宿主实例，读同一家目录）——验证结论不随进程/宿主变化
+    const { createWarroomService } = await import('../../../warroom-plugin/src/service.js');
+    const svc = createWarroomService({ home: c.home, adapter: new FakeAdapter() });
+    const viaService = svc.broker.checklist(c.eng.engagement_id);
+    assert(core.deliverable === viaService.deliverable,
+      `核心(${core.deliverable}) 与插件服务(${viaService.deliverable}) 结论不一致`);
+    assert(core.blocked.length === viaService.blocked.length, '未过项数量应一致');
+
+    // 明确口径：交付门禁不要求活跃出口（避免有人日后"顺手加进去"造成误判）
+    const required = new Set(core.required);
+    assert(!required.has('egress'), '交付口径不应包含"活跃出口"（交付是产出物的事）');
+  });
+
   const failed = checks.filter((x) => !x.ok);
   return { total: checks.length, passed: checks.length - failed.length, failed, checks: [...checks] };
 }
