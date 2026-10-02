@@ -165,6 +165,23 @@ node scripts/conformance.mjs --module ./my.mjs     # 对你自己的 adapter 跑
 
 契约要点、失败项含义见 [ADR-003](adr/ADR-003-adapter-lifecycle.md)。
 
+## 7.99 全部子命令索引
+
+```sh
+# 起步与维护
+init | doctor | config show|init | backup [--keep N] | restore --from <dir> [--apply] | maintain
+# 战役
+engage | exec | collect | status | cancel | revoke | wave [--dry-run] | sweep
+# 情报与证据
+fact | audit [--export] [--format csv] | report --format both | verify-report | evidence
+# 出口与跳板
+jump import|acquire|list|status|release|sweep | egress status|record
+# 秘密与知识
+secret put|grant|status|rotate | poc_search|poc_add|poc_use（工具）
+# 执行层
+conformance [--module <path>] | metrics | spray check|record
+```
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
