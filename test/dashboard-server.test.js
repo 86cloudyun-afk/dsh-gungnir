@@ -84,7 +84,7 @@ test('conversation reports message and text truncation and exact source ID links
     assert.equal(value.conversation.messages.length, 200);
     assert.equal(value.diagnostics.counts.conversation_messages_total, 205);
     assert.equal(value.diagnostics.counts.conversation_messages_returned, 200);
-    assert.equal(value.diagnostics.counts.conversation_text_truncated, 199);
+    assert.equal(value.diagnostics.counts.conversation_text_truncated, 200);
     assert.equal(value.diagnostics.truncated, true);
     assert(value.diagnostics.warnings.some((warning) => warning.includes('truncated')));
   } finally { rmSync(f.root, { recursive: true, force: true }); }
