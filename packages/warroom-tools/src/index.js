@@ -536,6 +536,22 @@ export const TOOLS = [
       ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
       : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' })),
   },
+  {
+    name: 'warroom_deliver',
+    description: '一键交付：报告(all)+证据包(含清单)+备份+交付门禁判定，返回产物路径与结论',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, out_dir: { type: 'string' },
+        keep: { type: 'integer' }, backup: { type: 'boolean' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.deliver(args.engagement_id, {
+      outDir: args.out_dir ?? null, keep: args.keep ?? 7, backup: args.backup !== false,
+    }),
+  },
 ];
 
 export { ERR };
