@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **超时治理**（ADR-003 D3）：`broker.sweepTimeouts` / `warroom_sweep_timeouts` / CLI `sweep`——
+  运行超阈值任务转 `unknown`，**绝不自动重试**（回归断言：清扫不新增命令、不重派），
+  留痕 gate_log，交由 reconcile 依证据定论；默认 30 分钟
+- **围栏真实验收在 CI 通关**（证据 run 36944503518）：internal 网络 + sidecar 双挂 + 任务容器，
+  直连出网被阻断；验收表 §8-9 更新为 ✅ 并附证据链接
 - 报告收录**链前会议纪要**（md 段 + json `meetings`）：波次与报告的追溯链闭合；
   QUICKSTART 增补波次章节，PRESET.md 标注运行时入口
 - **波次编排**（框架 §3.5 运行时语义）：`warroom wave --engagement <id> --meeting <file>` ——
