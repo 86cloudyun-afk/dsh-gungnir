@@ -11,6 +11,8 @@ const { values: v } = parseArgs({
   options: {
     engagement: { type: 'string' }, home: { type: 'string' },
     socks: { type: 'string' }, image: { type: 'string' }, json: { type: 'boolean', default: false },
+    // CI 用：daemon 不可用时把 SKIP 视为失败（防止"静默通过"）
+    'require-daemon': { type: 'boolean', default: false },
   },
 });
 
@@ -51,4 +53,9 @@ else {
   console.log(`\n运行时验收：${r.status}${r.reason ? `（${r.reason}）` : ''}`);
   for (const s of r.steps) console.log(`  ${s.skipped ? '[skip]' : s.ok ? '[✓]' : '[✗]'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`);
 }
-process.exitCode = r.status === 'failed' ? 1 : 0;
+if (r.status === 'skipped' && v['require-daemon']) {
+  console.error('[✗] --require-daemon：daemon 不可用，无法完成真实围栏验收（视为失败）');
+  process.exitCode = 1;
+} else {
+  process.exitCode = r.status === 'failed' ? 1 : 0;
+}
