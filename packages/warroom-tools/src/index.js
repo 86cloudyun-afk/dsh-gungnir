@@ -449,12 +449,14 @@ export const TOOLS = [
           items: { type: 'object', additionalProperties: true },
           description: '可选：波次任务列表（逐个核对是否在授权范围内）',
         },
+        record: { type: 'boolean', description: 'true = 把预检结论写入审计（开工留痕）' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => core.broker.preflight(args.engagement_id, {
       meeting: args.meeting_tasks ? { tasks: args.meeting_tasks } : null,
+      record: args.record === true,
     }),
   },
   {
