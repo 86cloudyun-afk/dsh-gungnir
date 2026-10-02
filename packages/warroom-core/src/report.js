@@ -2,11 +2,19 @@
 // 报告双属性：给客户的可复现攻击报告 = 给蓝队的 IOC 排查清单（同一份证据的两个视图）。
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { KnowledgeBase } from './knowledge.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
+
+/** 知识库用量（读不到就当作空：报告不因知识库缺失而失败）。 */
+function readKbUsage(home, engagementId) {
+  if (!home) return { rows: [], total: 0, distinct_pocs: 0, by_result: {} };
+  try { return new KnowledgeBase({ home }).usageByEngagement(engagementId); }
+  catch { return { rows: [], total: 0, distinct_pocs: 0, by_result: {} }; }
+}
 
 const ENTITY_ORDER = ['asset', 'domain', 'vuln', 'credential', 'session', 'chain', 'shell', 'persistence'];
 
@@ -26,7 +34,7 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 }
 
 /** 结构化报告（机器可读）：与 markdown 报告同水位、同证据摘要。 */
-export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb }) {
+export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null }) {
   const snap = store.exportSnapshot();
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
   const facts = snap.rows.map((r) => {
@@ -44,6 +52,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { return store.db.prepare('SELECT * FROM jump_routes ORDER BY ts').all(); }
     catch { return []; }
   })();
+
+  // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
+  const kbUsage = readKbUsage(home, engagementId);
 
   const ioc = buildIocDraft({ store, engagementId, globalDb });
   const meetings = (() => {
@@ -68,6 +79,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     meetings: R(meetings),
     audit_summary: auditSummary,
     jump_routes: routes,
+    kb_usage: kbUsage,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -79,7 +91,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
  * @param {{maxFactsPerType?:number}} opts.maxFactsPerType 每类事实最多列出多少条（默认 50），
  *   超出部分只给计数与摘要——避免大 N 下报告被事实流水账淹没（全量在 JSON 视图里）。
  */
-export function buildReport({ store, engagementId, engagementRow, vault, globalDb, maxFactsPerType = 50 }) {
+export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50 }) {
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
@@ -184,6 +196,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     catch { return []; }
   })();
 
+  // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
+  const kbUsage = readKbUsage(home, engagementId);
+
   const ioc = buildIocDraft({ store, engagementId, globalDb });
   lines.push(`## IOC / 清理附录（自动聚合 ${ioc.summary.total} 项，人工确认后交付）`);
   lines.push('');
@@ -195,6 +210,19 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
+  if (kbUsage.total > 0) {
+    lines.push('## 知识库复用（POC 使用记录）');
+    lines.push('');
+    for (const r of kbUsage.rows) {
+      lines.push(`- \`${r.code}\` ${R(r.title ?? '')} · 资产 ${R(r.asset ?? '-')} · 结果 \`${r.result}\` · ${r.ts}`);
+    }
+    lines.push('');
+    lines.push(`- 合计：${kbUsage.total} 次使用、${kbUsage.distinct_pocs} 个不同 POC`
+      + `（${Object.entries(kbUsage.by_result).map(([k, v]) => `${k}=${v}`).join('、')}）`);
+    lines.push('- 全库统计：`warroom_poc_stats` / `poc_search`');
+    lines.push('');
+  }
+
   if (auditSummary.length > 0) {
     lines.push('## 审计摘要（门闸判定分布）');
     lines.push('');
@@ -231,8 +259,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
  * 导出到文件；format: 'md' | 'json' | 'both'。
  * 返回 {path|paths, watermark, evidence_digests}。
  */
-export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir, format = 'md', maxFactsPerType = 50 }) {
-  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, maxFactsPerType });
+export function exportReport({ store, engagementId, engagementRow, vault, globalDb, home = null, outDir, format = 'md', maxFactsPerType = 50 }) {
+  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, home, maxFactsPerType });
   const { watermark, evidence_digests } = built;
   mkdirSync(outDir, { recursive: true });
 
@@ -264,7 +292,7 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   }
   if (format === 'json' || format === 'both') {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
-    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb });
+    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home });
     json.self_check = selfCheck;
     writeFileSync(path, JSON.stringify(json, null, 2), 'utf8');
     out.paths.json = path;
