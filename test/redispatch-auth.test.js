@@ -10,7 +10,7 @@ import { ERR } from '../packages/shared-types/src/index.js';
 import { dshTools } from '../packages/warroom-plugin/src/tools.js';
 import { toToolDefinition } from '../packages/warroom-plugin/src/dsh-entry.mjs';
 
-function fixture(t, { state = 'failed', destructive = false } = {}) {
+function fixture(t, { state = 'failed', destructive = false, actionClass = 'active' } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'wr-retry-auth-'));
   const adapter = new FakeAdapter({ faults: { containerResidue: true } });
   const c = { home, adapter, clock: Date.now(), calls: 0 };
@@ -18,7 +18,7 @@ function fixture(t, { state = 'failed', destructive = false } = {}) {
   c.eng = c.broker.createEngagement({ user_message_id: 'trusted-synthetic-retry', targets: ['target.example.test'] });
   const approval = destructive ? c.broker.createApproval({ engagement_id: c.eng.engagement_id }) : null;
   c.started = c.broker.execute({ engagement_id: c.eng.engagement_id, auth_version: 1, command_id: 'retry-fixture',
-    contract: { targets: ['target.example.test'], action_class: destructive ? 'destructive' : 'active',
+    contract: { targets: ['target.example.test'], action_class: destructive ? 'destructive' : actionClass,
       resources: state === 'unresolved' ? ['container'] : [], wire_cost: 0 }, manual_approval_token: approval?.approval_id });
   if (state === 'unresolved') c.broker.cancel(c.eng.engagement_id, c.started.task_id, 'inert residue fixture');
   else if (state !== 'running') c.broker._setCommandState('retry-fixture', state);
@@ -88,10 +88,22 @@ test('redispatch rejects unknown owner before opening its storage', (t) => {
 for (const [label, patch, code] of [
   ['out-of-scope stored targets', { scope: ['other.example.test'] }, ERR.E_GATE_OUT_OF_SCOPE],
   ['lower current action-class limit', { action_class_limit: 'readonly' }, ERR.E_GATE_CLASS_EXCEEDS_LIMIT],
-  ['window not started', { window_start: '2099-01-01T00:00:00.000Z' }, ERR.E_GATE_WINDOW_CLOSED],
+  ['window not started', { window_start: '2099-01-01T00:00:00.000Z', window_end: '2100-01-01T00:00:00.000Z' }, ERR.E_GATE_WINDOW_CLOSED],
+  ['reversed window', { window_start: '2099-01-01T00:00:00.000Z', window_end: '2000-01-01T00:00:00.000Z' }, ERR.E_GATE_WINDOW_CLOSED],
   ['invalid window start', { window_start: 'invalid' }, ERR.E_GATE_WINDOW_CLOSED],
   ['invalid window end', { window_end: 'invalid' }, ERR.E_GATE_WINDOW_CLOSED],
 ]) test(`redispatch rejects ${label}`, (t) => { const c = fixture(t); changeAuth(c, patch); denied(c, code); });
+for (const state of ['failed', 'unresolved']) {
+  for (const limit of ['invalid', null, undefined, '']) test(`redispatch rejects unusable current class limit ${String(limit)} for ${state}`, (t) => {
+    const c = fixture(t, { state }); changeAuth(c, { action_class_limit: limit });
+    denied(c, ERR.E_GATE_CLASS_EXCEEDS_LIMIT);
+  });
+}
+for (const value of ['{', 'null']) test(`redispatch rejects malformed stored JSON ${value}`, (t) => {
+  const c = fixture(t);
+  c.broker.global.prepare('UPDATE command_queue SET contract = ? WHERE command_id = ?').run(value, 'retry-fixture');
+  denied(c, ERR.E_GATE_MISSING_TUPLE);
+});
 test('redispatch rejects invalid current clock', (t) => { const c = fixture(t); c.clock = NaN; denied(c, ERR.E_GATE_WINDOW_CLOSED); });
 test('redispatch cannot reuse consumed destructive approval', (t) => {
   const c = fixture(t, { destructive: true }); denied(c, ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL);
@@ -145,7 +157,7 @@ for (const state of ['running', 'unknown', 'cancel_requested', 'done', 'confirme
   else if (state !== 'running') c.broker._setCommandState('retry-fixture', state);
   denied(c, ERR.E_TASK_NOT_REDISPATCHABLE);
 });
-test('redispatch after restart uses persistent task sequence rather than fresh broker counter', (t) => {
+test('redispatch after broker restart with same adapter uses persistent task sequence', (t) => {
   const c = fixture(t);
   c.broker.execute({ engagement_id: c.eng.engagement_id, auth_version: 1, command_id: 'other-task',
     contract: { targets: ['target.example.test'], action_class: 'readonly', resources: [], wire_cost: 0 } });
@@ -153,6 +165,17 @@ test('redispatch after restart uses persistent task sequence rather than fresh b
   c.broker = new Broker({ home: c.home, adapter: c.adapter, nowMs: () => c.clock });
   assert.equal(c.broker.redispatch(c.eng.engagement_id, 'retry-fixture').generation, '1:1:2');
   assert.equal(c.calls, 1); assert.equal(c.adapter.tasks.size, 2);
+});
+test('redispatch retains readonly class and original version across repeated failed attempts', (t) => {
+  const c = fixture(t, { actionClass: 'readonly' });
+  const second = c.broker.redispatch(c.eng.engagement_id, 'retry-fixture');
+  assert.equal(second.generation, '1:1:2');
+  c.adapter.tasks.get('retry-fixture').state = 'failed';
+  c.broker._setCommandState('retry-fixture', 'failed');
+  const third = c.broker.redispatch(c.eng.engagement_id, 'retry-fixture');
+  assert.equal(third.generation, '1:1:3'); assert.equal(third.task_id, c.started.task_id);
+  assert.equal(c.calls, 2); assert.equal(c.adapter.tasks.size, 1);
+  assert.equal(c.adapter.tasks.get('retry-fixture').contract.action_class, 'readonly');
 });
 test('redispatch retains valid legacy zero sequence without upgrading authorization', (t) => {
   const c = fixture(t);
