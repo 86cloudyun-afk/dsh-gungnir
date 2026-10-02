@@ -405,8 +405,8 @@ export class Broker {
   }
 
   /** 开工前预检（环境/配置/战役/出口/备份/秘密）——结论三态：ready|degraded|blocked。 */
-  preflight(engagementId) {
-    return preflight({ broker: this, engagementId, home: this.home });
+  preflight(engagementId, { meeting = null } = {}) {
+    return preflight({ broker: this, engagementId, home: this.home, meeting });
   }
 
   /** 枚举家目录下的战役 id（用于跨战役巡检；库缺失即跳过）。 */
