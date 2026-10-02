@@ -36,6 +36,15 @@ test('规模冒烟：扩展门（审计/JSON 报告/矩阵）在 N=2000 下过�
   }
 });
 
+test('规模冒烟：交付门（HTML 报告 + 看板视图）在 N=3000 下过闸', () => {
+  const r = run(['--n', '3000', '--json']);
+  assert.equal(r.code, 0, r.out);
+  const parsed = JSON.parse(r.out);
+  assert.equal(parsed.failed, 0);
+  assert.ok(typeof parsed.timings.html_report_ms === 'number');
+  assert.ok(typeof parsed.timings.dashboard_views_ms === 'number');
+});
+
 test('规模冒烟：维护门（证据落盘 + 全库备份）在 N=3000 下过闸', () => {
   const r = run(['--n', '3000', '--json']);
   assert.equal(r.code, 0, r.out);
