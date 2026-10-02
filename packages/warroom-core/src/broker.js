@@ -19,7 +19,7 @@ import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
 import { buildWatch, buildFleetWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
-import { buildChecklist, renderChecklist } from './checklist.js';
+import { buildChecklist, renderChecklist, recordConfirmation } from './checklist.js';
 import { buildWeekly } from './weekly.js';
 import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
@@ -488,6 +488,13 @@ export class Broker {
       backup: backupResult ? { dest: backupResult.dest, ok: backupResult.ok, total: backupResult.total, pruned: backupResult.pruned } : null,
       gate: { profile: checklist.profile, deliverable: checklist.deliverable, blocked: checklist.blocked, done: checklist.done, total: checklist.total, manual: checklist.manual },
     };
+  }
+
+  /** 记录人工确认（谁/何时/结论）；只写审计，不改自动判定。 */
+  confirmChecklistItem(engagementId, { itemId, by = null, note = '' }) {
+    const { store } = this._eng(engagementId);
+    const rec = recordConfirmation({ store, itemId, by, note });
+    return { ...rec, engagement_id: engagementId };
   }
 
   /** 交付清单（验收项自动判定 + 人工确认项，只读）。 */

@@ -528,13 +528,22 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, export: { type: 'boolean' }, out_dir: { type: 'string' },
         profile: { type: 'string', enum: ['delivery', 'progress'] },
+        confirm: { type: 'string', description: '人工项 id（shell|ioc）：记录确认留痕' },
+        by: { type: 'string' }, note: { type: 'string' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => (args.export
-      ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
-      : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' })),
+    run: (core, args) => {
+      if (args.confirm) {
+        return core.broker.confirmChecklistItem(args.engagement_id, {
+          itemId: args.confirm, by: args.by ?? null, note: args.note ?? '',
+        });
+      }
+      return args.export
+        ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
+        : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' });
+    },
   },
   {
     name: 'warroom_deliver',
