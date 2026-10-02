@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Broker } from '../packages/warroom-core/src/broker.js';
 import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
@@ -98,4 +98,44 @@ test('无战役时：周报为空但不报错', () => {
   const empty = h.broker.weekly({ days: 7 });
   assert.ok(empty.totals.engagements >= 1, 'harness 自带一个战役');
   assert.equal(typeof empty.window.from, 'string');
+});
+
+test('归档：按 ISO 周落盘，同周重复执行即覆盖为最新', () => {
+  const h = harness();
+  makeEng(h, 'wk-arch');
+  const a1 = h.broker.archiveWeekly({ days: 7 });
+  assert.match(a1.label, /^\d{4}-W\d{2}$/);
+  assert.match(a1.path, new RegExp(`${a1.label}\\.md$`));
+  assert.equal(a1.existing.length, 1);
+  const first = readFileSync(a1.path, 'utf8');
+
+  // 同周再归档（有新战役）→ 覆盖，内容更新，文件数不变
+  makeEng(h, 'wk-arch-2');
+  const a2 = h.broker.archiveWeekly({ days: 7 });
+  assert.equal(a2.label, a1.label);
+  assert.equal(a2.existing.length, 1, '同周不产生第二份');
+  const second = readFileSync(a2.path, 'utf8');
+  assert.notEqual(second, first, '同周重复归档应刷新为最新');
+  assert.equal(second.includes('wk-arch-2'), false, '周报正文用战役 id，不该出现 user_message_id');
+});
+
+test('归档：不同 ISO 周各自成文件，倒序列出', () => {
+  const h = harness();
+  makeEng(h, 'wk-arch-3');
+  const past = Date.parse('2026-09-01T00:00:00.000Z');   // 另一个 ISO 周
+  const a1 = h.broker.archiveWeekly({ days: 7, now: past });
+  const a2 = h.broker.archiveWeekly({ days: 7, now: Date.now() });
+  assert.notEqual(a1.label, a2.label);
+  assert.equal(a2.existing.length, 2);
+  assert.deepEqual([...a2.existing].sort().reverse(), a2.existing, '应按周倒序');
+});
+
+test('CLI weekly --archive 可用并返回路径', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  const out = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'weekly', '--archive', '--home', h.home, '--json'],
+    { encoding: 'utf8', env }));
+  assert.ok(out.path.endsWith('.md'));
+  assert.ok(out.label);
+  assert.ok(readFileSync(out.path, 'utf8').includes('# 战役周报'));
 });

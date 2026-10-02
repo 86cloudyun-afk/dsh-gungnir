@@ -251,3 +251,27 @@ test('无遥测数据时：效率段仍出现但值为 —（不编造数字）'
   assert.match(md, /## 效率观测（四段）/);
   assert.match(md, /排队（立项→首派）：—/);
 });
+
+test('蓝队视图：IOC 段前移到水位之后（客户/全量保持原序）', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'blue-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const pos = (md, kw) => md.split('\n').findIndex((l) => l.startsWith('## ') && l.includes(kw));
+  const blue = readFileSync(h.broker.exportReport(h.eng.engagement_id, { format: 'md', audience: 'blue' }).paths.markdown, 'utf8');
+  const full = readFileSync(h.broker.exportReport(h.eng.engagement_id, { format: 'md', audience: 'full' }).paths.markdown, 'utf8');
+
+  const blueIoc = pos(blue, 'IOC');
+  const blueWater = pos(blue, '水位');
+  const blueFacts = pos(blue, '事实（有效修订）');
+  assert.ok(blueWater >= 0 && blueIoc > blueWater, `蓝队版 IOC 应在水位之后（water=${blueWater} ioc=${blueIoc}）`);
+  assert.ok(blueIoc < blueFacts, `蓝队版 IOC 应在事实之前（ioc=${blueIoc} facts=${blueFacts}）`);
+
+  const fullIoc = pos(full, 'IOC');
+  const fullFacts = pos(full, '事实（有效修订）');
+  assert.ok(fullIoc > fullFacts, '全量版保持原序（IOC 在后）');
+
+  // 段内容不得因搬迁而丢失：标题集合一致
+  const titles = (md) => md.split('\n').filter((l) => l.startsWith('## ')).sort();
+  assert.deepEqual(titles(blue), titles(full), '搬迁只改顺序，不改段集合');
+});
