@@ -73,6 +73,85 @@ export function buildWatch({ broker, engagementId, timeoutMin = null }) {
   };
 }
 
+/**
+ * 舰队视图（指挥层）：所有战役的巡检汇总——哪些有事、哪些可交付。
+ * 只读；每行给出最关键的四个数（在飞 / 告警 / 活跃路由 / 交付门禁）。
+ */
+export function buildFleetWatch({ broker, timeoutMin = null }) {
+  const ids = broker.listEngagements();
+  const rows = [];
+  for (const id of ids) {
+    try {
+      const v = buildWatch({ broker, engagementId: id, timeoutMin });
+      const checklist = (() => { try { return broker.checklist(id); } catch { return null; } })();
+      rows.push({
+        engagement_id: id,
+        in_flight: v.tasks.in_flight.length,
+        overdue: v.tasks.in_flight.filter((t) => t.overdue).length,
+        active_routes: v.routes.active.length,
+        stale_routes: v.routes.stale.length,
+        warnings: v.warnings.length,
+        warning_list: v.warnings,
+        egress_valid: v.egress.valid,
+        shell_proof: v.shell?.highest_proof ?? null,
+        deliverable: checklist ? checklist.deliverable : null,
+        blocked: checklist ? checklist.blocked.length : null,
+      });
+    } catch (e) {
+      rows.push({ engagement_id: id, error: e.message, warnings: 1, warning_list: [e.message] });
+    }
+  }
+  // 有事在前（告警数降序 → 在飞降序）
+  rows.sort((a, b) => (b.warnings - a.warnings) || (b.in_flight - a.in_flight) || a.engagement_id.localeCompare(b.engagement_id));
+  const withIssues = rows.filter((r) => r.warnings > 0);
+  return {
+    generated_at: new Date().toISOString(),
+    totals: {
+      engagements: rows.length,
+      with_issues: withIssues.length,
+      in_flight: rows.reduce((a, r) => a + (r.in_flight ?? 0), 0),
+      overdue: rows.reduce((a, r) => a + (r.overdue ?? 0), 0),
+      deliverable: rows.filter((r) => r.deliverable === true).length,
+    },
+    rows,
+    no_issues: withIssues.length === 0,
+  };
+}
+
+export function renderFleetWatch(f) {
+  const lines = [];
+  lines.push(`舰队视图（${f.generated_at}）`);
+  lines.push('');
+  lines.push(`战役 ${f.totals.engagements} 个 · 有事 ${f.totals.with_issues} 个 · 在飞任务 ${f.totals.in_flight}`
+    + `（超阈值 ${f.totals.overdue}） · 可交付 ${f.totals.deliverable} 个`);
+  lines.push('');
+  if (f.totals.engagements === 0) {
+    lines.push('（尚无战役）');
+    return lines.join('\n');
+  }
+  lines.push('  战役                        在飞 超阈 路由 告警 交付   控制面');
+  for (const r of f.rows) {
+    if (r.error) {
+      lines.push(`  ${r.engagement_id.slice(0, 26).padEnd(26)}  —    —    —    !  —     读取失败：${r.error}`);
+      continue;
+    }
+    const id = r.engagement_id.length > 26 ? `${r.engagement_id.slice(0, 24)}…` : r.engagement_id.padEnd(26);
+    lines.push(`  ${id} ${String(r.in_flight).padStart(3)} ${String(r.overdue).padStart(4)}`
+      + ` ${String(r.active_routes).padStart(4)} ${String(r.warnings).padStart(4)}`
+      + `  ${r.deliverable === true ? '✅' : r.deliverable === false ? `⬜${r.blocked}` : '—'}`.padEnd(20)
+      + ` ${r.shell_proof ?? '—'}`);
+  }
+  if (!f.no_issues) {
+    lines.push('');
+    lines.push('需要处理：');
+    for (const r of f.rows.filter((x) => x.warnings > 0)) {
+      lines.push(`  ${r.engagement_id}：`);
+      for (const w of r.warning_list ?? []) lines.push(`    - ${w}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 /** 等宽文本渲染（CLI）。 */
 export function renderWatch(view) {
   const lines = [];

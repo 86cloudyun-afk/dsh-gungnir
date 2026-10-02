@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { harness } from '../packages/warroom-core/src/testing.js';
-import { renderWatch } from '../packages/warroom-core/src/watch.js';
+import { renderWatch, renderFleetWatch } from '../packages/warroom-core/src/watch.js';
 import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 
 const mk = (h, opts = {}) => new JumphostManager({
@@ -110,4 +110,52 @@ test('wire 用尽 → watch 直接给告警（不必再跑 rate）', () => {
   const v = h.broker.watch(h.eng.engagement_id);
   assert.equal(v.rate.wire_exhausted, true);
   assert.ok(v.warnings.some((w) => w.includes('wire 预算已用尽')));
+});
+
+test('舰队视图：多战役汇总、有事在前、可交付计数', () => {
+  const h = harness();
+  // 战役 A：有在飞任务（告警多）
+  h.broker.execute({ ...h.base, command_id: 'fw-1', contract: h.contract() });
+  // 战役 B：干净（新建即无 route，也会有"无活跃路由"提示）
+  const engB = h.broker.createEngagement({ user_message_id: 'fw-b', targets: ['10.0.0.0/24'], overrides: { rhythm: 'open' } });
+
+  const f = h.broker.fleetWatch();
+  assert.equal(f.totals.engagements, h.broker.listEngagements().length);
+  assert.ok(f.totals.in_flight >= 1);
+  assert.ok(f.rows.length >= 2);
+  // 有事在前：第一行告警数 ≥ 最后一行
+  assert.ok(f.rows[0].warnings >= f.rows[f.rows.length - 1].warnings);
+  const b = f.rows.find((r) => r.engagement_id === engB.engagement_id);
+  assert.equal(b.in_flight, 0);
+  assert.equal(typeof b.deliverable, 'boolean');
+
+  const text = renderFleetWatch(f);
+  assert.match(text, /舰队视图/);
+  assert.match(text, /在飞 超阈 路由 告警 交付/);
+  assert.match(text, /需要处理：/);
+});
+
+test('舰队视图：全干净时不出「需要处理」段', () => {
+  const h = harness();
+  // 取出口 + 验证，消掉唯一的告警源
+  const jm = mk(h);
+  jm.importHosts([{ id: 'fw-jh', addr_v4: '203.0.113.95' }]);
+  const acq = jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.5' });
+  h.broker.recordEgressCheck(h.eng.engagement_id, { jumphost_id: 'fw-jh', exit_ip: '203.0.113.95', route_id: acq.route_id });
+  const f = h.broker.fleetWatch();
+  assert.equal(f.rows[0].warnings, 0);
+  assert.equal(f.no_issues, true);
+  assert.equal(renderFleetWatch(f).includes('需要处理：'), false);
+});
+
+test('CLI watch --all 文本与 JSON 双路可用', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  const text = execFileSync('node', ['bin/warroom.mjs', 'watch', '--all', '--home', h.home, '--text'],
+    { encoding: 'utf8', env });
+  assert.match(text, /舰队视图/);
+  const parsed = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'watch', '--all', '--home', h.home, '--json'],
+    { encoding: 'utf8', env }));
+  assert.ok(parsed.totals.engagements >= 1);
+  assert.ok(Array.isArray(parsed.rows));
 });
