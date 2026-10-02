@@ -29,7 +29,7 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
           - id: persona                     # 角色文本在**运行期**从 presets/roles/<role>.md 读入
             name: '@deepseek-ai/dsh-persona'
           - id: agent-instructions
-          - id: warroom-gungnir             # 本仓挂载入口（注册 36 个 warroom_* 工具）
+          - id: warroom-gungnir             # 本仓挂载入口（注册全部 warroom_* 工具，数量以允许清单为准）
             name: /abs/path/packages/warroom-plugin/src/dsh-entry.mjs
           - id: tool-todo
           - id: tool-ask-user
@@ -38,6 +38,12 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
 > 角色文本为什么用 `!!js "…readFileSync(…)"` 而不是 YAML 块标量：角色 markdown 有多级缩进，
 > 折叠标量（`>-`）会因此变成非法 YAML（实测报 `bad indentation of a mapping entry`）。
 > 表达式在 loader 作用域求值，`process.getBuiltinModule('node:fs')` 可用。
+
+**开工与授权（真实路径，2026-10-02 修正）**：会话收到操作员的**开工指令**后，由
+`warroom_engage`（工具）把「靶标范围 + 指令标识」冻结成结构化授权对象（`auth_version` / `auth_hash`），
+此后所有副作用都绑定该对象；CLI 侧等价入口是 `warroom engage`。
+**宿主侧自动截获开工指令尚未实现**（v0.2 候选）——此前文档写成"宿主截获"，与实现不符，已按实际改正。
+自举四步见 `presets/roles/commander.md`「开工动线」。
 
 **生效**：host 平面变更需重启 `dsh web`——**只能由操作员在自己的终端执行**：
 
@@ -50,7 +56,8 @@ launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery
 > 每次重跑都 `kickstart -k`，导致 **17:15:20–17:34:14 之间 108 次重启**，宿主不停掉线、
 > 会话被打断。agent 侧只做只读诊断与配置准备，重启留给操作员——这条是纪律，不是建议。
 重启后新建会话选预设「红队指挥（GUNGNIR）」，直接发**开工指令**（靶标 + 范围）：
-宿主截获该指令并冻结结构化授权对象（开工指令即授权事件，ADR-001 D3）。
+会话调用 `warroom_engage` 把该指令冻结为结构化授权对象（开工指令即授权事件，ADR-001 D3；
+宿主侧自动截获未实现，见上）。
 
 ## 预设"消失"的两个真机陷阱（都踩过）
 
@@ -71,9 +78,9 @@ console.error(JSON.stringify(value));
 
 | 验证项 | 手段 | 结果 |
 |---|---|---|
-| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验 36 个 `parameters` | ✅ 36/36 通过（`test/dsh-mount.test.js`） |
+| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验全部 `parameters` | ✅ 全数通过（`test/dsh-mount.test.js`） |
 | 装配（不重启） | `dsh --profile web --dump-config [--patch <overlay>]` | ✅ 预设行与子插件清单出现在装配树里 |
-| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **36 个 `warroom_*` 全部可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
+| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **全部 `warroom_*` 可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
 | 执行（真实进程） | 让会话调用 `warroom_poc_add` → `warroom_poc_search` | ✅ 登记入库、检索返回 `count=1`；库侧用 CLI 复核一致 |
 | 作用域收窄 `restrict` | 在 context 级调用 | ⛔ 宿主拒绝："a context-global restriction would mask every agent"。**主保证=挂载构成**；restrict 仅在 agent 作用域且显式开启时尝试，失败记状态不抛错 |
 

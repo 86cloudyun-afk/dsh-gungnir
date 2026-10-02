@@ -27,6 +27,7 @@ const { values: v } = parseArgs({
     check: { type: 'boolean' }, print: { type: 'boolean' }, apply: { type: 'boolean' },
     verify: { type: 'boolean' }, home: { type: 'string' }, profile: { type: 'string' },
     role: { type: 'string' }, patch: { type: 'string' }, json: { type: 'boolean', default: false },
+    adapter: { type: 'string' },
   },
 });
 
@@ -42,6 +43,7 @@ const roleFile = join(root, 'presets', 'roles', `${role}.md`);
 
 /** 生成要写入 profile patch 的 YAML（真实契约）。 */
 function buildSnippet() {
+  const adapter = v.adapter ?? null;
   // 角色文本在**运行期**从仓库文件读入（!!js 在 loader 作用域求值）：
   // 避免把长 markdown 塞进 YAML 标量（多级缩进会直接把 patch 变成非法 YAML）。
   const roleExpr = `process.getBuiltinModule('node:fs').readFileSync('${roleFile}','utf8')`;
@@ -66,7 +68,7 @@ function buildSnippet() {
           - id: ${PRESET_ID}
             name: ${join(root, 'packages', 'warroom-plugin', 'src', 'dsh-entry.mjs')}
             config:
-              role: ${role}
+              role: ${role}${adapter ? `\n              adapterKind: ${adapter}` : ''}
               preset: ${join(root, 'presets', 'warroom.preset.json')}
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
@@ -181,6 +183,12 @@ if (existsSync(presetFile)) {
 } else findings.push(`✗ 预设文件缺失：${presetFile}`);
 // 没有 dsh 只是"无法现场验证装配"，不影响写入挂载（CI runner 上就是这样）
 findings.push(bin ? `✓ dsh 可用（${bin}）` : '· 未找到 dsh 可执行（--verify 不可用；挂载仍可写入）');
+if (v.adapter && !['fake', 'local', 'bridge'].includes(v.adapter)) {
+  findings.push(`✗ --adapter 只接受 fake|local|bridge（收到 ${v.adapter}）`);
+}
+if ((v.adapter ?? 'fake') === 'fake') {
+  findings.push('· adapter=fake：派单只会产出**占位事实**，不是真执行。接真通道见 docs/DSH-EXECUTOR-IMPL.md');
+}
 
 let already = false;
 if (patchPath && existsSync(patchPath)) {

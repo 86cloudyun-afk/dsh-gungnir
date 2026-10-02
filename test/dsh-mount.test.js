@@ -19,9 +19,12 @@ const validatorUrl = coreDir
   : null;
 
 const { TOOLS } = await import('../packages/warroom-tools/src/index.js');
+
+/** 工具总数：新增工具时只改这一处（其余断言一律与 TOOLS.length 对齐）。 */
+const EXPECTED_TOOL_COUNT = 37;
 const { toToolDefinition, DENIED_IN_SCOPE, resolveWarroomHome } = await import('../packages/warroom-plugin/src/dsh-entry.mjs');
 
-test('挂载层硬门槛：36 个工具的 parameters 全部通过宿主 JSON Schema 校验', async (t) => {
+test('挂载层硬门槛：全部工具的 parameters 通过宿主 JSON Schema 校验', async (t) => {
   if (!validatorUrl) return t.skip('未找到 DSH 宿主实现（设置 DSH_CORE_DIR）');
   const { assertSupportedJsonSchema, assertObjectJsonSchema } = await import(validatorUrl);
   assert.equal(typeof assertSupportedJsonSchema, 'function');
@@ -35,7 +38,7 @@ test('挂载层硬门槛：36 个工具的 parameters 全部通过宿主 JSON Sc
     }
   }
   assert.deepEqual(failures, [], `宿主拒绝的 schema：\n${failures.join('\n')}`);
-  assert.equal(TOOLS.length, 36);
+  assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT, '工具数变动必须是有意为之（同步改本断言）');
 });
 
 test('注册形态符合宿主契约：name/description/parameters/output/execute 齐备', () => {
@@ -78,7 +81,7 @@ test('家目录解析优先级：config > WARROOM_HOME > DSH_HOME/warroom', () =
   }
 });
 
-test('全量注册：36 个工具注册成功且名字唯一（默认不请求 restrict）', async () => {
+test('全量注册：工具全部注册成功且名字唯一（默认不请求 restrict）', async () => {
   const { default: entry } = await import('../packages/warroom-plugin/src/dsh-entry.mjs');
   const registered = [];
   const ctx = {
@@ -86,9 +89,9 @@ test('全量注册：36 个工具注册成功且名字唯一（默认不请求 r
     on: () => {},
   };
   const svc = entry.apply(ctx, { home: '/tmp/wr-mount-test' });
-  assert.equal(registered.length, 36);
-  assert.equal(new Set(registered.map((d) => d.name)).size, 36, '工具名不得重复');
-  assert.equal(svc.registered.length, 36);
+  assert.equal(registered.length, TOOLS.length);
+  assert.equal(new Set(registered.map((d) => d.name)).size, TOOLS.length, '工具名不得重复');
+  assert.equal(svc.registered.length, TOOLS.length);
   assert.equal(svc.restrictStatus, 'not-requested', '主保证是挂载构成，restrict 默认不请求');
 });
 
@@ -128,7 +131,7 @@ test('restrict 的两种真实结局：作用域外用不了 → 记状态不致
   const unscoped = entry.apply(mkCtx(() => { throw new Error('tools.restrict() requires a scoped context (agent.ctx)'); }),
     { home: '/tmp/wr-mount-test-2', restrictInScope: true });
   assert.match(unscoped.restrictStatus, /skipped: tools\.restrict\(\) requires a scoped context/);
-  assert.equal(unscoped.registered.length, 36, 'restrict 失败不影响工具注册');
+  assert.equal(unscoped.registered.length, TOOLS.length, 'restrict 失败不影响工具注册');
 
   // 作用域内可用
   let deny = null;
