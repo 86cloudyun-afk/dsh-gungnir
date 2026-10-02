@@ -122,7 +122,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
-        format: { type: 'string', enum: ['md', 'json', 'both'] },
+        format: { type: 'string', enum: ['md', 'json', 'html', 'both', 'all'] },
         max_facts_per_type: { type: 'integer' },
         audience: { type: 'string', enum: ['client', 'blue', 'full'] },
       },

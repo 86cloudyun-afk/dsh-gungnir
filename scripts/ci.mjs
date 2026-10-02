@@ -21,7 +21,13 @@ const GATES = [
 
 const { values: v } = parseArgs({
   args: process.argv.slice(2),
-  options: { list: { type: 'boolean', default: false }, only: { type: 'string' } },
+  options: {
+    list: { type: 'boolean', default: false },
+    only: { type: 'string' },
+    // 只看汇总（无需管道 tail —— 管道会吞掉退出码，那正是本项目踩过的坑）
+    quiet: { type: 'boolean', default: false },
+    summary: { type: 'boolean', default: false },
+  },
 });
 
 if (v.list) {
@@ -36,11 +42,16 @@ if (only && selected.length === 0) {
   process.exit(2);
 }
 
+const showGateHeaders = !v.quiet;
 const results = [];
 for (const gate of selected) {
-  process.stdout.write(`\n=== ${gate.name}：${gate.desc} ===\n`);
+  if (showGateHeaders) process.stdout.write(`\n=== ${gate.name}：${gate.desc} ===\n`);
   const t0 = Date.now();
-  const r = spawnSync(gate.cmd[0], gate.cmd.slice(1), { stdio: 'inherit', env: process.env });
+  const r = spawnSync(gate.cmd[0], gate.cmd.slice(1), {
+    stdio: v.quiet ? ['ignore', 'ignore', 'pipe'] : 'inherit',
+    env: process.env,
+  });
+  if (v.quiet && r.status !== 0 && r.stderr) process.stderr.write(String(r.stderr).slice(-2000));
   const ms = Date.now() - t0;
   results.push({ name: gate.name, code: r.status ?? 1, ms });
 }
