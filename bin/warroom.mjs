@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'maintain', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,8 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  backup    备份家目录全部库（一致性快照 + 完整性校验）：[--out <dir>]
+  maintain  维护动作：WAL 检查点 + 完整性自检
   init      首启向导：建 home、写示例配置、导入跳板示例、建首个战役，打印下一步
   engage    创建战役（开工指令即授权）：--target <t[,t2]> [--rhythm r] [--window-hours n] [--user-msg id]
   exec      派发任务：--engagement <id> --command-id <cid> --target <t> [--intent recon] [--class active]
@@ -101,6 +103,19 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'backup': {
+    const { backupHome, latestBackup } = await import('../packages/warroom-core/src/maintenance.js');
+    const r = backupHome({ home, dest: v.out ?? null });
+    out({ ...r, latest: latestBackup({ home })?.name ?? null });
+    if (r.ok !== r.total) process.exitCode = 1;
+    break;
+  }
+  case 'maintain': {
+    const { checkpointHome } = await import('../packages/warroom-core/src/maintenance.js');
+    const rows = checkpointHome({ home });
+    out({ databases: rows, ok: rows.every((r) => r.integrity === 'ok') });
+    break;
+  }
   case 'init': {
     const { writeExampleConfig, configPath, loadConfig } = await import('../packages/warroom-core/src/config.js');
     const { mkdirSync, existsSync } = await import('node:fs');
