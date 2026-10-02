@@ -17,7 +17,7 @@ import { KnowledgeBase } from './knowledge.js';
 import { loadConfig } from './config.js';
 import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
-import { buildWatch } from './watch.js';
+import { buildWatch, buildFleetWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
 import { buildChecklist, renderChecklist } from './checklist.js';
 import { buildWeekly } from './weekly.js';
@@ -503,6 +503,11 @@ export class Broker {
     const path = join(dir, 'DELIVERY_CHECKLIST.md');
     writeFileSync(path, renderChecklist(c) + '\n', 'utf8');
     return { path, done: c.done, total: c.total, manual: c.manual };
+  }
+
+  /** 舰队视图（所有战役的巡检汇总，只读）。 */
+  fleetWatch({ timeoutMin = null } = {}) {
+    return buildFleetWatch({ broker: this, timeoutMin });
   }
 
   /** 速率与预算视图（wire 用量/预算/最小间隔/喷洒台账，只读）。 */

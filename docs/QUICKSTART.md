@@ -246,6 +246,8 @@ node bin/warroom.mjs doctor                              # ④ 机器是否健�
 node bin/warroom.mjs preflight --engagement "$ENG"       # ⑤ 能不能继续动手（三态）
 ```
 
+指挥层视角：`node bin/warroom.mjs watch --all --text`（所有战役的巡检汇总，有事在前）。
+
 判断顺序：**告警 → 油表 → 漂移**。`watch` 有告警先处理（失效路由/超阈值任务/unresolved 残留）；
 `rate` 看是否触顶或锁定；`doctor` 报"报告已漂移"就重出报告再交付。
 
