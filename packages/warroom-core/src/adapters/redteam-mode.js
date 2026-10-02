@@ -99,9 +99,35 @@ export class RedteamModeAdapter {
     return st ? { state: st.state, generation: rec.generation, role: rec.role } : null;
   }
 
+  /**
+   * 资源清单（ADR-003 D4「逐项停止证明」）：
+   * 宿主侧知道自己**申请了哪些资源**（契约里的 resources），应答器只提供**实测状态**。
+   * 因此清单 = 契约资源 ∪ 应答器回报的资源；应答器尚未回报时按 **未证实（check=false）** 处理，
+   * 绝不因为"没收到回报"就当作已停止（fail-closed）。
+   */
   manifestOf(taskIdOrCommandId) {
     const rec = this._byTask(taskIdOrCommandId);
-    return this.driver.probes(rec.external_id);
+    const reported = this.driver.probes(rec.external_id) ?? [];
+    const byId = new Map(reported.map((p) => [p.id, p]));
+    const declared = [];
+    for (const r of rec.contract?.resources ?? []) {
+      const spec = typeof r === 'string' ? { r, kind: r } : { r, ...r };
+      const id = spec.id ?? `${rec.external_id}-${spec.kind ?? 'resource'}`;
+      declared.push({
+        id,
+        kind: spec.kind ?? 'resource',
+        // 延迟绑定：每次调用都重读应答器实测状态（fail-closed，但不会"一次 false 永远 false"）
+        check: byId.get(id)?.check ?? (() => {
+          const now = (this.driver.probes(rec.external_id) ?? []).find((x) => x.id === id);
+          return now ? now.check() : false;
+        }),
+      });
+    }
+    // 应答器回报但契约未声明的（执行层自行创建的资源）也要出现在清单里
+    for (const p of reported) {
+      if (!declared.some((d) => d.id === p.id)) declared.push({ id: p.id, kind: p.kind, check: p.check });
+    }
+    return declared;
   }
 
   cancel(taskIdOrCommandId, reason) {
