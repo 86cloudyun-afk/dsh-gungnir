@@ -26,7 +26,7 @@ test('allowlist 源头过滤：toolPolicy.allow 为子集时只注册允许集�
   const f = fakeTools();
   const subset = TOOL_NAMES.slice(0, 5);
   const svc = entry.apply({ tools: f.tools, on: f.on }, {
-    home: '/tmp/wr-tp-1', toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] },
+    home: mkdtempSync(join(tmpdir(), 'wr-tp-')), toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] },
   });
   assert.deepEqual([...f.registered].sort(), [...subset].sort(), '只应注册允许集内的 warroom 工具');
   assert.equal(svc.allowlistSize, 6);
@@ -35,7 +35,7 @@ test('allowlist 源头过滤：toolPolicy.allow 为子集时只注册允许集�
 
 test('无 toolPolicy → 向后兼容：注册全部工具，gateStatus=no-policy', () => {
   const f = fakeTools();
-  const svc = entry.apply({ tools: f.tools, on: f.on }, { home: '/tmp/wr-tp-2' });
+  const svc = entry.apply({ tools: f.tools, on: f.on }, { home: mkdtempSync(join(tmpdir(), 'wr-tp-')) });
   assert.equal(f.registered.length, TOOLS_LEN);
   assert.equal(svc.allowlistSize, null);
   assert.equal(svc.gateStatus, 'no-policy');
