@@ -114,9 +114,11 @@ export function markdownToHtml(md) {
         rows.push(lines[i].split('|').slice(1, -1).map((c) => c.trim()));
         i += 1;
       }
-      out.push('<table><thead><tr>' + header.map((h) => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>'
+      // 表格包一层容器：窄屏靠容器横向滚动，而不是把列压扁到不可读
+      out.push('<div class="table-wrap"><table><thead><tr>'
+        + header.map((h) => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>'
         + rows.map((r) => '<tr>' + r.map((c) => `<td>${inline(c)}</td>`).join('') + '</tr>').join('')
-        + '</tbody></table>');
+        + '</tbody></table></div>');
       continue;
     }
 
@@ -227,6 +229,19 @@ export function renderHtml({ markdown, title = 'GUNGNIR 战役报告', meta = nu
   .cover h1 { border:none; margin:.3rem 0 .5rem; }
   .cover dl { display:grid; grid-template-columns:max-content 1fr; gap:.2rem 1rem; margin:0; font-size:.92rem; }
   .cover dt { color:var(--muted); }
+  /* 窄屏（手机/平板）：表格横向滚动、字号与留白收敛，避免整页缩成一团 */
+  @media screen and (max-width: 720px) {
+    body { padding:1.25rem .9rem; font-size:15px; }
+    h1 { font-size:1.5rem; }
+    h2 { font-size:1.2rem; }
+    main { max-width:100%; }
+    .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    table { min-width:32rem; }
+    pre { font-size:.86em; }
+    .cover dl { grid-template-columns:1fr; gap:.1rem .2rem; }
+    .cover dt { font-weight:600; }
+    .toc li.lvl-3 { padding-left:1.2rem; }
+  }
   .toc { border:1px solid var(--line); border-radius:6px; padding:.8rem 1.1rem; margin:0 0 2rem; background:#fff; }
   .toc-title { font-weight:600; letter-spacing:.04em; margin-bottom:.4rem; }
   .toc ul { list-style:none; padding-left:0; margin:0; }

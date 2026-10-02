@@ -20,7 +20,7 @@ import { buildTimeline } from './timeline.js';
 import { buildWatch, buildFleetWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
 import { buildChecklist, renderChecklist, recordConfirmation } from './checklist.js';
-import { buildWeekly } from './weekly.js';
+import { buildWeekly, archiveWeekly } from './weekly.js';
 import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
@@ -460,6 +460,11 @@ export class Broker {
   /** 多战役周报（指挥层视角，只读）。 */
   weekly({ days = 7, now = null } = {}) {
     return buildWeekly({ broker: this, days, now: now ?? Date.now() });
+  }
+
+  /** 归档周报（按 ISO 周落盘，重复执行即覆盖为最新）。 */
+  archiveWeekly({ days = 7, now = null } = {}) {
+    return archiveWeekly({ broker: this, days, now: now ?? Date.now() });
   }
 
   /**

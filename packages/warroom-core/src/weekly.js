@@ -1,6 +1,6 @@
 // 多战役周报：指挥层视角的"这一周干了什么"。
 // 数据来自各战役库（只读）+ 备份目录；每行一个战役：起止、事实、控制面、交付门禁、报告新鲜度。
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -73,6 +73,35 @@ export function buildWeekly({ broker, days = 7, now = Date.now() }) {
     rows, totals,
     note: '只统计窗口内有活动的战役（新建/新事实/新报告）；判定依据为账本与文件，未含人工结论',
   };
+}
+
+/** ISO 周标签（YYYY-Www），用于归档文件名。 */
+export function isoWeekLabel(ms = Date.now()) {
+  const d = new Date(ms);
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = (target.getUTCDay() + 6) % 7;          // 周一=0
+  target.setUTCDate(target.getUTCDate() - dayNum + 3);  // 移到本周周四
+  const isoYear = target.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const week = 1 + Math.round((target - firstThursday) / (7 * 86400000));
+  return `${isoYear}-W${String(week).padStart(2, '0')}`;
+}
+
+/**
+ * 归档周报：写到 `<home>/reports/weekly/<ISO 周>.md`（同周重复执行即覆盖，保持最新）。
+ * @returns {{path:string, label:string, existing:string[]}}
+ */
+export function archiveWeekly({ broker, days = 7, now = Date.now() }) {
+  const w = buildWeekly({ broker, days, now });
+  const dir = join(broker.home, 'reports', 'weekly');
+  mkdirSync(dir, { recursive: true });
+  const label = isoWeekLabel(now);
+  const path = join(dir, `${label}.md`);
+  writeFileSync(path, `${renderWeekly(w)}\n`, 'utf8');
+  const existing = readdirSync(dir).filter((f) => f.endsWith('.md')).sort().reverse();
+  return { path, label, existing, totals: w.totals };
 }
 
 export function renderWeekly(w) {
