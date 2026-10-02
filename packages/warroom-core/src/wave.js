@@ -25,8 +25,63 @@ export function listMeetings({ store }) {
  *   tasks:Array<{id:string, role:string, targets:string[], intent?:string,
  *                action_class?:string, depends_on?:string[], resources?:any[], members?:object[]}>}}} p
  */
-export function runWave({ broker, engagementId, wave }) {
+/**
+ * 拓扑排序（不执行）：返回可派发顺序；成环/悬空依赖抛出与执行路径一致的错误。
+ * 用于演练（dry-run）与实际派单共用同一依赖判定，避免"演练能过、真跑挂"。
+ */
+export function planWave({ wave }) {
   if (!wave?.tasks?.length) throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'wave.tasks 为空');
+  const byId = new Map(wave.tasks.map((t) => [t.id, t]));
+  for (const t of wave.tasks) {
+    for (const dep of t.depends_on ?? []) {
+      if (!byId.has(dep)) throw warroomError(ERR.E_GATE_MISSING_TUPLE, `依赖无法满足：任务 ${t.id} 依赖不存在的 ${dep}`);
+    }
+  }
+  const order = [];
+  const done = new Set();
+  let guard = 0;
+  while (order.length < wave.tasks.length) {
+    if (++guard > wave.tasks.length * 4 + 8) {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：疑似成环');
+    }
+    for (const t of wave.tasks) {
+      if (done.has(t.id)) continue;
+      if ((t.depends_on ?? []).every((d) => done.has(d))) {
+        done.add(t.id);
+        order.push(t);
+      }
+    }
+  }
+  return {
+    order: order.map((t) => t.id),
+    // 波内可并行的层：同一层内任务互不依赖（便于预测并发占用）
+    layers: (() => {
+      const layers = [];
+      const placed = new Set();
+      while (placed.size < wave.tasks.length) {
+        const layer = order.filter((t) => !placed.has(t.id) && (t.depends_on ?? []).every((d) => placed.has(d)));
+        if (layer.length === 0) break;
+        layer.forEach((t) => placed.add(t.id));
+        layers.push(layer.map((t) => t.id));
+      }
+      return layers;
+    })(),
+    tasks: wave.tasks.map((t) => ({
+      id: t.id, role: t.role, intent: t.intent ?? t.role,
+      targets: t.targets, depends_on: t.depends_on ?? [],
+      action_class: t.action_class ?? 'readonly',
+      resource_kinds: (t.resources ?? []).map((r) => (typeof r === 'string' ? r : r.kind)),
+    })),
+    meeting_preview: { title: wave.title ?? '链前会议', notes: wave.notes ?? '（未填写纪要）', decisions: wave.decisions ?? [] },
+  };
+}
+
+export function runWave({ broker, engagementId, wave, dryRun = false }) {
+  if (!wave?.tasks?.length) throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'wave.tasks 为空');
+  if (dryRun) {
+    // 演练：只出计划（含会议预览与并发层），不落库、不派单、不消耗并发名额
+    return { dry_run: true, plan: planWave({ wave }) };
+  }
   const store = broker._eng(engagementId).store;
   const meeting = recordMeeting({
     store, engagementId, title: wave.title ?? '链前会议',

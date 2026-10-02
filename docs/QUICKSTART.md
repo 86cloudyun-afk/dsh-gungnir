@@ -101,6 +101,7 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
 ```
 
 - **会不开，波不发**：纪要落库（`meetings` 表），并随报告一起交付（md「链前会议纪要」段 / json `meetings`）
+- **先演练**：`--dry-run` 只出计划（依赖序 + 同层并行分组 + 会议预览），不派单不落库
 - **波内无屏障**：独立任务立即并行；依赖满足即刻交接下游（实测顺序 `recon-A → chain-B`）
 - 任务报终态后自动**结项**；成环/悬空依赖如实报错
 
