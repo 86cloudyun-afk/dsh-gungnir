@@ -230,6 +230,19 @@ node bin/warroom.mjs aggregate --sessions-db "$DSH_HOME/storages/pentest-session
 node bin/warroom.mjs backup --keep 7
 ```
 
+## 7.995 值班动线（每 30 分钟看什么）
+
+```sh
+node bin/warroom.mjs watch  --engagement "$ENG" --text   # ① 现在有什么要我处理（路由/在飞/出口/壳 + 告警）
+node bin/warroom.mjs rate   --engagement "$ENG" --text   # ② 油表：wire 用量/间隔还剩多少/是否锁定
+node bin/warroom.mjs timeline --engagement "$ENG" --text # ③ 走到哪一步了（相位时间线）
+node bin/warroom.mjs doctor                              # ④ 机器是否健康（含备份新鲜度与报告漂移）
+node bin/warroom.mjs preflight --engagement "$ENG"       # ⑤ 能不能继续动手（三态）
+```
+
+判断顺序：**告警 → 油表 → 漂移**。`watch` 有告警先处理（失效路由/超阈值任务/unresolved 残留）；
+`rate` 看是否触顶或锁定；`doctor` 报"报告已漂移"就重出报告再交付。
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
