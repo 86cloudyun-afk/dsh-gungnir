@@ -28,7 +28,8 @@ function usage() {
   verify-report  复现校验：<report.md> --engagement <id>
   config    家目录配置：show|init [--force]（默认节奏档/超时/adapter 等）
   doctor    一键体检（环境/数据/秘密）：--home <dir>（不依赖战役）
-  audit     审计查询/导出：--engagement <id> [--decision <d>] [--since <iso>] [--export <dir>]
+  audit     审计查询/导出：--engagement <id> [--decision <d>] [--since <iso>] [--limit n] [--offset n]
+            [--order asc|desc] [--export <dir>] [--format jsonl|csv]
   evidence  证据落盘（报告+水位+三段式 EVIDENCE_INDEX）：--engagement <id> [--out <dir>] [--target <name>]
   sweep     超时治理：--engagement <id> [--timeout-min n]（超时任务转 unknown，不自动重试）
   wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json> [--dry-run]
@@ -67,7 +68,7 @@ const { values: v } = parseArgs({
     'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
     format: { type: 'string' }, meeting: { type: 'string' }, 'timeout-min': { type: 'string' },
     decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
-    'dry-run': { type: 'boolean', default: false },
+    'dry-run': { type: 'boolean', default: false }, offset: { type: 'string' }, order: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -160,12 +161,22 @@ switch (command) {
   case 'report':
     out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
     break;
-  case 'audit':
-    if (v.export) out(broker.auditExport(need('engagement', v.engagement), { outDir: v.export }));
-    else out(broker.audit(need('engagement', v.engagement), {
-      decision: v.decision ?? null, since: v.since ?? null, limit: v.limit ? Number(v.limit) : 200,
-    }));
+  case 'audit': {
+    const engagementId = need('engagement', v.engagement);
+    if (v.export) {
+      out(v.format === 'csv'
+        ? broker.auditExportCsv(engagementId, { outDir: v.export, decision: v.decision ?? null, since: v.since ?? null })
+        : broker.auditExport(engagementId, { outDir: v.export }));
+    } else {
+      out(broker.audit(engagementId, {
+        decision: v.decision ?? null, since: v.since ?? null,
+        limit: v.limit ? Number(v.limit) : 200,
+        offset: v.offset ? Number(v.offset) : 0,
+        order: v.order ?? 'desc',
+      }));
+    }
     break;
+  }
   case 'evidence':
     out(broker.exportEvidence(need('engagement', v.engagement), { outDir: v.out, target: v.target }));
     break;
