@@ -12,7 +12,7 @@
 | `warroom_secret_put` | 登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文 | `{ plaintext*:string, label:string }` | ✅ |
 | `warroom_secret_grant` | 为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行 | `{ secret_ref*:string, engagement_id:string, task_id*:string, purpose*:string, ttl_seconds:integer }` | ✅ |
 | `warroom_secret_status` | 秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文） | `{ engagement_id*:string }` | ✅ |
-| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|html|both|all, max_facts_per_type:integer, audience:client|blue|full }` | ✅ |
+| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|html|both|all, max_facts_per_type:integer, audience:client|blue|full, verify:boolean }` | ✅ |
 | `warroom_status` | 任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数 | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_reconcile` | 对账 unknown/unresolved 任务（探针定论，绝不默认失败重做） | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_redispatch` | 重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离） | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |

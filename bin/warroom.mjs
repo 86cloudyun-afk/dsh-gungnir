@@ -89,6 +89,7 @@ const { values: v } = parseArgs({
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
+    verify: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -321,11 +322,13 @@ switch (command) {
     out(broker.revoke(need('engagement', v.engagement), v.reason ?? 'cli'));
     break;
   case 'report':
-    out(broker.exportReport(need('engagement', v.engagement), {
+    const r = broker.exportReportVerified(need('engagement', v.engagement), {
       outDir: v.out, format: v.format ?? 'md',
       maxFactsPerType: v['max-facts'] ? Number(v['max-facts']) : 50,
       audience: v.audience ?? 'full',
-    }));
+    });
+    out(r);
+    if (v.verify && !r.verify.reproducible) process.exitCode = 1;   // 交付前发现漂移 → 非零退出
     break;
   case 'audit': {
     const engagementId = need('engagement', v.engagement);

@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **交付前一体化**：`report --verify`（工具 `verify:true`）→ `exportReportVerified` 导出后立刻用
+  **同一判定**复核可复现性并返回 `verify{reproducible,report_seq,current_seq,drift_seq}`；
+  CLI 在漂移时非零退出（交付流程里"导出→校验"两步合成一步，漏不掉）
 - **故障矩阵 14→16 场景（交付物边界）**：客户版文件不得含审计明细、HTML 不得引外部资源；
   证据落盘的索引/客户版/内部全量**三处都不得含明文秘密**（秘密只以引用存在）
 - **CI 加 `--quiet`**：只输出「门禁汇总」，退出码仍真实反映成败——从机制上不需要 `| tail`
