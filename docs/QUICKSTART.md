@@ -4,6 +4,9 @@
 以下输出为真实运行记录（2026-10-02，临时 home `/tmp/wr-demo`）。
 
 ```sh
+# 0) 一步起好（可选）：建 home、写配置、导入跳板示例、建首个战役
+node bin/warroom.mjs init --home /tmp/wr-demo --target 10.0.0.0/24 --rhythm open --with-jumphost-sample
+
 export WARROOM_HOME=/tmp/wr-demo
 ENG=$(node bin/warroom.mjs engage --target 10.0.0.0/24 --rhythm restricted --json | jq -r .engagement_id)
 ```

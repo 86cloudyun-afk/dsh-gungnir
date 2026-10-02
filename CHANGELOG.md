@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **`warroom init` 首启向导**：建家目录 → 写示例配置（已存在则保留，`--force` 覆盖）→
+  `--with-jumphost-sample` 导入占位跳板 → `--target` 建首个战役 → 打印下一步命令清单
 - **审计分页与 CSV 导出**：`audit({limit, offset, order})` 返回 `page{matched,has_more}`；
   `auditExportCsv`（RFC4180 转义、可按 decision/since 过滤）；工具与 CLI 同步暴露
   （`--limit/--offset/--order/--format csv`）
