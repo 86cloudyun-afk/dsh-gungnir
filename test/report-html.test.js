@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { harness } from '../packages/warroom-core/src/testing.js';
-import { markdownToHtml, renderHtml } from '../packages/warroom-core/src/html.js';
+import { markdownToHtml, renderHtml, buildToc } from '../packages/warroom-core/src/html.js';
 
 test('markdown 子集转换：标题/列表/表格/引用/代码块', () => {
   const html = markdownToHtml([
@@ -11,8 +11,8 @@ test('markdown 子集转换：标题/列表/表格/引用/代码块', () => {
     '| 列1 | 列2 |', '|---|---|', '| a | b |', '',
     '> 引用行', '', '```js', 'const x = 1;', '```', '',
   ].join('\n'));
-  assert.match(html, /<h1>标题一<\/h1>/);
-  assert.match(html, /<h2>标题二<\/h2>/);
+  assert.match(html, /<h1 id="标题一">标题一<\/h1>/);
+  assert.match(html, /<h2 id="标题二">标题二<\/h2>/);
   assert.match(html, /<ul><li>项目 A<ul><li>子项 A1<\/li><\/ul><\/li><li>项目 B<\/li><\/ul>/);
   assert.match(html, /<table><thead><tr><th>列1<\/th>/);
   assert.match(html, /<blockquote>引用行<\/blockquote>/);
@@ -91,4 +91,42 @@ test('导出的 HTML 带封面与打印样式', () => {
   assert.match(html, /客户版（攻击路径与修复建议）/);
   assert.match(html, /@media print/);
   assert.equal(/<script[^>]+src|<link[^>]+href/.test(html), false, '仍然零外部资源');
+});
+
+test('目录与锚点：h1-h3 生成 TOC，标题带 id，中文标题也能锚定', () => {
+  const md = ['# 战役报告', '', '## 水位（复现锚点）', '', '### seq', '', '## 事实', '', '## 事件'].join('\n');
+  const toc = buildToc(md);
+  assert.equal(toc.length, 5);
+  assert.equal(toc[1].text, '水位（复现锚点）');
+  assert.equal(toc[1].id, '水位-复现锚点');
+  assert.equal(toc[2].level, 3);
+
+  const html = markdownToHtml(md);
+  assert.match(html, /<h2 id="水位-复现锚点">/);
+  assert.match(html, /<h3 id="seq">/);
+
+  const page = renderHtml({ markdown: md, title: 't' });
+  assert.match(page, /<nav class="toc">/);
+  assert.match(page, /<a href="#水位-复现锚点">水位（复现锚点）<\/a>/);
+  assert.match(page, /@media print \{ \.toc \{ break-after:page/);
+});
+
+test('短报告不出目录；同名标题自动加序号（锚点不撞车）', () => {
+  const short = renderHtml({ markdown: '# 一\n\n## 二', title: 't' });
+  assert.equal(short.includes('<nav class="toc">'), false, '不足 3 个标题不出目录');
+
+  const dup = markdownToHtml('## 同名\n\n## 同名');
+  assert.match(dup, /id="同名"/);
+  assert.match(dup, /id="同名-2"/);
+});
+
+test('导出的 HTML 带目录（长报告）', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'toc-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'html' });
+  const html = readFileSync(r.paths.html, 'utf8');
+  assert.match(html, /<nav class="toc">/);
+  assert.match(html, /href="#水位-复现锚点"/);
+  assert.equal(/<script[^>]+src|<link[^>]+href/.test(html), false);
 });
