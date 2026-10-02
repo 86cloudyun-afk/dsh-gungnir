@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **围栏 ↔ 跳板联动**：`planFenceForEngagement` 从战役库读**活跃 route** 作为围栏唯一上游
+  （无活跃 route 即 `E_FENCE_NO_ROUTE`，fail-closed）；静态校验新增"上游与 route 记录一致"不变量；
+  `fence-verify --from-home/--route` 支持真实联动（缺 route 时非零退出并给取出口命令）
 - 文档收口：QUICKSTART 增「维护与安全动作」（backup/maintain/rotate/doctor + 抖动说明）、
   ACCEPTANCE 增 4 行能力映射与数字刷新、README 同步
 - **故障矩阵扩展 6→11 场景**：新增持久层韧性——**备份恢复往返**（篡改后回归备份时点 + 完整性）、
