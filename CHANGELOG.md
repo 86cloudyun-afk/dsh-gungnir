@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **效率视图增强**（ADR-002 D10）：新增 `by_tier`（模型档位分桶）与 `rework`
+  （重派任务数 / 返工率 / unresolved / unknown 计数）；角色与档位桶均带
+  `facts_per_1000_tokens` 与 `ms_per_verified_fact`——「谁划算」有数字可依，仍无成本门闸
 - **多方维护治理文件**：`CONTRIBUTING.md`（六闸门槛/PR 规范/写作用域/外部 PR 审查流程）、
   `.github/CODEOWNERS`、PR 模板（六闸勾选项）、ADR 提案与缺陷报告议题模板
 - **证据落盘桥**（对齐作战室第 8 节纪律）：`warroom evidence --engagement <id> --out <dir> [--target <名>]`

@@ -226,7 +226,11 @@ export class Broker {
     return this.metrics(engagementId);
   }
 
-  /** 效率聚合：端到端视角（框架 §2 原则 8/§11）——完成时间与有效产出，不含成本门闸。 */
+  /**
+   * 效率聚合（ADR-002 D10 / 框架 §2 原则 8、§11）：
+   * 主指标是**端到端可验收完成时间**与**返工率**，不是成本比；按角色与模型档位分桶，
+   * 供"谁干得快、哪个档位划算"的编制决策使用（无成本门闸）。
+   */
   metrics(engagementId) {
     const rows = this.global.prepare('SELECT * FROM task_metrics WHERE engagement_id = ?').all(engagementId);
     const sum = (k) => rows.reduce((a, r) => a + (r[k] ?? 0), 0);
@@ -235,20 +239,55 @@ export class Broker {
     const tokens = sum('tokens_in') + sum('tokens_out');
     const wall = sum('wall_time_ms');
     const verified = sum('verified_facts');
+
+    // 返工：同一任务被重派（attempt > 1）即计一次返工
+    const cmds = this.global.prepare(
+      'SELECT command_id, task_id, attempt, state FROM command_queue WHERE engagement_id = ?'
+    ).all(engagementId);
+    const reworked = cmds.filter((c) => (c.attempt ?? 1) > 1);
+    const unresolved = cmds.filter((c) => c.state === 'unresolved');
+    const unknown = cmds.filter((c) => c.state === 'unknown');
+
+    const byRole = {};
+    const byTier = {};
+    const bucket = (acc, key) => {
+      acc[key] = acc[key] ?? { tasks: 0, tokens: 0, verified: 0, wall_time_ms: 0 };
+      return acc[key];
+    };
+    for (const r of rows) {
+      const role = bucket(byRole, r.role ?? 'unknown');
+      role.tasks += 1; role.tokens += r.tokens_in + r.tokens_out;
+      role.verified += r.verified_facts; role.wall_time_ms += r.wall_time_ms;
+      const tier = bucket(byTier, r.model_tier ?? 'untagged');
+      tier.tasks += 1; tier.tokens += r.tokens_in + r.tokens_out;
+      tier.verified += r.verified_facts; tier.wall_time_ms += r.wall_time_ms;
+    }
+    for (const bucketMap of [byRole, byTier]) {
+      for (const v of Object.values(bucketMap)) {
+        v.facts_per_1000_tokens = v.tokens > 0 ? Number(((v.verified / v.tokens) * 1000).toFixed(3)) : null;
+        v.ms_per_verified_fact = v.verified > 0 ? Math.round(v.wall_time_ms / v.verified) : null;
+      }
+    }
+
     return {
+      // 端到端视角
       tasks: rows.length,
+      commands: cmds.length,
       tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'),
       wall_time_ms: wall,
       verified_facts: verified,
       effective_facts: effective,
       facts_per_1000_tokens: tokens > 0 ? Number(((effective / tokens) * 1000).toFixed(3)) : null,
       ms_per_fact: effective > 0 ? Math.round(wall / effective) : null,
-      by_role: rows.reduce((acc, r) => {
-        const k = r.role ?? 'unknown';
-        acc[k] = acc[k] ?? { tasks: 0, tokens: 0, verified: 0 };
-        acc[k].tasks += 1; acc[k].tokens += r.tokens_in + r.tokens_out; acc[k].verified += r.verified_facts;
-        return acc;
-      }, {}),
+      // 返工与未决（效率的真实敌人）
+      rework: {
+        tasks_with_retry: reworked.length,
+        retry_rate: cmds.length > 0 ? Number((reworked.length / cmds.length).toFixed(3)) : null,
+        unresolved: unresolved.length,
+        unknown: unknown.length,
+      },
+      by_role: byRole,
+      by_tier: byTier,
     };
   }
 
