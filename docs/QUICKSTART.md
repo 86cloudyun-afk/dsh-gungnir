@@ -136,6 +136,12 @@ node bin/warroom.mjs secret rotate --confirm # 轮换秘密库密钥（旧密钥
 node bin/warroom.mjs doctor                 # 体检（含最近备份新鲜度）
 ```
 
+- 出口验证（建议每次换出口/开工时跑）：
+  ```sh
+  node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG" [--route <route_id>]
+  node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG" --self   # 操作节点自身出口
+  ```
+  通过后可用配置 `requireEgressCheck: true` 把"出网前必须有有效出口验证"变成硬门闸
 - 备份不随密钥走：`backups/` 与 `secrets/` 需**分别**保管（见 [BACKUP.md](BACKUP.md)）
 - 轮换前先备份整个 `secrets/`：历史密钥丢失 = 对应历史密文不可恢复
 - stealth 档出网间隔在 **8~25s 抖动**并按小时漂移（不形成固定周期指纹）
