@@ -127,6 +127,17 @@ node bin/warroom.mjs secret put|grant|status …
 
 全部子命令都支持 `--json`；CLI 与工具/API 共用同一套门闸与事实库。
 
+## 7.83 开工前预检（建议每次开工第一条命令）
+
+```sh
+node bin/warroom.mjs preflight --engagement "$ENG" --json
+```
+
+输出 `ready` / `degraded`（可开工但有提示）/ `blocked`（有必须先解决的问题），
+并列出阻塞项与下一步（取出口 → 记录出口验证 → 先演练）。检查维度：
+环境（Node/家目录可写）、配置、战役（授权窗口/目标）、出口（活跃路由 + 出口验证）、
+备份新鲜度、密钥权限。
+
 ## 7.85 维护与安全动作
 
 ```sh
