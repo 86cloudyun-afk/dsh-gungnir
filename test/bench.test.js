@@ -25,3 +25,13 @@ test('规模冒烟：N=3000 仍在阈值内（规模不退化）', () => {
   assert.equal(r.code, 0, r.out);
   assert.equal(JSON.parse(r.out).failed, 0);
 });
+
+test('规模冒烟：扩展门（审计/JSON 报告/矩阵）在 N=2000 下过闸', () => {
+  const r = run(['--n', '2000', '--json']);
+  assert.equal(r.code, 0, r.out);
+  const parsed = JSON.parse(r.out);
+  assert.equal(parsed.failed, 0);
+  for (const k of ['audit_export_ms', 'json_report_ms', 'matrix_ms']) {
+    assert.ok(typeof parsed.timings[k] === 'number', `缺少 ${k}`);
+  }
+});
