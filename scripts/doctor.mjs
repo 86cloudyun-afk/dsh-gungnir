@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, targetVersionFor } from '../packages/warroom-core/src/migrate.js';
+import { latestBackup } from '../packages/warroom-core/src/maintenance.js';
 import { SCHEMA_VERSION } from '../packages/warroom-core/src/version.js';
 
 const { values: v } = parseArgs({
@@ -73,6 +74,14 @@ else {
     add(`秘密密钥权限（${mode.toString(8)}）`, mode === 0o600 ? 'ok' : 'fail');
   }
   add('知识库', existsSync(join(home, 'knowledge.db')) ? 'ok' : 'warn', existsSync(join(home, 'knowledge.db')) ? '' : '尚未使用');
+
+  // 备份新鲜度（>7 天提示；从未备份也给提示，但不阻塞）
+  const latest = latestBackup({ home });
+  if (!latest) add('最近备份', 'warn', '从未备份（建议 `warroom backup`）');
+  else {
+    const ageDays = (Date.now() - latest.mtime) / 86400000;
+    add(`最近备份（${ageDays.toFixed(1)} 天前）`, ageDays <= 7 ? 'ok' : 'warn', ageDays > 7 ? '超过 7 天，建议重新备份' : '');
+  }
 }
 
 const failed = checks.filter((c) => c.status === 'fail');
