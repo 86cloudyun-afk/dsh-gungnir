@@ -1,6 +1,7 @@
 // FakeAdapter：SPI rev2 参考实现 + 故障注入（丢回包 / 资源残留）。
-// 真实契约与真实宿主调用另行验证（框架 §10）。
+// 资源可为字符串（模拟）或描述对象（process/port/container → 走**真实探针**，ADR-004 项 2）。
 import { ERR, warroomError, TASK_TRANSITIONS, canTransition } from '../../../shared-types/src/index.js';
+import { probeResource } from '../probes.js';
 
 export const INSTANCE_ID = 'fake-adapter-1';
 
@@ -19,7 +20,11 @@ export class FakeAdapter {
     return t;
   }
 
-  /** 资源清单：每项带 check() 探针（confirmed_stopped 需逐项通过，ADR-003 D4）。 */
+  /**
+   * 资源清单：每项带 check() 探针（confirmed_stopped 需逐项通过，ADR-003 D4）。
+   * - 模拟资源（session/container 字符串）：按任务内标志位判断
+   * - 真实资源（process/port/container 描述对象）：走 probes.js 的实测探针
+   */
   manifestOf(taskIdOrCommand) {
     const t = [...this.tasks.values()].find(
       (x) => x.task_id === taskIdOrCommand || x.command_id === taskIdOrCommand
@@ -27,7 +32,14 @@ export class FakeAdapter {
     if (!t) return null;
     return t.manifest.map((m) => ({
       id: m.id, kind: m.kind,
-      check: () => (m.kind === 'session' ? !t.session_up : !t.container_up),
+      check: () => {
+        if (m.probe) {
+          const r = probeResource(m.probe);
+          if (r.alive === null) return false;   // 未知 → 未证实（fail-closed）
+          return r.alive === false;             // 停止证明：必须实测已不存在
+        }
+        return m.kind === 'session' ? !t.session_up : !t.container_up;
+      },
     }));
   }
 
@@ -40,11 +52,16 @@ export class FakeAdapter {
     }
     this.counter += 1;
     const task_id = contract.task_id ?? `fake_t_${this.counter}`;
-    const wantsContainer = (contract.resources ?? []).includes('container');
+    const resList = contract.resources ?? [];
+    const wantsContainer = resList.includes('container');
     // 资源清单：派发即登记（ADR-003 D4）；运行中新发现资源应增量登记
     const manifest = [
       { kind: 'session', id: `${task_id}-session` },
       ...(wantsContainer ? [{ kind: 'container', id: `${task_id}-container` }] : []),
+      // 描述对象 → 真实探针资源（process/port/container）
+      ...resList.filter((r) => typeof r === 'object' && r !== null).map((r, i) => ({
+        kind: r.kind ?? 'process', id: r.id ?? `${task_id}-${r.kind ?? 'res'}-${i}`, probe: r,
+      })),
     ];
     const task = {
       command_id, task_id, contract,
@@ -84,7 +101,8 @@ export class FakeAdapter {
   hydrate(command_id, contract, state = 'running') {
     if (this.tasks.has(command_id)) return this.tasks.get(command_id);
     const task_id = contract.task_id ?? `fake_t_${++this.counter}`;
-    const wantsContainer = (contract.resources ?? []).includes('container');
+    const resList = contract.resources ?? [];
+    const wantsContainer = resList.includes('container');
     const task = {
       command_id, task_id, contract, state,
       generation: contract.generation,
@@ -93,6 +111,9 @@ export class FakeAdapter {
       manifest: [
         { kind: 'session', id: `${task_id}-session` },
         ...(wantsContainer ? [{ kind: 'container', id: `${task_id}-container` }] : []),
+        ...resList.filter((r) => typeof r === 'object' && r !== null).map((r, i) => ({
+          kind: r.kind ?? 'process', id: r.id ?? `${task_id}-${r.kind ?? 'res'}-${i}`, probe: r,
+        })),
       ],
       members: contract.fake_members ?? [],
       receipts: [],
@@ -118,6 +139,7 @@ export class FakeAdapter {
     if (canTransition(t.state, 'cancel_requested')) t.state = 'cancel_requested';
     t.session_up = false;                        // 会话侧总是可停
     if (!this.faults.containerResidue) t.container_up = false; // 残留故障：容器停不下来
+    // 真实探针资源（process/port/container 描述对象）不受账本影响：停止与否由实测决定
     t.cancel_reason = reason;
     return { state: t.state };
   }
