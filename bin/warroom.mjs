@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
             [--sessions-db <path>] [--out <file>]
@@ -120,6 +121,15 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'watch': {
+    const { renderWatch } = await import('../packages/warroom-core/src/watch.js');
+    const v2 = broker.watch(need('engagement', v.engagement), { timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
+    if (v.text || !v.json) {
+      console.log(renderWatch(v2));
+      if (v.json) out(v2);
+    } else out(v2);
+    break;
+  }
   case 'timeline': {
     const { renderTimeline } = await import('../packages/warroom-core/src/timeline.js');
     const tl = broker.timeline(need('engagement', v.engagement));
