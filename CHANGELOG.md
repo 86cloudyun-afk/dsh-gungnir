@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **ADR-004**：v0.2 冻结边界（围栏运行验收 / 进程级取消证实 / 知识库 / 真实应答器接入），
+  明确不做项（UI→v0.3、marketplace→v0.3、PentAGI 不做）
+- **QUICKSTART**：CLI 全链路真实演练（含捕获输出与两阶段停止语义说明）
 - **IOC 自动聚合**（v0.2 项提前落地）：结构化条目（kind/ref/source/evidence_ref/confidence/
   manual_confirm），去重（kind+ref）与清单摘要哈希；凭据只出引用、明文不进报告
 - **报告 JSON 双格式**（`gungnir-report/1`）：与 markdown 同水位同摘要（同一份证据两个视图），
