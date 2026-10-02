@@ -18,7 +18,7 @@ const MANUAL = '☐';
  *   profile=progress：进度口径——只把"明显不该发生"的失败项视为必过（用于日常巡检门禁）。
  *   口径写进返回值 `required`，命令行的 --strict 按它判定退出码。
  */
-export function buildChecklist({ broker, engagementId, profile = 'delivery' }) {
+export function buildChecklist({ broker, engagementId, profile = 'delivery', reportsDir = null, evidenceDir = null }) {
   const store = broker._eng(engagementId).store;
   const row = store.db.prepare('SELECT * FROM engagements WHERE id = ?').get(engagementId);
   const items = [];
@@ -70,16 +70,16 @@ export function buildChecklist({ broker, engagementId, profile = 'delivery' }) {
     shell ? `最高证明 ${shell.highest_proof} · 当前有效性 ${shell.current_validity}` : '未登记',
     true);   // 当前有效性必须人工复核（不能因为历史拿过就打勾）
 
-  // 7 报告可复现
-  const reportsDir = join(broker.home, 'engagements', engagementId, 'reports');
-  const reports = existsSync(reportsDir)
-    ? readdirSync(reportsDir).filter((f) => f.endsWith('.md')).map((f) => ({ f, m: statSync(join(reportsDir, f)).mtimeMs }))
-      .sort((a, b) => b.m - a.m)
+  // 7 报告可复现（目录可覆盖：交付包落在自定义位置时，清单必须看同一个位置）
+  const reportsRoot = reportsDir ?? join(broker.home, 'engagements', engagementId, 'reports');
+  const reports = existsSync(reportsRoot)
+    ? readdirSync(reportsRoot).filter((f) => f.endsWith('.md'))
+      .map((f) => ({ f, m: statSync(join(reportsRoot, f)).mtimeMs })).sort((a, b) => b.m - a.m)
     : [];
   let reproducible = false;
   if (reports.length > 0) {
     try {
-      reproducible = verifyReportAgainstStore(readFileSync(join(reportsDir, reports[0].f), 'utf8'), store).reproducible;
+      reproducible = verifyReportAgainstStore(readFileSync(join(reportsRoot, reports[0].f), 'utf8'), store).reproducible;
     } catch { reproducible = false; }
   }
   add('report', '报告已导出且可复现（水位/摘要一致）',
@@ -87,12 +87,12 @@ export function buildChecklist({ broker, engagementId, profile = 'delivery' }) {
     reports.length === 0 ? '尚未导出报告' : `${reports[0].f} · ${reproducible ? '与库一致' : '已漂移，需重出'}`);
 
   // 8 证据落盘
-  const evidenceDir = join(broker.home, 'engagements', engagementId, 'evidence');
-  const indexFiles = existsSync(evidenceDir)
-    ? readdirSync(evidenceDir).filter((f) => f === 'EVIDENCE_INDEX.md').length : 0;
+  const evidenceRoot = evidenceDir ?? join(broker.home, 'engagements', engagementId, 'evidence');
+  const indexFiles = existsSync(evidenceRoot)
+    ? readdirSync(evidenceRoot).filter((f) => f === 'EVIDENCE_INDEX.md').length : 0;
   add('evidence', '证据目录与三段式索引已落盘',
     indexFiles > 0,
-    indexFiles > 0 ? `EVIDENCE_INDEX.md 存在（${existsSync(join(evidenceDir, 'client')) ? '含客户版/蓝队版视图' : '未含受众视图'}）` : '尚未落盘');
+    indexFiles > 0 ? `EVIDENCE_INDEX.md 存在（${existsSync(join(evidenceRoot, 'client')) ? '含客户版/蓝队版视图' : '未含受众视图'}）` : '尚未落盘');
 
   // 9 审计可追溯
   const gates = store.db.prepare('SELECT COUNT(*) AS n FROM gate_log').get().n;
