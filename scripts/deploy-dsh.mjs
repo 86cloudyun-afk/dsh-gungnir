@@ -117,22 +117,44 @@ export function hostStaleness(processStartMs, patchMtimeMs) {
   return { stale: false, reason: 'host-loaded-patch' };
 }
 
-/** 找出宿主进程启动时刻（拿不到返回 null）：先按端口找监听者，再退回 pgrep。 */
-function hostProcessStartMs(profile, port = Number(process.env.DSH_PORT ?? 3080)) {
-  const pids = [];
-  const lsof = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
-  if (lsof.status === 0) pids.push(...(lsof.stdout ?? '').trim().split('\n').filter(Boolean));
+/** 当前监听指定 TCP 端口的 LISTEN 进程 PID（拿不到返回空数组）。 */
+function listenersOnPort(port) {
+  const r = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+  return r.status === 0 ? (r.stdout ?? '').trim().split('\n').filter(Boolean) : [];
+}
+
+/** 指定 PID 是否正监听目标端口（`-a` 把 -p 与 -iTCP AND 起来，否则 lsof 默认 OR 语义会误判）。 */
+function pidListensOnPort(pid, port) {
+  const r = spawnSync('lsof', ['-nP', '-a', '-p', String(pid), `-iTCP:${port}`, '-sTCP:LISTEN', '-t'],
+    { encoding: 'utf8' });
+  return r.status === 0 && (r.stdout ?? '').trim() !== '';
+}
+
+/**
+ * 找出"本 profile 宿主"的进程启动时刻（拿不到返回 null）。
+ * 宿主在本机的唯一可区分身份是它**监听的目标端口**：同名 profile（如 `web`）能在不同 DSH_HOME
+ * 下并行起多个宿主，argv 都是 `--profile web`、彼此无从区分，但各绑不同端口。因此检测一律以
+ * 目标端口为锚——即便回落到 `pgrep -f --profile <name>`，命中的进程也必须【同时监听目标端口】
+ * 才算数；否则会误抓其它 DSH_HOME 下同名 profile 的并行宿主（并行测试里该误命中会让本应
+ * "无宿主"的部署偶发误判为"有宿主"，即 cli-deploy 实测到的 flake 根因）。
+ * 生产行为不变：真有本 profile 宿主时它监听目标端口，仍被检出。
+ */
+export function hostProcessStartMs(profile, port = Number(process.env.DSH_PORT ?? 3080)) {
+  let pids = listenersOnPort(port);
   if (pids.length === 0) {
+    // 回落：按命令行找 dsh 宿主，但必须仍绑定本 profile 的目标端口（把回落收敛到该 profile/端口）
+    const named = [];
     for (const pattern of [`bin.js --profile ${profile}`, `--profile ${profile} --host`]) {
       const r = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf8' });
-      pids.push(...(r.stdout ?? '').trim().split('\n').filter(Boolean));
+      named.push(...(r.stdout ?? '').trim().split('\n').filter(Boolean));
     }
+    pids = [...new Set(named)].filter((pid) => pidListensOnPort(pid, port));
   }
   for (const pid of pids) {
     const ps = spawnSync('ps', ['-o', 'lstart=', '-p', pid], { encoding: 'utf8' });
     const text = (ps.stdout ?? '').trim();
     if (!text) continue;
-    // 确认是本 profile 的 dsh 宿主，避免抓到无关占用端口的进程
+    // 再确认是本 profile 的 dsh 宿主，避免抓到无关占用端口的进程
     const cmd = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout ?? '';
     if (!cmd.includes('bin.js') || !cmd.includes(`--profile ${profile}`)) continue;
     const ms = Date.parse(text);
