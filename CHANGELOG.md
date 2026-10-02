@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **故障矩阵扩展 6→11 场景**：新增持久层韧性——**备份恢复往返**（篡改后回归备份时点 + 完整性）、
+  密钥缺失明确报错、非法配置构造即失败、高版本库拒绝打开、老库迁移自动补齐后继续作业
 - **备份/维护内建**：`maintenance.js`（`backupHome` / `latestBackup` / `checkpointHome`）由
   脚本、CLI（`warroom backup` / `maintain`）、`doctor` 共用；`doctor` 新增**备份新鲜度**检查
   （>7 天或从未备份给 warn）；`scripts/backup.mjs` 改为复用 API（行为不变）

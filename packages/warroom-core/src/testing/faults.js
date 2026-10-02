@@ -1,12 +1,16 @@
 // 故障注入矩阵（框架 §10）：把散落的异常场景收成一个可重复执行的矩阵。
 // 覆盖：丢回包 / 乱序与重复回执 / 事实库写失败 / 进程残留 / 重启恢复 / 撤销跨重启。
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, copyFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { Broker } from '../broker.js';
 import { FakeAdapter } from '../adapters/fake.js';
 import { JumphostManager } from '../jumphosts.js';
 import { rehydrate } from '../rehydrate.js';
+import { backupHome } from '../maintenance.js';
+import { openEngagementDb } from '../db.js';
+import { ERR_SCHEMA_NEWER } from '../migrate.js';
 
 const mem = (entity, sid, rev, hash) => ({ entity_type: entity, source_id: sid, revision_no: rev, content_hash: hash, payload: {} });
 
@@ -113,6 +117,94 @@ export function runFaultMatrix() {
       broker2.execute({ ...c.base, command_id: 'f-6', contract: c.contract() });
     } catch (e) { rejected = e.code === 'E_GATE_AUTH_EXPIRED'; }
     assert(rejected, '撤销后旧版本必须被拒');
+  });
+
+  // ⑦ 备份恢复往返：备份 → 篡改 → 用备份覆盖 → 内容与备份一致、完整性 ok
+  check('备份恢复往返 → 数据回到备份时点且完整性通过', () => {
+    const c = ctx();
+    const ex = c.broker.execute({ ...c.base, command_id: 'f-7', contract: c.contract() });
+    c.broker.collect(c.eng.engagement_id, ex.task_id, c.adapter.collect(ex.task_id));
+    const store = c.broker._eng(c.eng.engagement_id).store;
+    assert(store.effectiveCount() === 1, '前置：应有一条有效事实');
+
+    const bk = backupHome({ home: c.home, dest: join(c.home, 'bk-restore') });
+    assert(bk.ok === bk.total, '备份必须全部成功');
+
+    // 篡改：删掉事实行（模拟误操作）
+    store.db.exec('DELETE FROM fact_members');
+    assert(store.effectiveCount() === 0, '前置：篡改后应为空');
+
+    // 恢复：用备份覆盖 fact.db（先关连接避免 WAL 干扰）
+    c.broker._eng(c.eng.engagement_id).db.close();
+    const rel = `engagements/${c.eng.engagement_id}/fact.db`;
+    copyFileSync(join(bk.dest, rel), join(c.home, rel));
+    const reopened = openEngagementDb(join(c.home, `engagements/${c.eng.engagement_id}`));
+    const count = reopened.prepare('SELECT COUNT(*) c FROM fact_members WHERE active = 1').get().c;
+    const verdict = reopened.prepare('PRAGMA integrity_check').get();
+    reopened.close();
+    assert(count === 1, `恢复后应有 1 条有效事实，实际 ${count}`);
+    assert((verdict?.integrity_check ?? Object.values(verdict)[0]) === 'ok', '恢复后完整性必须 ok');
+  });
+
+  // ⑧ 密钥缺失：轮换后历史密钥被删 → 解密明确报错（不静默返回空）
+  check('密钥缺失 → 解密明确报错（E_SECRET_KEY_INVALID）', () => {
+    const c = ctx();
+    const a = c.broker.secrets.put('fault-matrix-secret', { label: 'fm' });
+    c.broker.secrets.grant(a.secret_ref, { engagement_id: c.eng.engagement_id, task_id: 't', purpose: 'p' });
+    const rot = c.broker.secrets.rotateKey();
+    const archived = join(c.home, 'secrets', 'keys', `${rot.old_key_id}.bin`);
+    assert(existsSync(archived), '轮换应归档旧密钥');
+    rmSync(archived);
+    // 把该行改回旧 key_id，模拟"历史密文仍在、历史密钥丢失"
+    c.broker.global.prepare('UPDATE secret_store SET key_id = ? WHERE secret_ref = ?').run(rot.old_key_id, a.secret_ref);
+    let code = null;
+    try { c.broker.secrets.resolve(a.secret_ref, { task_id: 't', purpose: 'p' }); }
+    catch (e) { code = e.code; }
+    assert(code === 'E_SECRET_KEY_INVALID', `应明确报密钥缺失，实际 ${code}`);
+  });
+
+  // ⑨ 非法配置：构造 Broker 直接抛错（不静默用默认值）
+  check('非法配置 → 构造即失败（未知字段/非法取值）', () => {
+    const c = ctx();
+    const cfgPath = join(c.home, 'warroom.json');
+    writeFileSync(cfgPath, JSON.stringify({ rhythm: 'turbo' }));
+    let failed = false;
+    try { new Broker({ home: c.home, adapter: new FakeAdapter() }); }
+    catch (e) { failed = /rhythm 必须是/.test(e.message); }
+    assert(failed, '非法 rhythm 应让 Broker 构造失败');
+    writeFileSync(cfgPath, JSON.stringify({ unknown_field: 1 }));
+    let failed2 = false;
+    try { new Broker({ home: c.home, adapter: new FakeAdapter() }); }
+    catch (e) { failed2 = /未知字段/.test(e.message); }
+    assert(failed2, '未知字段应让 Broker 构造失败');
+    rmSync(cfgPath);
+  });
+
+  // ⑩ 高版本库：拒绝打开（防降级写坏数据）
+  check('高版本库 → 拒绝打开（E_SCHEMA_NEWER_THAN_CODE）', () => {
+    const c = ctx();
+    c.broker._eng(c.eng.engagement_id).db.close();
+    const dbPath = join(c.home, `engagements/${c.eng.engagement_id}/fact.db`);
+    const raw = new DatabaseSync(dbPath);
+    raw.prepare("UPDATE meta SET v = '999' WHERE k = 'schema_version:fact'").run();
+    raw.close();
+    let code = null;
+    try { openEngagementDb(join(c.home, `engagements/${c.eng.engagement_id}`)); }
+    catch (e) { code = e.code; }
+    assert(code === ERR_SCHEMA_NEWER, `应报 ${ERR_SCHEMA_NEWER}，实际 ${code}`);
+  });
+
+  // ⑪ 迁移补齐：老库缺表 → 重新打开自动补齐且可继续作业
+  check('迁移补齐 → 老库缺表自动补建且可继续作业', () => {
+    const c = ctx();
+    const g = c.broker.global;
+    g.exec('DROP TABLE IF EXISTS secret_store; DROP TABLE IF EXISTS secret_grants;');
+    g.prepare("UPDATE meta SET v = '1' WHERE k = 'schema_version:global'").run();
+    const broker2 = new Broker({ home: c.home, adapter: new FakeAdapter() });
+    const put = broker2.secrets.put('after-migration', { label: 'm' });
+    broker2.secrets.grant(put.secret_ref, { engagement_id: c.eng.engagement_id, task_id: 't', purpose: 'p' });
+    const val = broker2.secrets.resolve(put.secret_ref, { task_id: 't', purpose: 'p' }).value;
+    assert(val === 'after-migration', '迁移后应可正常登记与解析秘密');
   });
 
   const failed = checks.filter((x) => !x.ok);
