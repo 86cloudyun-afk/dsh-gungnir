@@ -118,11 +118,14 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
         format: { type: 'string', enum: ['md', 'json', 'both'] },
+        max_facts_per_type: { type: 'integer' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportReport(args.engagement_id, { outDir: args.out_dir, format: args.format ?? 'md' }),
+    run: (core, args) => core.broker.exportReport(args.engagement_id, {
+      outDir: args.out_dir, format: args.format ?? 'md', maxFactsPerType: args.max_facts_per_type ?? 50,
+    }),
   },
   {
     name: 'warroom_status',
