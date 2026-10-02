@@ -3,6 +3,8 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { KnowledgeBase } from './knowledge.js';
+import { renderHtml } from './html.js';
+import { buildRemediation } from './remediation.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
@@ -56,6 +58,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(snap.rows);
+  const remediation = buildRemediation(facts);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -85,6 +88,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     jump_routes: routes,
     kb_usage: kbUsage,
     topology: R(topology),
+    remediation: R(remediation),
     efficiency: metrics ? {
       queue_ms: metrics.segments?.queue_ms ?? null,
       handoff_ms: metrics.segments?.handoff_ms ?? null,
@@ -232,6 +236,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(snap.rows);
+  const remediation = buildRemediation(facts);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -247,6 +252,20 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
+  if (remediation.items.length > 0) {
+    lines.push('## 修复建议');
+    lines.push('');
+    if (remediation.generic_count > 0) {
+      lines.push(`> 其中 **${remediation.generic_count}** 条为**按类型给出的通用建议**（事实里未附带逐条修复说明）；`
+        + '请结合资产实际处置，勿当逐条结论照抄。');
+      lines.push('');
+    }
+    for (const item of remediation.items) {
+      lines.push(`- \`${item.ref}\` — ${R(item.advice)}（来源：${item.source}）`);
+    }
+    lines.push('');
+  }
+
   if (topology.edges.length > 0) {
     const viz = toMermaidGrouped(topology);
     lines.push('## 攻击路径拓扑');
@@ -362,12 +381,21 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   const markdown = check.reproducible ? built.markdown.replace(/(\n## 声明)/, `${checkLines.join('\n')}$1`) : built.markdown + checkLines.join('\n');
 
   const out = { paths: {}, watermark, evidence_digests, self_check: selfCheck };
-  if (format === 'md' || format === 'both') {
+  const wantMd = format === 'md' || format === 'both' || format === 'all';
+  const wantJson = format === 'json' || format === 'both' || format === 'all';
+  const wantHtml = format === 'html' || format === 'all' || format === 'both';
+  if (wantMd) {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
     writeFileSync(path, markdown, 'utf8');
     out.paths.markdown = path;
   }
-  if (format === 'json' || format === 'both') {
+  if (wantHtml) {
+    const path = join(outDir, `${engagementId}-report-${watermark.seq}${audience === 'full' ? '' : `-${audience}`}.html`);
+    writeFileSync(path, renderHtml({ markdown: check.reproducible ? markdown : markdown + checkLines.join('\n'),
+      title: `GUNGNIR 战役报告 · ${engagementId}${audience === 'full' ? '' : ` · ${audience}`}` }), 'utf8');
+    out.paths.html = path;
+  }
+  if (wantJson) {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
     const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home, metrics });
     json.audience = audience;

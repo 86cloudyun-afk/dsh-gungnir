@@ -3,6 +3,27 @@
 ## Unreleased
 
 ### Added
+- **报告修复建议段**（`remediation.js`）：**事实自带修复说明优先**（`payload.remediation|fix|advice`）；
+  没有就按类型/关键词给通用建议，并在段首**明确标注**"其中 N 条为通用建议，请结合资产实际处置，勿当逐条结论照抄"；
+  只对 vuln/credential/chain 出建议（asset/session 不凑数），无 vuln 事实则整段不出现
+- 文档收口：QUICKSTART 增「值班动线（每 30 分钟看什么）」；ACCEPTANCE 增 5 行（巡检/油表/CSV/HTML/交付前一体化）、
+  数字同步（322 例 / 32 工具 / 故障矩阵 16 场景）
+- **速率与预算视图**（"油表"）：`warroom rate --engagement <id> [--text|--json]`（工具 `warroom_rate_view`，
+  32 个工具）—— wire 用量/上限/剩余、按目标分布、本次要求间隔（含抖动区间）与"还需等待"、
+  并发上限、喷洒台账（含锁定次数）；**只读**（回归断言水位与 rate_ledger 不变）
+- **效率数据导出**：`metrics --csv [--out <file>]`（`metrics-export.js`）—— 把 `metrics()` 摊平成
+  `section,key,metric,value` 五行节（total/segment/rework/retry/by_role/by_tier），RFC4180 转义，
+  供表格工具复盘"哪条线/哪个档位划算"
+- **交付前一体化**：`report --verify`（工具 `verify:true`）→ `exportReportVerified` 导出后立刻用
+  **同一判定**复核可复现性并返回 `verify{reproducible,report_seq,current_seq,drift_seq}`；
+  CLI 在漂移时非零退出（交付流程里"导出→校验"两步合成一步，漏不掉）
+- **故障矩阵 14→16 场景（交付物边界）**：客户版文件不得含审计明细、HTML 不得引外部资源；
+  证据落盘的索引/客户版/内部全量**三处都不得含明文秘密**（秘密只以引用存在）
+- **CI 加 `--quiet`**：只输出「门禁汇总」，退出码仍真实反映成败——从机制上不需要 `| tail`
+  （管道会吞退出码；本项目两次踩此坑，第二次正是 `npm run ci | tail -4` 掩盖了失败）
+- **报告 HTML 渲染**：`report --format html|all`（工具 `format` 增 html/all）—— 自包含单文件 HTML
+  （内联 CSS、**零外部资源**，离线可读）；mermaid 图**双份**（可渲染块 + 离线源码）；
+  受众视图独立成文件（`…-client.html`）；回归断言"无外部 link/script 与 URL 资源"
 - **巡检统一视图** `warroom watch --engagement <id> [--text|--json]`（工具 `warroom_watch`，31 个工具）：
   一屏汇聚**活跃/失效路由、在飞任务（含心跳龄期与超阈值标记）、出口验证、壳状态**，
   并给出「需要注意」清单（失效路由、无活跃出口、出口验证失效、超阈值任务、unresolved 残留）；
