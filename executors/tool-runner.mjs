@@ -44,14 +44,19 @@ function readStdin() {
  * 实测一条 echo 级别的命令要 ~30 秒（测试因此卡死），而且把执行层耦合到交互式环境。
  * 需要工具链环境时**显式**给 `GUNGNIR_TOOLS_ENV=/path/to/tools/env.sh`（或 opts.toolsEnv）。
  */
-export function runTool(cmd, { artifactDir, env = {}, timeoutMs = 300_000, id = 'cmd', log = null, toolsEnv = null } = {}) {
+export function runTool(cmd, { artifactDir, env = {}, timeoutMs = 300_000, id = 'cmd', log = null, toolsEnv = null, cleanProxyEnv = true } = {}) {
   const envFile = toolsEnv ?? process.env.GUNGNIR_TOOLS_ENV ?? null;
   const script = envFile && existsSync(envFile)
     ? `source ${JSON.stringify(envFile)} >/dev/null 2>&1; ${cmd}`
     : cmd;
+  const base = { ...process.env };
+  if (cleanProxyEnv) {
+    // 目标流量必须显式指定出口：环境里的代理变量会造成"静默回落本机出口"或与 -x 打架
+    for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'NO_PROXY']) delete base[k];
+  }
   const r = spawnSync('bash', ['-c', script], {
     encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...env },
+    env: { ...base, ...env },
   });
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
@@ -104,6 +109,29 @@ export function parseAssets(text) {
   return out;
 }
 
+/** `curl -i -w __CURL__…` 输出 → asset 成员（状态码/标题/大小/耗时/关键响应头）。 */
+export function parseHttp(text) {
+  const body = String(text ?? '');
+  const marker = body.lastIndexOf('__CURL__');
+  const meta = marker >= 0 ? body.slice(marker + '__CURL__'.length).trim().split(/\s+/) : [];
+  const status = meta[0] ? Number(meta[0]) : null;
+  const size = meta[1] ? Number(meta[1]) : null;
+  const timeSec = meta[2] ? Number(meta[2]) : null;
+  const head = marker >= 0 ? body.slice(0, marker) : body;
+  const title = (/<title[^>]*>([^<]{0,200})<\/title>/i.exec(head) ?? [])[1] ?? null;
+  const server = (/^server:\s*(.+)$/im.exec(head) ?? [])[1]?.trim() ?? null;
+  const poweredBy = (/^x-powered-by:\s*(.+)$/im.exec(head) ?? [])[1]?.trim() ?? null;
+  const location = (/^location:\s*(.+)$/im.exec(head) ?? [])[1]?.trim() ?? null;
+  const cookieName = (/^set-cookie:\s*([^=;\s]+)/im.exec(head) ?? [])[1]?.trim() ?? null;
+  if (status === null || Number.isNaN(status)) return [];
+  return [{
+    entity_type: 'asset', source_id: `http:${status}:${title ?? ''}`.slice(0, 120), revision_no: 1,
+    content_hash: sha(`${status}|${title ?? ''}|${size ?? ''}|${server ?? ''}`),
+    payload: { status, title, server, powered_by: poweredBy, location, set_cookie_name: cookieName,
+      size, time_sec: timeSec, tool: 'curl' },
+  }];
+}
+
 /** nuclei 行 → vuln 成员。 */
 export function parseFindings(text) {
   const out = [];
@@ -126,10 +154,63 @@ export function parseFindings(text) {
   return out;
 }
 
-/** 角色 → 命令计划（纯函数，便于回归；不接触网络）。 */
-export function planCommands(role, targets, { maxRequests = 200 } = {}) {
+/** 支持的动作（会写进拒绝信息里，让指挥层知道该派什么）。 */
+export const SUPPORTED_ACTIONS = Object.freeze([
+  'http_get（readonly：单次 HTTP 请求，取状态/标题/关键响应头）',
+  'recon（subfinder → httpx）',
+  'nuclei_scan（显式要求才跑：限量扫描）',
+]);
+
+/**
+ * 契约 → 命令计划（纯函数，便于回归；不接触网络）。
+ *
+ * **按 `contract.action` 办事，而不是按角色猜**。真机教训（2026-10-03）：指挥层派
+ * `action: http_get`（带 url）要的是"看一眼这个页面"，执行器却因为 `role=assess` 去跑了
+ * 10 分钟 nuclei —— 跑飞、被超时杀掉、状态 failed、wire=0，指挥层看到的就是"派单成功但执行失败"。
+ */
+export function planCommands(role, targets, { maxRequests = 200, action = null, url = null, method = 'GET', exit = null } = {}) {
   const t0 = targets?.[0];
-  if (!t0) return { commands: [], reason: 'contract.targets 为空' };
+  const act = (action ?? role ?? '').toString();
+  const targetUrl = url ?? (t0 ? (String(t0).startsWith('http') ? t0 : `https://${t0}`) : null);
+  if (!t0 && !url) return { commands: [], reason: 'contract.targets/url 为空：没有可执行的对象' };
+
+  // ① readonly 单次 HTTP（金丝雀/看页面）：只发 1 个请求
+  if (['http', 'http_get', 'http_probe', 'probe', 'readonly'].includes(act)) {
+    if (!targetUrl) return { commands: [], reason: 'http_get 需要 contract.url 或 targets' };
+    return {
+      commands: [{
+        id: 'http_get', tool: 'http_get', timeoutMs: 45_000,
+        // 必须**显式** -x：只靠 ALL_PROXY 时 curl 会只完成 CONNECT 就失败（真机实测 000）
+        cmd: `curl -sS -i -m 20${exit ? ` -x ${exit}` : ''} -X ${method}`
+          + ` -w "\\n__CURL__%{http_code} %{size_download} %{time_total}" ${JSON.stringify(targetUrl)}`,
+        parse: 'http',
+      }],
+      requests: 1,
+    };
+  }
+
+  // ② 任意命令：明确拒绝（本通道不给通用 shell；要用 shell 请用渗透模式会话）
+  if (['exec', 'shell', 'bash', 'cmd', 'command'].includes(act)) {
+    return {
+      commands: [],
+      reason: 'action=exec（任意命令）未实装且**不属于本通道**：'
+        + `允许的动作只有 ${SUPPORTED_ACTIONS.join(' / ')}。需要通用 shell 请用「新版多 Agent 渗透指挥官」会话。`,
+    };
+  }
+
+  // ③ 显式要求才跑扫描（噪声大）
+  if (act === 'nuclei_scan' || (act === 'assess' && action === 'assess') || (role === 'assess' && action === null)) {
+    return {
+      commands: [{
+        id: 'nuclei', tool: 'nuclei',
+        cmd: `printf '%s\\n' ${t0} | nuclei -silent -jsonl -severity critical,high,medium -rl 5 -timeout 10 -retries 1`,
+        timeoutMs: TIMEOUTS.nuclei, parse: 'findings',
+      }],
+      requests: Math.min(maxRequests, 50),
+    };
+  }
+
+  // ④ 角色式 recon
   if (role === 'recon') {
     const domain = t0.replace(/^https?:\/\//, '').split('/')[0];
     return {
@@ -144,23 +225,16 @@ export function planCommands(role, targets, { maxRequests = 200 } = {}) {
       requests: Math.min(maxRequests, 40),
     };
   }
-  if (role === 'assess') {
-    return {
-      commands: [
-        {
-          id: 'nuclei', tool: 'nuclei',
-          cmd: `printf '%s\\n' ${t0} | nuclei -silent -jsonl -severity critical,high,medium -rl 5 -timeout 10 -retries 1`,
-          timeoutMs: TIMEOUTS.nuclei, parse: 'findings',
-        },
-      ],
-      requests: Math.min(maxRequests, 50),
-    };
-  }
-  return { commands: [], reason: `角色 ${role} 未实装（fail-closed：不猜、不造事实）` };
+  return {
+    commands: [],
+    reason: `动作 ${JSON.stringify(act)} 未实装（fail-closed：不猜、不造事实）。`
+      + `允许的动作：${SUPPORTED_ACTIONS.join(' / ')}`,
+  };
 }
 
 export async function runJob(job, opts = {}) {
   const role = job.role ?? job.contract?.intent ?? 'recon';
+  // 动作优先（契约说什么就干什么）：指挥层派 http_get 时不要按 role 去猜扫描
   const contract = job.contract ?? {};
   const targets = contract.targets ?? [];
   const externalId = job.external_id ?? contract.task_id ?? 'job';
@@ -175,11 +249,17 @@ export async function runJob(job, opts = {}) {
       + '直连目标违反出口 SOP。若确为本地/实验室目标，设 GUNGNIR_ALLOW_DIRECT=1。');
   }
 
-  const plan = planCommands(role, targets, { maxRequests: Number(process.env.GUNGNIR_MAX_REQUESTS ?? 200) });
+  const plan = planCommands(role, targets, {
+    maxRequests: Number(process.env.GUNGNIR_MAX_REQUESTS ?? 200),
+    action: contract.action ?? null, url: contract.url ?? null, method: contract.method ?? 'GET',
+    exit: exitSocks,
+  });
   if (plan.commands.length === 0) throw new Error(plan.reason ?? '无可用命令计划');
 
-  const env = exitSocks
-    ? { ALL_PROXY: exitSocks, all_proxy: exitSocks, NO_PROXY: '', no_proxy: '' }
+  // Go 系工具（subfinder/httpx/nuclei）没有 -x 参数，只能靠环境变量；它们认 socks5:// 方言
+  const goProxy = exitSocks ? exitSocks.replace(/^socks5h:\/\//, 'socks5://') : null;
+  const env = goProxy
+    ? { ALL_PROXY: goProxy, HTTP_PROXY: goProxy, HTTPS_PROXY: goProxy, all_proxy: goProxy, http_proxy: goProxy, https_proxy: goProxy }
     : {};
   const members = [];
   for (const step of plan.commands) {
@@ -188,7 +268,8 @@ export async function runJob(job, opts = {}) {
       // 工具失败不伪造事实；把失败作为成员之外的错误抛出（主控→unknown）
       throw new Error(`工具 ${step.tool} 执行失败（exit=${r.exit}${r.timedOut ? ', timeout' : ''}）：${r.stderr.slice(0, 300)}`);
     }
-    if (step.parse === 'domains') members.push(...parseDomains(r.stdout, targets[0]));
+    if (step.parse === 'http') members.push(...parseHttp(r.stdout));
+    else if (step.parse === 'domains') members.push(...parseDomains(r.stdout, targets[0]));
     else if (step.parse === 'assets') members.push(...parseAssets(r.stdout));
     else if (step.parse === 'findings') members.push(...parseFindings(r.stdout));
   }

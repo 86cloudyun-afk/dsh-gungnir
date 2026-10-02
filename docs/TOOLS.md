@@ -5,7 +5,7 @@
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
-| `warroom_execute` | 唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发 | `{ command_id*:string, engagement_id*:string, auth_version*:integer, action_class*:readonly|active|destructive, contract*:object, manual_approval_token:string }` | ✅ |
+| `warroom_execute` | 派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。 | `{ command_id*:string, engagement_id*:string, auth_version*:integer, action_class*:readonly|active|destructive, contract*:object, manual_approval_token:string }` | ✅ |
 | `warroom_collect` | 回执入库（成员级幂等 + 代际隔离） | `{ engagement_id*:string, task_id*:string, receipt*:object }` | ✅ |
 | `warroom_cancel` | 请求取消（幂等）；停止由资源清单逐项探针证实 | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |
 | `warroom_fact_query` | 事实查询（只读） | `{ engagement_id*:string, entity_type:string, source_id:string, since:string, include_history:boolean, adapter_instance:string, limit:integer }` | ✅ |
