@@ -360,6 +360,31 @@ export function runFaultMatrix() {
     assert(after.deliverable === false, '报告漂移属"已做的东西坏了"，progress 也必须拦');
   });
 
+  // ⑲ 人工确认的边界：不得刷绿门禁；自动项拒绝"确认"
+  check('人工确认边界 → 不刷绿门禁 & 自动项拒绝确认', () => {
+    const c = ctx();
+    const before = c.broker.checklist(c.eng.engagement_id).deliverable;
+    assert(before === false, '前置：未交付时门禁应为 false');
+
+    // 确认人工项：状态变 ✅，但门禁不受影响
+    c.broker.confirmChecklistItem(c.eng.engagement_id, { itemId: 'shell', by: 'fault-matrix', note: '人工复核' });
+    const after = c.broker.checklist(c.eng.engagement_id);
+    assert(after.deliverable === false, '人工确认不得把门禁刷绿');
+    const shellItem = after.items.find((i) => i.id === 'shell');
+    assert(shellItem.status === '✅', '人工项确认后应显示 ✅');
+    assert(shellItem.confirmed?.by === 'fault-matrix', '确认必须带署名');
+
+    // 自动项拒绝确认
+    let rejected = false;
+    try { c.broker.confirmChecklistItem(c.eng.engagement_id, { itemId: 'report', by: 'x' }); }
+    catch { rejected = true; }
+    assert(rejected, '对自动项确认应当被拒绝');
+
+    // 审计留痕存在且只有一条（被拒的那次不得落账）
+    const rows = c.broker.audit(c.eng.engagement_id, { decision: 'checklist_confirm' }).rows;
+    assert(rows.length === 1, `审计应恰好 1 条，实际 ${rows.length}`);
+  });
+
   const failed = checks.filter((x) => !x.ok);
   return { total: checks.length, passed: checks.length - failed.length, failed, checks: [...checks] };
 }
