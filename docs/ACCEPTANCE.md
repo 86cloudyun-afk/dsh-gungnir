@@ -14,7 +14,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` | ✅ 文件与校验器就绪（**真实 DSH 挂载层生效仍待集成**，见「缺口」——本条是 v0.1 唯一未闭环项） |
+| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`**（宿主校验器 + 真实进程挂载） | ✅ **已接入本机 DSH**（dsh 0.2.0-rc.2）：预设行写入 web profile，装配验证通过；真实 DSH 进程里模型只见 36 个 `warroom_*`，关闭内核行后无 `bash/write/edit/subagent`。**待操作员重启 `dsh web` 后在会话里点验工具面板**（`docs/PRESET.md`「真机验证记录」） |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
@@ -67,7 +67,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 | 缺口 | 影响 | 计划 |
 |---|---|---|
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
-| 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
+| 允许清单在真实 DSH 挂载层生效 | **已完成接线**：`scripts/deploy-dsh.mjs` 写入真实契约的预设行（`@deepseek-ai/dsh-agent-preset`），`--verify` 用 `dsh --dump-config` 验证装配，真实进程冒烟确认 36 工具可见且内核工具不存在 | 操作员重启 `dsh web` → 新建会话选「红队指挥（GUNGNIR）」→ 点验工具面板（点验后本条转 ✅） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
 可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
