@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **围栏真实验收进 CI**（ADR-004 范围项 1）：新增 `fence` job（GitHub runner 自带 docker daemon），
+  `--require-daemon` 让 daemon 不可用时**失败而非静默通过**；本地无 daemon 时默认 SKIP（退出 0）
 - **进程级取消证实**（ADR-004 范围项 2）：真实探针 `probes.js`（PID 存活 / TCP 端口监听 /
   容器 inspect；探针不可用一律 fail-closed 视作未证实）；资源清单支持描述对象
   （`{kind:'process',pid}` / `{kind:'port',port}` / `{kind:'container',container_id}`）；
