@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **战役时序视图**：`warroom timeline --engagement <id> [--text|--json]`（工具 `warroom_timeline`，30 个工具）
+  —— 立项→派发→回执→结项→控制面→交付 的事件时间线，按账本真实事件排序；缺失阶段如实为 null、
+  无时间戳的账本态事件单列（不脑补时间）
 - **报告受众差异化**：`report --audience client|blue|full` —— 客户版（攻击路径 + 影响 + 修复建议；
   不铺逐条事实/审计明细/知识库记账/跳板台账，并显式说明细则在内部版）、
   蓝队版（IOC 优先口径 + 审计摘要 + 知识库复用 + 跳板台账）、全量（默认）；

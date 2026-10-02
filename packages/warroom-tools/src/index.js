@@ -474,6 +474,17 @@ export const TOOLS = [
     },
     run: (core, args) => core.aggregateView({ sessionsDbPath: args.sessions_db || null }),
   },
+  {
+    name: 'warroom_timeline',
+    description: '战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.timeline(args.engagement_id),
+  },
 ];
 
 export { ERR };

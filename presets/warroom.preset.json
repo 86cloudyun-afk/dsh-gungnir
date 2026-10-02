@@ -44,6 +44,7 @@
       "warroom_heartbeat",
       "warroom_preflight",
       "warroom_aggregate",
+      "warroom_timeline",
       "skill"
     ],
     "deny": [

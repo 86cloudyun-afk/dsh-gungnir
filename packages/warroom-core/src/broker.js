@@ -16,6 +16,7 @@ import { SecretVault } from './secrets.js';
 import { KnowledgeBase } from './knowledge.js';
 import { loadConfig } from './config.js';
 import { preflight } from './preflight.js';
+import { buildTimeline } from './timeline.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -428,6 +429,12 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /** 战役时序（账本事件的只读视图）。 */
+  timeline(engagementId) {
+    const { store } = this._eng(engagementId);
+    return buildTimeline({ store, globalDb: this.global, engagementId });
   }
 
   /** 枚举家目录下的战役 id（用于跨战役巡检；库缺失即跳过）。 */
