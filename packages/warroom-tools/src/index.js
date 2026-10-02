@@ -395,6 +395,30 @@ export const TOOLS = [
       return core.broker.secrets.rotateKey();
     },
   },
+  {
+    name: 'warroom_egress_check',
+    description: '出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        action: { type: 'string', enum: ['status', 'record'] },
+        jumphost_id: { type: 'string' }, exit_ip: { type: 'string' },
+        route_id: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'fail'] },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if ((args.action ?? 'status') === 'record') {
+        return core.broker.recordEgressCheck(args.engagement_id, {
+          jumphost_id: args.jumphost_id, exit_ip: args.exit_ip,
+          route_id: args.route_id ?? null, verdict: args.verdict ?? 'pass',
+        });
+      }
+      return core.broker.egressStatus(args.engagement_id);
+    },
+  },
 ];
 
 export { ERR };
