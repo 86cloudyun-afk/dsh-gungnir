@@ -22,17 +22,20 @@ test('wire 预算：超出节奏档上限被拒绝（restricted=1000）', () => 
   );
 });
 
-test('最小间隔：仅 stealth 档生效（8s 地板），冷却后可放行', () => {
+test('最小间隔：仅 stealth 档生效（含抖动/漂移，超过后放行）', () => {
   let now = 0;
-  const h = harness({ authOverrides: { rhythm: 'stealth' }, nowMs: () => now });
+  // rng=0 → 取抖动区间下界；漂移可能把要求抬到 ~9.6s，故按 retry_after_ms 精确等待
+  const h = harness({ authOverrides: { rhythm: 'stealth' }, nowMs: () => now, rng: () => 0 });
   now = Date.now();
   h.broker.execute({ ...h.base, command_id: 'mi-1', contract: h.contract({ wire_cost: 1 }) });
   h.broker.cancel(h.eng.engagement_id, 'mi-1', 'test'); // 释放并发名额（stealth 并发=1）
-  assert.throws(
-    () => h.broker.execute({ ...h.base, command_id: 'mi-2', contract: h.contract({ wire_cost: 1 }) }),
-    (e) => e.code === 'E_GATE_RATE_LIMIT' && typeof e.retry_after_ms === 'number'
-  );
-  now += 9000; // 越过 8s 地板（留出真实执行耗时余量）
+  let err = null;
+  try {
+    h.broker.execute({ ...h.base, command_id: 'mi-2', contract: h.contract({ wire_cost: 1 }) });
+  } catch (e) { err = e; }
+  assert.equal(err?.code, 'E_GATE_RATE_LIMIT');
+  assert.ok(err.retry_after_ms > 0);
+  now += err.retry_after_ms + 100; // 精确跨过本次要求间隔（含真实耗时余量）
   const ok = h.broker.execute({ ...h.base, command_id: 'mi-2', contract: h.contract({ wire_cost: 1 }) });
   assert.equal(ok.state, 'running');
 });
