@@ -70,7 +70,9 @@ node bin/warroom.mjs cancel --engagement "$ENG" --task "$TID" --json
 ## 6. 报告：同一份证据的两个视图
 
 ```sh
-node bin/warroom.mjs report --engagement "$ENG" --format both --json
+node bin/warroom.mjs report --engagement "$ENG" --format both                 # 全量（内部）
+node bin/warroom.mjs report --engagement "$ENG" --format md --audience client  # 客户版
+node bin/warroom.mjs report --engagement "$ENG" --format md --audience blue    # 蓝队版 --json
 ```
 ```json
 { "paths": { "markdown": "…/report-1.md", "json": "…/report-1.json" },
@@ -216,7 +218,9 @@ node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG"
 node bin/warroom.mjs preflight --engagement "$ENG" --meeting wave.json --json   # ready|degraded|blocked
 node bin/warroom.mjs wave --dry-run --engagement "$ENG" --meeting wave.json
 node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json
-node bin/warroom.mjs report --engagement "$ENG" --format both
+node bin/warroom.mjs report --engagement "$ENG" --format both                 # 全量（内部）
+node bin/warroom.mjs report --engagement "$ENG" --format md --audience client  # 客户版
+node bin/warroom.mjs report --engagement "$ENG" --format md --audience blue    # 蓝队版
 node bin/warroom.mjs evidence --engagement "$ENG" --out findings/evidence/10.0.0.5
 node bin/warroom.mjs aggregate --sessions-db "$DSH_HOME/storages/pentest-sessions.db" --out aggregate.json
 node bin/warroom.mjs backup --keep 7

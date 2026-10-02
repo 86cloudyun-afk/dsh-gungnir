@@ -86,6 +86,7 @@ const { values: v } = parseArgs({
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
+    audience: { type: 'string' },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -303,6 +304,7 @@ switch (command) {
     out(broker.exportReport(need('engagement', v.engagement), {
       outDir: v.out, format: v.format ?? 'md',
       maxFactsPerType: v['max-facts'] ? Number(v['max-facts']) : 50,
+      audience: v.audience ?? 'full',
     }));
     break;
   case 'audit': {
