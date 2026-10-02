@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **跳板台账与收口**：`JumphostManager.status`（主机/租约/路由总览）、`releaseRoute`（幂等收口）；
+  工具 `warroom_jumps`（status/release/sweep，工具数 23→24）、CLI `jump status|release`
 - **报告全景补强**：md 增「审计摘要（门闸判定分布）」与「跳板与隧道台账」两段，
   JSON（`gungnir-report/1`）增 `audit_summary` 与 `jump_routes` 字段——一份报告说清战役全貌
 - **审计查询与导出**：`broker.audit`（按 decision/since 过滤 + 决策分布）、`broker.auditExport`
