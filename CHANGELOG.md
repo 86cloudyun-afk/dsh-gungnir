@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 报告收录**链前会议纪要**（md 段 + json `meetings`）：波次与报告的追溯链闭合；
+  QUICKSTART 增补波次章节，PRESET.md 标注运行时入口
 - **波次编排**（框架 §3.5 运行时语义）：`warroom wave --engagement <id> --meeting <file>` ——
   会议纪要落库（会不开波不发）→ 按依赖派单 → 独立任务立即并行、依赖满足即刻交接（波内无屏障）
   → 回执按成员级幂等入库 → 执行器报终态后**结项**（`broker.settle`）；成环/悬空依赖如实报错
