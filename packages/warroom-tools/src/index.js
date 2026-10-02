@@ -308,6 +308,63 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
   },
+  {
+    name: 'warroom_spray_matrix',
+    description: '凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        credentials: { type: 'array', items: { type: 'string' } },
+        services: { type: 'array', items: { type: 'string' } },
+        accounts: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['engagement_id', 'credentials', 'services'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, ...rest } = args;
+      return core.broker.sprayMatrix(engagement_id, rest);
+    },
+  },
+  {
+    name: 'warroom_audit',
+    description: '审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, decision: { type: 'string' },
+        since: { type: 'string' }, limit: { type: 'integer' }, export_dir: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, export_dir, ...opts } = args;
+      if (export_dir) return core.broker.auditExport(engagement_id, { outDir: export_dir });
+      return core.broker.audit(engagement_id, opts);
+    },
+  },
+  {
+    name: 'warroom_jumps',
+    description: '跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        action: { type: 'string', enum: ['status', 'release', 'sweep'] },
+        route_id: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const action = args.action ?? 'status';
+      if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
+      if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
+      return core.jumps.status(args.engagement_id);
+    },
+  },
 ];
 
 export { ERR };

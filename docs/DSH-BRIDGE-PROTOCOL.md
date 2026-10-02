@@ -78,8 +78,24 @@ node scripts/dsh-bridge-responder.mjs --root <root> --once --mode fixture --fixt
 - 幂等：同一 `external_id` 的 job/stop 只处理一次；所有写入原子（tmp + rename）。
 - 跨进程验证见 `test/dsh-responder.test.js`：GUNGNIR 与应答器分属不同进程，仅经 spool 通信。
 
+## 执行器插件（真实接入点，ADR-004 项 4）
+
+```sh
+# 用执行器插件跑桥（DSH 侧进程）
+GUNGNIR_EXECUTOR_CMD="/path/to/dsh-executor --json" \
+  node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge" \
+  --executor executors/dsh-redteam-executor.mjs
+```
+
+- 插件契约：`export default { name, run(job) → { members, resources } }`（可为 async）。
+- 内置：`executors/echo-executor.mjs`（彩排）。
+- 真实接入：`executors/dsh-redteam-executor.mjs` —— 把 job 经 stdin 交给 `GUNGNIR_EXECUTOR_CMD`，
+  要求其输出 `{members, resources}`；**未配置或输出非法即失败**，绝不写"看起来成功"的回执（fail-closed）。
+- 失败可重试（幂等键 `external_id` 会释放），主控侧表现为任务 `unknown/unresolved`，
+  而不是"完成"——这正是 ADR-003 想要的语义。
+
 ## 待办（v0.2 集成波次）
 
-- 应答器接入真实执行层：把 `handleJob` 的 echo 分支替换为「调红队模式插件服务派单」
-  （参考实现已给出进程骨架、协议消费与幂等/原子写）。
+- 在 DSH 侧把 `GUNGNIR_EXECUTOR_CMD` 指向一个调用红队模式插件服务的脚本
+  （输入 job JSON → 派单到五角色 → 收集事实/探针 → 输出回执 JSON）。
 - 出口与授权仍由 GUNGNIR 门闸约束（执行层的网络流量必须经跳板池，见框架 §12）。
