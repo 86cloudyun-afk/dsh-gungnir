@@ -87,6 +87,8 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 执行三桶 | 桶 A 必须有出口；桶 B 禁 socks；桶 C 需跳板且情报不落跳板；预检分层告警 | `test/buckets.test.js` | ✅ |
+| 开工前预检 | 三态结论 + 波次目标逐个核授权范围 + 成环拦截 | `test/preflight.test.js` | ✅ |
 | 活跃 route 生命周期 | 心跳续期；租约释放/长时无心跳 → stale；围栏不再取该出口 | `test/route-liveness.test.js` | ✅ |
 | 长时任务心跳 | 持续心跳不被清扫；心跳失效转 unknown 且基准标为 heartbeat | `test/heartbeat.test.js` | ✅ |
 | 报告攻击路径拓扑 | 显式引用优先、隐式标「推断」、无引用不画边 | `test/topology.test.js` | ✅ |
