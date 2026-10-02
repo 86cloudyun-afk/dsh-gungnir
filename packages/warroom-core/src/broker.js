@@ -5,7 +5,7 @@ import {
   validateFourTuple, validateContract, validateReceipt, RHYTHM_CONCURRENCY, RHYTHM_WIRE_CAP,
   RHYTHM_MIN_INTERVAL_MS, RHYTHM_JITTER_MS, RHYTHM_HOURLY_DRIFT,
   warroomError, ERR, canTransition, isTerminal, makeGeneration,
-  ALL_TASK_STATES,
+  ALL_TASK_STATES, ACTION_CLASS,
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
 import { join } from 'node:path';
@@ -946,6 +946,9 @@ export class Broker {
     validateFourTuple({ engagement_id: engagementId, auth_version: original[0],
       task_id: cmd.task_id, action_class: contract.action_class });
     const { row, auth } = this._auth(engagementId);
+    if (!ACTION_CLASS.includes(auth.action_class_limit)) {
+      throw warroomError(ERR.E_GATE_CLASS_EXCEEDS_LIMIT, 'authorization action_class_limit invalid');
+    }
     const nowMs = this._nowMs();
     const start = Date.parse(auth.window_start), end = Date.parse(auth.window_end);
     if (![nowMs, start, end].every(Number.isFinite) || start > end) {
