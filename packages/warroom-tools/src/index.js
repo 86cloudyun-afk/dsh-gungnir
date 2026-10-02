@@ -124,12 +124,14 @@ export const TOOLS = [
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
         format: { type: 'string', enum: ['md', 'json', 'both'] },
         max_facts_per_type: { type: 'integer' },
+        audience: { type: 'string', enum: ['client', 'blue', 'full'] },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => core.broker.exportReport(args.engagement_id, {
-      outDir: args.out_dir, format: args.format ?? 'md', maxFactsPerType: args.max_facts_per_type ?? 50,
+      outDir: args.out_dir, format: args.format ?? 'md',
+      maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
     }),
   },
   {
