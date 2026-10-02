@@ -14,6 +14,30 @@ import { buildTopology, toMermaidGrouped } from './topology.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
+/**
+ * 蓝队口径：把 IOC 段整体前移到「水位」之后（排查清单先看到要拉黑的指标）。
+ * 只做整段搬迁，不改段内容——排版顺序是视图差异，不是事实差异。
+ */
+function prioritizeSections(lines, keyword) {
+  const head = [];
+  const sections = [];
+  let cur = null;
+  for (const line of lines) {
+    if (/^## /.test(line)) {
+      cur = { title: line, body: [line] };
+      sections.push(cur);
+    } else if (cur) cur.body.push(line);
+    else head.push(line);
+  }
+  const idx = sections.findIndex((sec) => sec.title.includes(keyword));
+  if (idx < 0) return lines;
+  const [ioc] = sections.splice(idx, 1);
+  const anchor = sections.findIndex((sec) => sec.title.includes('水位'));
+  const at = anchor >= 0 ? anchor + 1 : 0;
+  sections.splice(at, 0, ioc);
+  return [...head, ...sections.flatMap((sec) => sec.body)];
+}
+
 /** 知识库用量（读不到就当作空：报告不因知识库缺失而失败）。 */
 function readKbUsage(home, engagementId) {
   if (!home) return { rows: [], total: 0, distinct_pocs: 0, by_result: {} };
@@ -366,7 +390,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('- IOC 附录为半自动初稿：自动聚合器在 v0.2，当前版本需人工逐项确认。');
   lines.push('');
 
-  const markdown = lines.join('\n');
+  const ordered = audience === 'blue' ? prioritizeSections(lines, 'IOC') : lines;
+  const markdown = ordered.join('\n');
   return {
     markdown,
     watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
