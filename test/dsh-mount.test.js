@@ -2,9 +2,10 @@
 // 依赖宿主实现：通过 DSH_CORE_DIR（默认取常见部署路径）导入 @deepseek-ai/dsh-tools；
 // 宿主不可用时如实 SKIP（不假装通过）。
 import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const CANDIDATES = [
@@ -88,7 +89,7 @@ test('全量注册：工具全部注册成功且名字唯一（默认不请求 r
     tools: { register: (d) => { registered.push(d); return () => {}; } },
     on: () => {},
   };
-  const svc = entry.apply(ctx, { home: '/tmp/wr-mount-test' });
+  const svc = entry.apply(ctx, { home: mkdtempSync(join(tmpdir(), 'wr-mount-test-')) });
   assert.equal(registered.length, TOOLS.length);
   assert.equal(new Set(registered.map((d) => d.name)).size, TOOLS.length, '工具名不得重复');
   assert.equal(svc.registered.length, TOOLS.length);
@@ -111,11 +112,11 @@ test('预设内服务必须走 isolate realm：裸 provide 会把预设标 broke
   });
 
   // 无 isolate 能力时：宁可**不发布**服务，也不能裸 provide（否则 registry 标 broken）
-  entry.apply(mkCtx(false), { home: '/tmp/wr-mount-nobare' });
+  entry.apply(mkCtx(false), { home: mkdtempSync(join(tmpdir(), 'wr-mount-nobare-')) });
   assert.deepEqual(bare, [], '不得在预设作用域裸 provide');
 
   // 有 isolate 时：发布进私有 realm（真机用 dsh 2.0.0-rc.2 验证 broken 归零）
-  entry.apply(mkCtx(true), { home: '/tmp/wr-mount-isolated' });
+  entry.apply(mkCtx(true), { home: mkdtempSync(join(tmpdir(), 'wr-mount-isolated-')) });
   assert.deepEqual(bare, [], '提供路径不得回落到裸 provide');
   assert.deepEqual(isolated, ['warroom:warroom']);
 });
@@ -129,14 +130,14 @@ test('restrict 的两种真实结局：作用域外用不了 → 记状态不致
 
   // 宿主拒绝（真机行为：restrict 只在 agent 作用域可用）
   const unscoped = entry.apply(mkCtx(() => { throw new Error('tools.restrict() requires a scoped context (agent.ctx)'); }),
-    { home: '/tmp/wr-mount-test-2', restrictInScope: true });
+    { home: mkdtempSync(join(tmpdir(), 'wr-mount-test-')), restrictInScope: true });
   assert.match(unscoped.restrictStatus, /skipped: tools\.restrict\(\) requires a scoped context/);
   assert.equal(unscoped.registered.length, TOOLS.length, 'restrict 失败不影响工具注册');
 
   // 作用域内可用
   let deny = null;
   const scoped = entry.apply(mkCtx((f) => { deny = f.deny; return () => {}; }),
-    { home: '/tmp/wr-mount-test-3', restrictInScope: true });
+    { home: mkdtempSync(join(tmpdir(), 'wr-mount-test-')), restrictInScope: true });
   assert.equal(scoped.restrictStatus, 'applied');
   assert.deepEqual([...deny].sort(), [...DENIED_IN_SCOPE].sort());
 });
