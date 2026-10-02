@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **报告拓扑分组视图**：按类型分子图（资产/弱点/凭据/攻击路径/控制面）、**通往控制面的边加粗
+  `==>`**、报告附图例与「关键跳清单」；`toMermaid` 保留为平铺版
 - **知识库检索加权**（`poc_search`）：相关度 = 关键词命中（code/title 权重高于 source/versions）
   + **历史命中率**（打通过的最优先——知识库真正的价值信号）+ 新鲜度半衰期衰减（90 天）；
   支持 `sort: relevance|recent|hits` 与 `limit`；返回带 `score` 与 `usage{total,hits,hit_rate,last_used}`

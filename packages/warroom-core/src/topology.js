@@ -108,3 +108,48 @@ export function toMermaid(topology, { maxNodes = 60 } = {}) {
 }
 
 const hashId = (id) => `n${Math.abs([...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7))}`;
+
+const KIND_GROUP = {
+  asset: '资产', domain: '资产', vuln: '弱点', credential: '凭据',
+  chain: '攻击路径', session: '控制面', shell: '控制面', persistence: '控制面',
+};
+const CONTROL_KINDS = new Set(['shell', 'session', 'persistence']);
+
+/**
+ * 渲染带分组与图例的 mermaid：
+ *   · 按类型分子图（subgraph）——一眼看出"资产/弱点/路径/控制面"各有哪些
+ *   · **通往控制面的边加粗高亮**（`==>`）——那就是"链到 shell"的关键跳
+ *   · 无引用的事实不会出现在图上（图只画有证据的连接）
+ */
+export function toMermaidGrouped(topology, { maxNodes = 60 } = {}) {
+  const connected = new Set(topology.edges.flatMap((e) => [e.from, e.to]));
+  const keep = topology.nodes.filter((n) => connected.has(n.id)).slice(0, maxNodes);
+  const keepIds = new Set(keep.map((n) => n.id));
+  const nodeById = new Map(keep.map((n) => [n.id, n]));
+  const safe = (s) => String(s).replace(/[[\]{}()"|]/g, ' ');
+
+  const groups = new Map();
+  for (const n of keep) {
+    const g = KIND_GROUP[n.kind] ?? '其它';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(n);
+  }
+
+  const lines = ['```mermaid', 'flowchart LR'];
+  for (const [group, nodes] of groups) {
+    lines.push(`  subgraph ${group}`);
+    for (const n of nodes) lines.push(`    ${hashId(n.id)}["${safe(n.label)}"]`);
+    lines.push('  end');
+  }
+  const critical = [];
+  for (const e of topology.edges) {
+    if (!keepIds.has(e.from) || !keepIds.has(e.to)) continue;
+    const toKind = nodeById.get(e.to)?.kind;
+    const isCritical = CONTROL_KINDS.has(toKind);      // 通向控制面 = 关键跳
+    const label = e.kind === 'inferred' ? `${safe(e.via)}（推断）` : safe(e.via);
+    lines.push(`  ${hashId(e.from)} ${isCritical ? '==>' : '-->'}|${label}| ${hashId(e.to)}`);
+    if (isCritical) critical.push({ from: nodeById.get(e.from)?.label, to: nodeById.get(e.to)?.label, via: e.via });
+  }
+  lines.push('```');
+  return { mermaid: lines.join('\n'), critical, groups: [...groups.keys()] };
+}
