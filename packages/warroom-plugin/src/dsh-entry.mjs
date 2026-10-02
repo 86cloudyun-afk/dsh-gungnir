@@ -88,6 +88,13 @@ export function apply(ctx, config = {}) {
 
   // 消费 allowlist 预设：以声明的 toolPolicy.allow 为单一真相源（ADR-001 D1）。
   const policy = loadToolPolicy(config);
+  // fail-closed 开关（默认开启，框架第 5 原则「宁拒不裸奔」）：显式传 false 才关。
+  const failClosed = config.failClosed !== false;
+  // 显式声明了 toolPolicy，却不是合法 allowlist（allow 非数组/为空）→ 拒绝挂载。
+  // 不得静默退回"注册全部工具"的无策略分支（那等于悄悄放开允许清单 → 静默降级开会）。
+  if (policy && failClosed && (!Array.isArray(policy.allow) || policy.allow.length === 0)) {
+    throw new Error('warroom 预设声明了 toolPolicy 但 allow 非法（需非空数组）：fail-closed 拒绝挂载');
+  }
   const allow = policy && Array.isArray(policy.allow) ? new Set(policy.allow) : null;
 
   const registry = ctx?.tools;
@@ -111,15 +118,30 @@ export function apply(ctx, config = {}) {
       process.stderr.write(`[warroom] tools.restrict 未生效（${e.message}）；允许清单由挂载构成保证\n`);
     }
   }
-  // 允许清单自检（fail-closed）：声明要求的 warroom 工具必须全部注册；且不得注册允许集之外的 warroom 工具。
+  // 允许清单自检（fail-closed）：声明要求的 warroom 工具必须**全部真的注册上**。
+  //
+  // 这是本步（闭环⑤·fail-closed）要堵的静默降级口子：旧逻辑用 `registered.length > 0`
+  // 做守卫，于是 registry 缺失 / 注册零工具时会**跳过**完整性检查，让预设"看似挂上但
+  // 工具目录为空"——宿主照常开一个降级会话（裸退到 http://127.0.0.1:3080），而不是拒绝。
+  //
+  // 现在：只要允许清单在 force（声明了策略），期望集非空而实际缺失，就**抛错**。抛错经
+  // 官方 agent-preset 契约逐级放大为"拒绝开会"：
+  //   apply() throw → auditRows 判该行 failed → mountPreset 抛 → generation 记 broken
+  //   → registry.retain('warroom-gungnir') 抛 agent-preset/invalid
+  //   → select()（会话开会前选预设的唯一路径）reject → **拒绝进入该 warroom 会话**。
+  // 即：挂载/激活失败或工具目录不达允许集，一律 fail-closed 拒绝，绝不静默降级裸奔。
   const expectWarroom = allow ? TOOL_NAMES.filter((n) => allow.has(n)) : TOOL_NAMES;
   const missing = expectWarroom.filter((n) => !registered.includes(n));
-  if (registered.length > 0 && missing.length > 0) {
-    throw new Error(`warroom 允许清单挂载不完整，缺失：${missing.join(', ')}`);
+  if (allow && failClosed && missing.length > 0) {
+    throw new Error(`warroom 允许清单挂载不完整（fail-closed 拒绝开会），缺失 ${missing.length} 个：${missing.join(', ')}`);
+  }
+  // 无策略（向后兼容）分支：仅在确有注册时校验完整性（容忍无 registry 的纯逻辑装配/单元测试）。
+  if (!allow && registered.length > 0 && missing.length > 0) {
+    throw new Error(`warroom 挂载不完整，缺失：${missing.join(', ')}`);
   }
   if (allow && registered.length > 0) {
     const extra = registered.filter((n) => n.startsWith('warroom_') && !allow.has(n));
-    if (extra.length > 0) throw new Error(`warroom 注册了不在允许清单内的工具：${extra.join(', ')}`);
+    if (extra.length > 0) throw new Error(`warroom 注册了不在允许清单内的工具（fail-closed 拒绝开会）：${extra.join(', ')}`);
   }
 
   // 工具门控（纵深防御）：把**继承面**（host/祖先层）收窄到允许集——
@@ -154,7 +176,7 @@ export function apply(ctx, config = {}) {
     disposers.push(ctx.isolate('warroom').provide('warroom', service));
   }
 
-  return { ...service, registered, restrictStatus, gateStatus, allowlistSize: allow ? allow.size : null };
+  return { ...service, registered, restrictStatus, gateStatus, failClosed, allowlistSize: allow ? allow.size : null };
 }
 
 export const name = 'warroom-gungnir';
