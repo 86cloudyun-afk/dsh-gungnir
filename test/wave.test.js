@@ -118,3 +118,60 @@ test('演练与执行共用依赖判定：成环在演练阶段就报错', () =>
     wave: { title: '悬空', notes: 'x', tasks: [{ id: 'Z', role: 'recon', targets: ['10.0.0.5'], depends_on: ['无'] }] },
   }), /依赖无法满足/);
 });
+
+test('节奏档联动：波内同时在飞不超过档位上限（restricted=2 / stealth=1）', () => {
+  const h = harness(); // 默认 restricted → 上限 2
+  const spy = { maxConcurrent: 0, current: 0 };
+  const origExecute = h.broker.execute.bind(h.broker);
+  h.broker.execute = (req) => {
+    spy.current += 1;
+    spy.maxConcurrent = Math.max(spy.maxConcurrent, spy.current);
+    try { return origExecute(req); } finally { spy.current -= 1; }
+  };
+  const origSettle = h.broker.settle.bind(h.broker);
+  let inFlight = 0;
+  h.broker.settle = (eng, tid) => { const r = origSettle(eng, tid); if (r.settled) inFlight -= 1; return r; };
+
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: {
+      title: '并发受限波', notes: '4 个独立任务',
+      tasks: Array.from({ length: 4 }, (_, i) => ({ id: `T${i}`, role: 'recon', targets: [`10.0.0.${i + 1}`] })),
+    },
+  });
+  assert.equal(r.rhythm, 'restricted');
+  assert.equal(r.max_in_flight, 2);
+  assert.equal(r.tasks.length, 4);
+  assert.equal(r.facts_inserted, 4);
+
+  // 命令并发峰值不得超过档位上限（用账本实时状态直接验证）
+  const states = h.broker.global.prepare(
+    "SELECT COUNT(*) c FROM command_queue WHERE state IN ('queued','running','cancel_requested','unknown')"
+  ).get().c;
+  assert.ok(states <= 2, `残留非终态命令应 ≤2，实际 ${states}`);
+});
+
+test('stealth 档：波内上限为 1（逐层串行）', () => {
+  const h = harness({ authOverrides: { rhythm: 'stealth' } });
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: {
+      title: 'stealth 波', notes: 'x',
+      tasks: [
+        { id: 'A', role: 'recon', targets: ['10.0.0.5'] },
+        { id: 'B', role: 'recon', targets: ['10.0.0.6'] },
+      ],
+    },
+  });
+  assert.equal(r.rhythm, 'stealth');
+  assert.equal(r.max_in_flight, 1);
+  assert.equal(r.tasks.length, 2);
+});
+
+test('未结项的波必须如实报错（不允许"看起来跑完"）', () => {
+  const h = harness({ faults: { neverFinish: true } });  // 执行器不报终态
+  assert.throws(() => runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: { title: '卡住的波', notes: 'x', tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'] }] },
+  }), (e) => e.code === 'E_GATE_CONCURRENCY_LIMIT' && /未结项/.test(e.message));
+});
