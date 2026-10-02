@@ -657,7 +657,7 @@
     },
     {
       "name": "warroom_jumps",
-      "description": "跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约）",
+      "description": "跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -669,7 +669,9 @@
             "enum": [
               "status",
               "release",
-              "sweep"
+              "sweep",
+              "sweep_routes",
+              "heartbeat"
             ]
           },
           "route_id": {

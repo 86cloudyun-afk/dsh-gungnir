@@ -361,12 +361,12 @@ export const TOOLS = [
   },
   {
     name: 'warroom_jumps',
-    description: '跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约）',
+    description: '跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）',
     input_schema: {
       type: 'object',
       properties: {
         engagement_id: { type: 'string' },
-        action: { type: 'string', enum: ['status', 'release', 'sweep'] },
+        action: { type: 'string', enum: ['status', 'release', 'sweep', 'sweep_routes', 'heartbeat'] },
         route_id: { type: 'string' },
       },
       required: ['engagement_id'],
@@ -376,6 +376,8 @@ export const TOOLS = [
       const action = args.action ?? 'status';
       if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
+      if (action === 'sweep_routes') return core.jumps.sweepRoutes();
+      if (action === 'heartbeat') return core.jumps.heartbeatRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       return core.jumps.status(args.engagement_id);
     },
   },

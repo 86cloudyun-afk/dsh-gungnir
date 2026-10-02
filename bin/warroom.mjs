@@ -45,7 +45,7 @@ function usage() {
   spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
   metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
   secret    put|grant|status|rotate（rotate 需 --confirm）
-  jump      import|acquire|list|status|release|sweep（--route <route_id>）
+  jump      import|acquire|list|status|release|heartbeat|sweep|sweep-routes
   adapter   fake|redteam（默认 fake）
 
 全局：--home <dir>（默认 $WARROOM_HOME 或 ./.warroom） --json --help`);
@@ -356,6 +356,10 @@ switch (command) {
       }));
     } else if (sub === 'rotate') {
       out(broker.secrets.rotateKey());
+    } else if (sub === 'sweep-routes') {
+      out(jumps.sweepRoutes());
+    } else if (sub === 'heartbeat') {
+      out(jumps.heartbeatRoute({ route_id: need('route', v.route), engagementId: need('engagement', v.engagement) }));
     } else if (sub === 'status') {
       const secrets = broker.global.prepare('SELECT secret_ref, label, created_at FROM secret_store').all();
       const grants = v.engagement
@@ -374,6 +378,10 @@ switch (command) {
       out(jumps.acquire({ engagement_id: need('engagement', v.engagement), target: need('target', v.target) }));
     } else if (sub === 'rotate') {
       out(broker.secrets.rotateKey());
+    } else if (sub === 'sweep-routes') {
+      out(jumps.sweepRoutes());
+    } else if (sub === 'heartbeat') {
+      out(jumps.heartbeatRoute({ route_id: need('route', v.route), engagementId: need('engagement', v.engagement) }));
     } else if (sub === 'status') {
       out(jumps.status(v.engagement ?? null));
     } else if (sub === 'release') {
