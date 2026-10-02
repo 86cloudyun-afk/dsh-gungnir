@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
             [--sessions-db <path>] [--out <file>]
   preflight 开工前预检：--engagement <id> [--meeting <wave.json>] [--record] → ready|degraded|blocked
@@ -86,7 +87,7 @@ const { values: v } = parseArgs({
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
-    audience: { type: 'string' },
+    audience: { type: 'string' }, text: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -119,6 +120,15 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'timeline': {
+    const { renderTimeline } = await import('../packages/warroom-core/src/timeline.js');
+    const tl = broker.timeline(need('engagement', v.engagement));
+    if (v.text || !v.json) {
+      console.log(renderTimeline(tl, { limit: v.limit ? Number(v.limit) : 200 }));
+      if (v.json) out(tl);
+    } else out(tl);
+    break;
+  }
   case 'aggregate': {
     const { aggregateView } = await import('../packages/warroom-core/src/aggregate.js');
     const view = aggregateView({ home, sessionsDbPath: v['sessions-db'] ?? null });
