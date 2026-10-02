@@ -358,6 +358,23 @@ export class Broker {
     return row;
   }
 
+  /**
+   * 结项：把执行器报告的终态同步进账本（账本状态机独占推进，ADR-003 D2）。
+   * 执行器仍在运行 → 不结项（返回 settled:false），由调用方决定等待或换策略。
+   */
+  settle(engagementId, taskIdOrCommandId) {
+    const cmd = this._findCommand(taskIdOrCommandId);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    const runtime = this.adapter.status(cmd.task_id);
+    const terminal = ['done', 'partial', 'failed', 'cancelled', 'confirmed_stopped'];
+    if (!runtime || !terminal.includes(runtime.state)) {
+      return { settled: false, task_id: cmd.task_id, ledger_state: cmd.state, runtime_state: runtime?.state ?? null };
+    }
+    if (cmd.state !== runtime.state) this._setCommandState(cmd.command_id, runtime.state);
+    this._gate(engagementId, 'settle', { task_id: cmd.task_id, state: runtime.state });
+    return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state, runtime_state: runtime.state };
+  }
+
   // ── 内部 ────────────────────────────────────────────────────────────────────
   _findCommand(idOrCommand) {
     return this.global.prepare('SELECT * FROM command_queue WHERE task_id = ? OR command_id = ?')

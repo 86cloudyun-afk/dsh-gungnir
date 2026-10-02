@@ -18,7 +18,7 @@
 | 6 | 成员幂等：{A}→{A,B} 不重复记账；乱序修订不覆盖；重复回执无效 | `test/store.test.js`、故障矩阵② | ✅ |
 | 7 | 旧代结果不覆盖新版本（代际隔离） | `test/store.test.js`、`test/reconcile.test.js` | ✅ |
 | 8 | 日志 / 报告 / 错误输出无秘密明文 | `test/secrets.test.js`、`test/report.test.js`、CLI 冒烟 | ✅ |
-| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | `packages/warroom-core/src/fence.js`、`test/fence.test.js`、`scripts/fence-verify.mjs` | ⚠️ **拓扑与静态不变量就绪**（9 类破坏逐条 fail-closed）；真实容器验收已脚本化：daemon 可用即真测，不可用如实 SKIP（本机当前 daemon 未运行） |
+| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | `fence.js` + `test/fence.test.js` + `scripts/fence-verify.mjs` + CI `fence` job | ✅ 静态不变量全绿；**真实容器验收进 CI**（runner 自带 daemon，`--require-daemon` 不允许静默通过）；本地无 daemon 时 SKIP |
 | 10 | 报告水位双校验（seq + snapshot + 证据摘要） | `test/report.test.js` | ✅ |
 | 11 | 非所有者写连接被只读模式拒绝 | `test/store.test.js` | ✅ |
 | 12 | fact.db 停写注入：op_log 补偿 + 恢复补审计 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③ | ✅ |
@@ -61,9 +61,9 @@
 
 | 缺口 | 影响 | 计划 |
 |---|---|---|
-| 桶 A 容器隔离的真实运行验收（§8-9 / ADR-001-5） | 拓扑、静态不变量、docker 命令序列与「出网必须失败」负样本均已实现并可一键复跑；缺的只是运行环境（本机 docker daemon 未启动） | 在带 daemon 的机器/CI runner 上跑 `node scripts/fence-verify.mjs --engagement <id> --socks <跳板 route>` |
+| 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
 | 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
-| 进程级取消证实 | 目前为会话/清单级探针 | v0.2（需执行层提供进程级探针） |
+| 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | 桥协议与驱动就绪，DSH 侧应答器未实现 | v0.2（`docs/DSH-BRIDGE-PROTOCOL.md` 待办） |
 
 ## 数字快照
