@@ -219,6 +219,14 @@
           },
           "max_facts_per_type": {
             "type": "integer"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "client",
+              "blue",
+              "full"
+            ]
           }
         },
         "required": [

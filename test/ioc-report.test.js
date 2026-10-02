@@ -175,3 +175,46 @@ test('未使用知识库时：报告不出现该段（不编造空段）', () =>
   assert.equal(md.includes('知识库复用'), false);
   assert.ok(r.self_check);
 });
+
+test('受众差异化：客户版不铺审计/知识库/跳板台账与逐条事实；蓝队版保留', () => {
+  const h = harness();
+  const jm = new JumphostManager({ globalDb: h.broker.global, getFactStore: (id) => h.broker._eng(id).store,
+    listEngagements: () => h.broker.listEngagements() });
+  jm.importHosts([{ id: 'aud-jh', addr_v4: '203.0.113.70' }]);
+  jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.5' });
+  h.broker.knowledge.addPoc({ code: 'AUD-1', title: '审计用例', category: 'other', body: 'TARGET' });
+  h.broker.knowledge.use('AUD-1', { engagement_id: h.eng.engagement_id, asset: 'HOST', result: 'hit' });
+  const ex = h.broker.execute({ ...h.base, command_id: 'aud-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const client = h.broker.exportReport(h.eng.engagement_id, { format: 'both', audience: 'client' });
+  const cmd = readFileSync(client.paths.markdown, 'utf8');
+  assert.match(cmd, /视图：\*\*客户版/);
+  assert.equal(cmd.includes('## 审计摘要'), false, '客户版不带审计明细');
+  assert.equal(cmd.includes('知识库复用'), false, '客户版不带知识库内部记账');
+  assert.equal(cmd.includes('跳板与隧道台账'), false, '客户版不带跳板台账');
+  assert.match(cmd, /事实摘要（有效修订）/);
+  assert.ok(cmd.includes('客户版只给统计'), '应说明细则在内部版');
+  assert.equal(JSON.parse(readFileSync(client.paths.json, 'utf8')).audience, 'client');
+
+  const blue = h.broker.exportReport(h.eng.engagement_id, { format: 'both', audience: 'blue' });
+  const bmd = readFileSync(blue.paths.markdown, 'utf8');
+  assert.match(bmd, /视图：\*\*蓝队版/);
+  assert.match(bmd, /## 审计摘要/);
+  assert.match(bmd, /知识库复用/);
+  assert.match(bmd, /跳板与隧道台账/);
+  assert.match(bmd, /## 事实（有效修订）/);
+});
+
+test('三种受众都保留水位与自校验（可复现性不因受众改变）', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'aud-2', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  for (const audience of ['client', 'blue', 'full']) {
+    const r = h.broker.exportReport(h.eng.engagement_id, { format: 'md', audience });
+    const md = readFileSync(r.paths.markdown, 'utf8');
+    assert.match(md, /## 水位（复现锚点）/, `${audience} 缺水位`);
+    assert.match(md, /## 自校验（导出时即时复核）/, `${audience} 缺自校验`);
+    assert.match(md, /## 证据摘要（sha256/, `${audience} 缺证据摘要`);
+  }
+});
