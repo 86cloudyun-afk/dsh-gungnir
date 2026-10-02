@@ -6,7 +6,7 @@ import { KnowledgeBase } from './knowledge.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
-import { buildTopology, toMermaid } from './topology.js';
+import { buildTopology, toMermaidGrouped } from './topology.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -219,12 +219,19 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   }
   lines.push('');
   if (topology.edges.length > 0) {
+    const viz = toMermaidGrouped(topology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
-    lines.push(toMermaid(topology));
+    lines.push(viz.mermaid);
     lines.push('');
     lines.push(`- 节点 ${topology.nodes.length} · 边 ${topology.edges.length}`
       + `（边来源：${topology.derived_from}）`);
+    lines.push('- 图例：**粗箭头 `==>` = 通向控制面（session/shell/persistence）的关键跳**；'
+      + '普通箭头 = 支撑关系；标「推断」= 由引用字段推断，未在链路步骤中显式声明');
+    if (viz.critical.length > 0) {
+      lines.push('- 关键跳清单：');
+      for (const c of viz.critical) lines.push(`  - ${c.from} --(${c.via})--> **${c.to}**`);
+    }
     if (topology.unexplained > 0) {
       lines.push(`- ⚠️ 有 **${topology.unexplained}** 条事实（弱点/链路/控制面）**未给出引用关系**，`
         + '因此图上没有边——请补记 `payload.steps` 或 `payload.path` 后再出图');
