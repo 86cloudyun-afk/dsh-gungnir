@@ -37,7 +37,7 @@ function usage() {
   shell     status|proof|verify：shell 三字段（--proof X / --validity unknown|likely|confirmed_lost）
   spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
   metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
-  secret    put|grant|status
+  secret    put|grant|status|rotate（rotate 需 --confirm）
   jump      import|acquire|list|status|release|sweep（--route <route_id>）
   adapter   fake|redteam（默认 fake）
 
@@ -71,6 +71,7 @@ const { values: v } = parseArgs({
     decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
     'dry-run': { type: 'boolean', default: false }, offset: { type: 'string' }, order: { type: 'string' },
     'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
+    confirm: { type: 'boolean', default: false },
   },
   allowPositionals: true,
 });
@@ -292,6 +293,8 @@ switch (command) {
         engagement_id: v.engagement, task_id: need('task', v.task),
         purpose: need('purpose', v.purpose), ttlSeconds: v['ttl-seconds'] ? Number(v['ttl-seconds']) : 300,
       }));
+    } else if (sub === 'rotate') {
+      out(broker.secrets.rotateKey());
     } else if (sub === 'status') {
       const secrets = broker.global.prepare('SELECT secret_ref, label, created_at FROM secret_store').all();
       const grants = v.engagement
@@ -308,6 +311,8 @@ switch (command) {
       out({ imported: v.id });
     } else if (sub === 'acquire') {
       out(jumps.acquire({ engagement_id: need('engagement', v.engagement), target: need('target', v.target) }));
+    } else if (sub === 'rotate') {
+      out(broker.secrets.rotateKey());
     } else if (sub === 'status') {
       out(jumps.status(v.engagement ?? null));
     } else if (sub === 'release') {
