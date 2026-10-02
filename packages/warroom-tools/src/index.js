@@ -393,6 +393,7 @@ export const TOOLS = [
         action: { type: 'string', enum: ['status', 'import', 'acquire', 'release', 'sweep', 'sweep_routes', 'heartbeat'] },
         route_id: { type: 'string' },
         target: { type: 'string', description: 'acquire 用：本次要出网的目标（域名/IP）' },
+        jumphost_id: { type: 'string', description: 'acquire/release 用：显式指定跳板（按轮换策略挑机器）' },
         hosts: {
           type: 'array',
           description: 'import 用：跳板清单（来自操作员的 advisory/jumphosts.md）',
@@ -421,7 +422,10 @@ export const TOOLS = [
       }
       if (action === 'acquire') {
         if (!args.target) throw new Error('acquire 需要 target（本次出网目标）');
-        return core.jumps.acquire({ engagement_id: args.engagement_id, target: args.target });
+        return core.jumps.acquire({
+          engagement_id: args.engagement_id, target: args.target,
+          jumphost_id: args.jumphost_id ?? null,
+        });
       }
       if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       if (action === 'sweep') return { swept: core.jumps.sweepExpired() };

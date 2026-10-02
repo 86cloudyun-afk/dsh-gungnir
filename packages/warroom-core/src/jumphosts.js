@@ -46,12 +46,25 @@ export class JumphostManager {
     return used < h.quota;
   }
 
-  /** 分配：op 意图 → 租约 → 激活 → 出口实测（写 fact，可注入故障）→ op activated。 */
-  acquire({ engagement_id, target }) {
-    const candidates = this.g.prepare("SELECT * FROM jumphosts ORDER BY used_today ASC, id ASC").all()
-      .filter((h) => this._usable(h.id));
-    if (candidates.length === 0) throw warroomError(ERR.E_NO_JUMPHOST, 'no usable jumphost');
-    const host = candidates[0];
+  /**
+   * 分配：op 意图 → 租约 → 激活 → 出口实测（写 fact，可注入故障）→ op activated。
+   * @param {{engagement_id:string, target?:string, jumphost_id?:string|null}} p
+   *   `jumphost_id` 显式指定出口（操作员按轮换策略挑机器）。不指定时**优先选有真实出口端点的**
+   *   （`ssh_host` 为 socks URL），其次才是其它可用跳板——否则会挑到"台账里有、但没有出口"的机器，
+   *   拿到一条占位路由（真机踩过）。
+   */
+  acquire({ engagement_id, target, jumphost_id = null }) {
+    const all = this.g.prepare('SELECT * FROM jumphosts').all().filter((h) => this._usable(h.id));
+    let host;
+    if (jumphost_id) {
+      host = all.find((h) => h.id === jumphost_id);
+      if (!host) throw warroomError(ERR.E_NO_JUMPHOST, `指定的跳板不可用：${jumphost_id}`);
+    } else {
+      const withEndpoint = all.filter((h) => /^socks5h?:\/\//.test(String(h.ssh_host ?? '')));
+      const pool = withEndpoint.length > 0 ? withEndpoint : all;
+      if (pool.length === 0) throw warroomError(ERR.E_NO_JUMPHOST, 'no usable jumphost');
+      host = pool.slice().sort((a, b) => (a.used_today - b.used_today) || a.id.localeCompare(b.id))[0];
+    }
 
     // 1) op 意图先行（补偿唯一真源，ADR-002 D6）
     const op_id = randomUUID();
@@ -69,14 +82,25 @@ export class JumphostManager {
       const probe = this.egressProbe(host);
       if (!probe.ok) throw warroomError(ERR.E_COMPENSATED, 'egress probe failed');
       const route_id = `route_${randomUUID()}`;
-      const socks = `socks5://127.0.0.1:${20000 + Math.floor(Math.random() * 20000)}`;
+      // 出口端点**以操作员给的为准**：`ssh_host` 写成 socks URL（如 socks5h://127.0.0.1:21071）时直接采用。
+      // 真机教训：旧实现无条件编一个随机端口（20000+rand），路由里于是挂着一条**并不存在**的出口，
+      // 排障时会把"出口 DEAD"误判成执行层问题。未提供端点时如实标注来源，不再假装有出口。
+      const provided = /^socks5h?:\/\//.test(String(host.ssh_host ?? '')) ? String(host.ssh_host) : null;
+      const socks = provided ?? `socks5://127.0.0.1:${20000 + Math.floor(Math.random() * 20000)}`;
+      const socks_source = provided ? 'operator' : 'placeholder';
       const store = this.getFactStore(engagement_id);
       store.recordRoute({ route_id, lease_id, jumphost_id: host.id, socks });
       store.recordEgressCheck({ jumphost_id: host.id, exit_ip: probe.exit_ip, route_id });
       this.g.prepare('UPDATE jumphosts SET used_today = used_today + 1, day = ? WHERE id = ?')
         .run(now().slice(0, 10), host.id);
       this.g.prepare("UPDATE op_log SET state = 'activated' WHERE op_id = ?").run(op_id);
-      return { lease_id, route_id, jumphost_id: host.id, socks };
+      return {
+        lease_id, route_id, jumphost_id: host.id, socks, socks_source,
+        exit_ip: probe.exit_ip,
+        note: socks_source === 'operator'
+          ? '出口端点为操作员提供（ssh_host 里的 socks URL）'
+          : '未提供出口端点：socks 为占位值，真实端点须由操作员经 GUNGNIR_EXIT_SOCKS 给出',
+      };
     } catch (e) {
       // 4) 补偿：资源拆除 + 租约释放 + op_log 补偿态；fact 审计恢复后补齐
       this.teardowns.push({ lease_id, jumphost_id: host.id, reason: String(e.message || e) });
