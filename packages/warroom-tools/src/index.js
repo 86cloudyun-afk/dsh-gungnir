@@ -2,6 +2,7 @@
 // 每个 entry = { name, description, input_schema, run(core, args) }；
 // DSH 工具 schema 包裹（cordis preset 挂载）在集成波次接入（框架 §11 真实宿主适配）。
 import { ERR } from '../../shared-types/src/index.js';
+import { probeEgress } from '../../warroom-core/src/egress-probe.mjs';
 
 export const TOOLS = [
   {
@@ -452,12 +453,13 @@ export const TOOLS = [
   },
   {
     name: 'warroom_egress_check',
-    description: '出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸）',
+    description: '出口验证：probe（**宿主侧现测**：经路由 SOCKS 真发一次请求测出口 IP 并记录）/ '
+      + 'record（记录已知结果）/ status（查询，含有效期）',
     input_schema: {
       type: 'object',
       properties: {
         engagement_id: { type: 'string' },
-        action: { type: 'string', enum: ['status', 'record'] },
+        action: { type: 'string', enum: ['status', 'probe', 'record'] },
         jumphost_id: { type: 'string' }, exit_ip: { type: 'string' },
         route_id: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'fail'] },
       },
@@ -465,7 +467,30 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => {
-      if ((args.action ?? 'status') === 'record') {
+      const action = args.action ?? 'status';
+      if (action === 'probe') {
+        // 会话没有 curl/bash（ADR-001 D1），"现测"由宿主进程代做；端点取自活跃路由。
+        const store = core.broker._eng(args.engagement_id).store;
+        const route = args.route_id
+          ? store.db.prepare('SELECT * FROM jump_routes WHERE route_id = ?').get(args.route_id)
+          : store.db.prepare("SELECT * FROM jump_routes WHERE state = 'active' ORDER BY ts DESC LIMIT 1").get();
+        if (!route?.socks) throw new Error('没有活跃路由可探测：先 warroom_jumps action=acquire 取出口');
+        const r = probeEgress({ endpoint: route.socks });
+        if (!r.ok) {
+          // 测不出就是失败：如实记录 fail，绝不填历史值
+          core.broker.recordEgressCheck(args.engagement_id, {
+            jumphost_id: route.jumphost_id, exit_ip: null, route_id: route.route_id, verdict: 'fail',
+          });
+          throw new Error(`出口现测失败（已记 fail）：${r.error}`);
+        }
+        return {
+          ...core.broker.recordEgressCheck(args.engagement_id, {
+            jumphost_id: route.jumphost_id, exit_ip: r.exit_ip, route_id: route.route_id, verdict: 'pass',
+          }),
+          measured: true, via: r.via, endpoint: route.socks,
+        };
+      }
+      if (action === 'record') {
         return core.broker.recordEgressCheck(args.engagement_id, {
           jumphost_id: args.jumphost_id, exit_ip: args.exit_ip,
           route_id: args.route_id ?? null, verdict: args.verdict ?? 'pass',
