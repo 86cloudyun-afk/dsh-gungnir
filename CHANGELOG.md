@@ -3,6 +3,28 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 7 行验收映射（路由生命周期/任务心跳/拓扑/知识库复用/门禁/桥接一致性）
+  与数字同步（251 例 / 27 工具 / 故障矩阵 14 场景）、README 改用 `npm run ci`、QUICKSTART 增门禁速查
+- **一致性套件跑真实桥接 adapter**（跨进程回归）：新增 `test/conformance-bridge.test.js`；
+  并修掉它逼出的三个真问题——桥接 adapter 的 `manifestOf` 不再只依赖应答器文件
+  （宿主按契约声明资源 + **延迟绑定**实测状态，fail-closed 但不会"一次 false 永远 false"）；
+  应答器 `fixture` 模式缺夹具时**不再静默返回空资源**（改为报错留痕，绝不写假回执）
+- **故障矩阵 11→14 场景**：路由失效→围栏拒绝（`E_FENCE_NO_ROUTE`）、长任务心跳失效→unknown
+  （基准标为 heartbeat）、知识库未脱敏→拒绝入库；`addPoc` 改为**显式拒绝未知字段**
+  （静默丢字段 = 静默丢证据，与配置校验同一哲学）
+- **报告攻击路径拓扑**（`topology.js`）：按事实 payload 的显式引用（`steps`/`path`/`achieved_via`）
+  画边、隐式引用（`asset`/`target`/`host`/`via`/`source_ref`/`unlocks`）补边并标注「推断」；
+  报告 md 出 mermaid `flowchart LR` 图 + JSON `topology`；**无引用不画边**，
+  并如实提示"有 N 条弱点/链路/控制面事实未给出引用关系"
+- **单命令门禁** `npm run ci`（`scripts/ci.mjs`）：顺序跑六道闸，打印逐闸退出码与汇总结论，
+  任一失败即非零退出；支持 `--list` / `--only <names>`。自审闸规则同步**加强**：
+  校验 CI 入口确实覆盖六道闸（runner 指向也算），并核对 runner 内登记的闸数
+- **报告收录知识库复用**：`KnowledgeBase.usageByEngagement`（按战役查 POC 使用记录，含标题/分类/
+  资产/结果）→ 报告 md 新增「知识库复用（POC 使用记录）」段 + JSON `kb_usage`；未使用则不出现该段
+- **长时任务心跳**（schema v8）：`broker.heartbeat(engagementId, taskId, {note})` / 工具
+  `warroom_heartbeat`（27 个工具）/ CLI `warroom heartbeat`；`sweepTimeouts` 改以**最近心跳**
+  为基准（并在结果里标明 `since: heartbeat|dispatch`）——正常跑很久的任务不再被误判超时；
+  终态任务拒绝心跳
 - **活跃 route 生命周期**：`heartbeatRoute`（续期租约 + 刷新路由时间 + 留痕）、
   `sweepRoutes`（租约释放/到期或长时无心跳 → 路由转 `stale`，围栏不再取该出口，
   只改状态不删记录）；工具 `warroom_jumps` 增 `sweep_routes` / `heartbeat`，CLI `jump sweep-routes|heartbeat`；

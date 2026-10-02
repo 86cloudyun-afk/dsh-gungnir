@@ -87,3 +87,13 @@ test('工具面：poc_search / add / use 三件套可用且脱敏约束在工具
     (e) => e.code === 'E_KB_UNSANITIZED'
   );
 });
+
+test('addPoc 拒绝未知字段（静默丢字段 = 静默丢证据）', () => {
+  const h = harness();
+  assert.throws(() => h.broker.knowledge.addPoc({
+    code: 'UNK-1', title: 't', category: 'other', summary: '这个字段不存在',
+  }), /未知字段：summary/);
+  // 正常字段仍可入库
+  const ok = h.broker.knowledge.addPoc({ code: 'UNK-2', title: 't', category: 'other', body: 'TARGET 默认口令' });
+  assert.equal(ok.code, 'UNK-2');
+});
