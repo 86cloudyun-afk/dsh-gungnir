@@ -37,7 +37,7 @@
 | `warroom_timeline` | 战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线 | `{ engagement_id*:string }` | ✅ |
 | `warroom_watch` | 巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项 | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
 | `warroom_rate_view` | 速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账 | `{ engagement_id*:string }` | ✅ |
-| `warroom_checklist` | 交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件 | `{ engagement_id*:string, export:boolean, out_dir:string }` | ✅ |
+| `warroom_checklist` | 交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件 | `{ engagement_id*:string, export:boolean, out_dir:string, profile:delivery|progress }` | ✅ |
 
 ## 约定
 
