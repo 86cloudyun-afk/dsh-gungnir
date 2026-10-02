@@ -92,6 +92,31 @@ test('全量注册：36 个工具注册成功且名字唯一（默认不请求 r
   assert.equal(svc.restrictStatus, 'not-requested', '主保证是挂载构成，restrict 默认不请求');
 });
 
+test('预设内服务必须走 isolate realm：裸 provide 会把预设标 broken（下拉消失）', async () => {
+  const { default: entry } = await import('../packages/warroom-plugin/src/dsh-entry.mjs');
+  const bare = [];
+  const isolated = [];
+  const mkCtx = (withIsolate) => ({
+    tools: { register: () => () => {} },
+    provide: (name) => { bare.push(name); return () => {}; },
+    on: () => {},
+    ...(withIsolate ? {
+      isolate: (realm) => ({
+        provide: (name) => { isolated.push(`${realm}:${name}`); return () => {}; },
+      }),
+    } : {}),
+  });
+
+  // 无 isolate 能力时：宁可**不发布**服务，也不能裸 provide（否则 registry 标 broken）
+  entry.apply(mkCtx(false), { home: '/tmp/wr-mount-nobare' });
+  assert.deepEqual(bare, [], '不得在预设作用域裸 provide');
+
+  // 有 isolate 时：发布进私有 realm（真机用 dsh 2.0.0-rc.2 验证 broken 归零）
+  entry.apply(mkCtx(true), { home: '/tmp/wr-mount-isolated' });
+  assert.deepEqual(bare, [], '提供路径不得回落到裸 provide');
+  assert.deepEqual(isolated, ['warroom:warroom']);
+});
+
 test('restrict 的两种真实结局：作用域外用不了 → 记状态不致命；作用域内可用 → applied', async () => {
   const { default: entry } = await import('../packages/warroom-plugin/src/dsh-entry.mjs');
   const mkCtx = (restrict) => ({
