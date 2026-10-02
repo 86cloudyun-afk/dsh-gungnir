@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -124,4 +124,16 @@ test('插件包按名挂载时可用：package name 与 default 插件 name 一�
   assert.equal(mod.default.name, pkg.name, '插件名必须等于真实包名，否则宿主按 name 解析会 MODULE_NOT_FOUND');
   assert.match(execFileSync('node', ['scripts/deploy-dsh.mjs', '--print'], { encoding: 'utf8' }),
     /packages\/warroom-plugin\/src\/dsh-entry\.mjs/, '预设内按绝对路径挂载（不依赖包名解析）');
+});
+
+test('CI 友好：没有 dsh 可执行时 --check 仍成功（只影响 --verify）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-deploy-nobin-'));
+  const profile = join(home, 'profiles', 'web');
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(profile)},{recursive:true})`]);
+  // 复刻 CI runner：PATH 里只有 node，没有 dsh
+  const binDir = mkdtempSync(join(tmpdir(), 'wr-binonly-'));
+  symlinkSync(process.execPath, join(binDir, 'node'));
+  const out = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home],
+    { encoding: 'utf8', env: { ...nodeEnv(), PATH: binDir, DSH_BIN: '' } });
+  assert.match(out, /未找到 dsh 可执行（--verify 不可用；挂载仍可写入）/);
 });

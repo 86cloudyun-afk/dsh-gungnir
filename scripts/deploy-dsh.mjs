@@ -141,7 +141,8 @@ if (existsSync(presetFile)) {
     findings.push(`✗ 预设文件无法解析：${e.message}`);
   }
 } else findings.push(`✗ 预设文件缺失：${presetFile}`);
-findings.push(bin ? `✓ dsh 可用（${bin}）` : '✗ 找不到 dsh 可执行（--verify 不可用）');
+// 没有 dsh 只是"无法现场验证装配"，不影响写入挂载（CI runner 上就是这样）
+findings.push(bin ? `✓ dsh 可用（${bin}）` : '· 未找到 dsh 可执行（--verify 不可用；挂载仍可写入）');
 
 let already = false;
 if (patchPath && existsSync(patchPath)) {
