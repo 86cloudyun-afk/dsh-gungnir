@@ -67,7 +67,16 @@ export class KnowledgeBase {
    * 回填 POC：默认强制脱敏——命中内网/自有痕迹即拒绝；
    * 确需保留时用 allow_unsanitized + 理由（会记入 sanitization_note，可审计）。
    */
-  addPoc({ code, title, category, source, affected_versions, evidence_ref, body = '', allow_unsanitized = false, note = '' }) {
+  addPoc(fields = {}) {
+    const ALLOWED = ['code', 'title', 'category', 'source', 'affected_versions', 'evidence_ref',
+      'body', 'allow_unsanitized', 'note'];
+    const unknown = Object.keys(fields).filter((k) => !ALLOWED.includes(k));
+    if (unknown.length) {
+      // 静默丢弃字段 = 静默丢证据：显式拒绝（与配置校验同一哲学）
+      throw new Error(`addPoc 收到未知字段：${unknown.join(', ')}（允许：${ALLOWED.join(', ')}）`);
+    }
+    const { code, title, category, source, affected_versions, evidence_ref,
+      body = '', allow_unsanitized = false, note = '' } = fields;
     if (!code || !title) throw new Error('addPoc 需要 code 与 title');
     if (!POC_CATEGORIES.includes(category)) throw new Error(`category 必须是 ${POC_CATEGORIES.join('|')}`);
     const audit = auditSanitization(`${code} ${title} ${source ?? ''} ${affected_versions ?? ''} ${body}`);
