@@ -12,11 +12,17 @@ export function requestData(path, { signal, timeoutMs = DEFAULT_TIMEOUT } = {}) 
       parentOrigin: params.get('parentOrigin'), nonce: params.get('bridgeNonce'), timeoutMs,
     }).request(url, { signal });
   }
-  return fetch(url, { method: 'GET', credentials: 'same-origin', headers: { accept: 'application/json' }, signal })
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error('Dashboard request timed out')), timeoutMs);
+  return fetch(url, { method: 'GET', credentials: 'same-origin', headers: { accept: 'application/json' }, signal: controller.signal })
     .then(async (response) => {
       if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
       return response.json();
-    });
+    })
+    .finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); });
 }
 
 function validatePath(path) {
