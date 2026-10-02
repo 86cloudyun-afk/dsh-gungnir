@@ -19,6 +19,7 @@ import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
 import { buildWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
+import { buildChecklist, renderChecklist } from './checklist.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -452,6 +453,21 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /** 交付清单（验收项自动判定 + 人工确认项，只读）。 */
+  checklist(engagementId) {
+    return buildChecklist({ broker: this, engagementId });
+  }
+
+  /** 交付清单落盘为交付附件（写进证据目录）。 */
+  exportChecklist(engagementId, { outDir = null } = {}) {
+    const c = this.checklist(engagementId);
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'DELIVERY_CHECKLIST.md');
+    writeFileSync(path, renderChecklist(c) + '\n', 'utf8');
+    return { path, done: c.done, total: c.total, manual: c.manual };
   }
 
   /** 速率与预算视图（wire 用量/预算/最小间隔/喷洒台账，只读）。 */
