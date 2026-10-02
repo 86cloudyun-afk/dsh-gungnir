@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  init      首启向导：建 home、写示例配置、导入跳板示例、建首个战役，打印下一步
   engage    创建战役（开工指令即授权）：--target <t[,t2]> [--rhythm r] [--window-hours n] [--user-msg id]
   exec      派发任务：--engagement <id> --command-id <cid> --target <t> [--intent recon] [--class active]
                       [--wire n] [--resources container] [--action-class X] [--approval <id>]
@@ -69,6 +70,7 @@ const { values: v } = parseArgs({
     format: { type: 'string' }, meeting: { type: 'string' }, 'timeout-min': { type: 'string' },
     decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
     'dry-run': { type: 'boolean', default: false }, offset: { type: 'string' }, order: { type: 'string' },
+    'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
   },
   allowPositionals: true,
 });
@@ -98,6 +100,56 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'init': {
+    const { writeExampleConfig, configPath, loadConfig } = await import('../packages/warroom-core/src/config.js');
+    const { mkdirSync, existsSync } = await import('node:fs');
+    const steps = [];
+    mkdirSync(home, { recursive: true });
+    steps.push(`✓ 家目录就绪：${home}`);
+
+    const cfgExists = existsSync(configPath(home));
+    if (!cfgExists || argv.includes('--force')) {
+      const w = writeExampleConfig(home, { force: cfgExists, overrides: v.rhythm ? { rhythm: v.rhythm } : {} });
+      steps.push(`✓ 已写配置：${w.path}（rhythm=${w.config.rhythm}）`);
+    } else {
+      steps.push(`· 配置已存在，保留：${configPath(home)}`);
+    }
+
+    // 跳板示例（占位地址，真实部署请替换；导入后表即真源）
+    if (argv.includes('--with-jumphost-sample')) {
+      jumps.importHosts([{ id: 'jh-sample', addr_v4: '203.0.113.10', ssh_host: '203.0.113.10' }]);
+      steps.push('✓ 已导入跳板示例 jh-sample（占位地址 203.0.113.10，请替换为你的跳板）');
+    }
+
+    // 首个战役（可选：给了 --target 才建）
+    if (v.target) {
+      const targets = (v.targets ?? v.target).split(',').filter(Boolean);
+      const cfg = loadConfig(home);
+      const r = broker.createEngagement({
+        user_message_id: v['user-msg'] ?? `init-${Date.now()}`,
+        targets,
+        overrides: v.rhythm ? { rhythm: v.rhythm } : { rhythm: cfg.rhythm },
+      });
+      steps.push(`✓ 已建战役：${r.engagement_id}（目标 ${targets.join(', ')}，rhythm=${r.auth_object.rhythm}）`);
+    }
+
+    const next = [
+      '下一步：',
+      '  1) 体检：        node bin/warroom.mjs doctor',
+      v.target ? '  2) 演练一波：    node bin/warroom.mjs wave --dry-run --engagement <id> --meeting wave.json'
+               : '  2) 建战役：      node bin/warroom.mjs engage --target <目标或CIDR>',
+      '  3) 派单：        node bin/warroom.mjs exec --engagement <id> --command-id c1 --target <资产> --class readonly',
+      '  4) 报告与证据：  node bin/warroom.mjs report --engagement <id> --format both',
+      '                  node bin/warroom.mjs evidence --engagement <id> --out <dir>',
+    ];
+    if (v.json) out({ home, steps, next });
+    else {
+      for (const s2 of steps) console.log(s2);
+      console.log('');
+      for (const n of next) console.log(n);
+    }
+    break;
+  }
   case 'config': {
     const { loadConfig, writeExampleConfig, configPath } = await import('../packages/warroom-core/src/config.js');
     const sub = argv[1] ?? 'show';
