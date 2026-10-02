@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Broker } from '../packages/warroom-core/src/broker.js';
@@ -44,7 +44,12 @@ test('三方端到端：GUNGNIR（测试进程）↔ 应答器（子进程）↔
       command_id: 'exec-e2e-1', engagement_id: eng.engagement_id, auth_version: 1,
       contract: { targets: ['10.0.0.5'], action_class: 'active', resources: [], wire_cost: 0, intent: 'recon' },
     });
-    assert.equal(ex.state, 'running', '执行器应在超时前回执');
+    assert.ok(['running', 'done'].includes(ex.state), `执行器应在超时前回执（实得 ${ex.state}）`);
+
+    // 桥是异步的：等执行层把事实落盘再收（最多 8 秒）
+    const factsPath = join(root, 'inbox', `${ex.task_id}.facts.json`);
+    const t0 = Date.now();
+    while (!existsSync(factsPath) && Date.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 25));
 
     const receipt = adapter.collect(ex.task_id);
     assert.equal(receipt.members.length, 1);

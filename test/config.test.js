@@ -1,7 +1,8 @@
 // 家目录配置：默认应用、非法配置明确报错、未知字段不静默。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { harness } from '../packages/warroom-core/src/testing.js';
 import { loadConfig, writeExampleConfig, DEFAULT_CONFIG } from '../packages/warroom-core/src/config.js';
@@ -53,4 +54,14 @@ test('CLI config show/init 可用', () => {
   assert.equal(show.config.rhythm, DEFAULT_CONFIG.rhythm);
   const init = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'config', 'init', '--home', h.home, '--json'], { encoding: 'utf8', env }));
   assert.ok(init.path.endsWith('warroom.json'));
+});
+
+test('配置写错文件名 → 明确报错（不许静默用默认值）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-cfg-name-'));
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ adapterKind: 'bridge' }));
+  assert.throws(() => loadConfig(home), /配置文件名不对/);
+  // 正确文件名下正常生效
+  rmSync(join(home, 'config.json'));
+  writeFileSync(join(home, 'warroom.json'), JSON.stringify({ adapterKind: 'bridge' }));
+  assert.equal(loadConfig(home).adapterKind, 'bridge');
 });
