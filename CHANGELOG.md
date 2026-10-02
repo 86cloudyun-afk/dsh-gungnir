@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **桶 A 容器围栏**（ADR-001 验收 5）：拓扑计划 + 9 类静态不变量 fail-closed 校验 +
+  docker 命令序列 + 运行时验收（daemon 不可用如实 SKIP，**绝不假装通过**）；
+  一键复跑：`node scripts/fence-verify.mjs --engagement <id> --socks <route>`
 - **DSH 插件包骨架** `packages/warroom-plugin`：host 服务工厂（三种 adapter：fake/local/bridge）、
   `apply(ctx)` cordis 契约（注册 `ctx.warroom` + dispose 收尾）、DSH 工具包装
   （16 个工具 → `execute` 绑定 host 服务，包装层做四元组预检）、启动即再水化
