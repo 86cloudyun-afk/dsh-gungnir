@@ -5,7 +5,8 @@
 //
 // 用法：node scripts/dsh-bridge-responder.mjs --root <home>/dsh-bridge [--mode echo|fixture] [--interval 50] [--once]
 import { readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 
@@ -15,6 +16,7 @@ const { values: v } = parseArgs({
     root: { type: 'string' }, mode: { type: 'string', default: 'echo' },
     fixture: { type: 'string' }, interval: { type: 'string', default: '50' },
     once: { type: 'boolean', default: false }, verbose: { type: 'boolean', default: false },
+    executor: { type: 'string' },   // 执行器插件路径（export default { name, run(job) }）
   },
 });
 
@@ -60,11 +62,30 @@ function fixtureReceipts(job) {
   return { members: facts.members ?? [], resources: probes.resources ?? [] };
 }
 
-function handleJob(job) {
+async function loadExecutor() {
+  if (!v.executor) return null;
+  const mod = await import(pathToFileURL(resolve(v.executor)).href);
+  const ex = mod.default ?? mod;
+  if (typeof ex?.run !== 'function') throw new Error(`执行器 ${v.executor} 未导出 run(job)`);
+  if (v.verbose) process.stdout.write(`[executor] ${ex.name ?? v.executor} loaded\n`);
+  return ex;
+}
+
+async function handleJob(job) {
   const key = `job:${job.external_id}`;
   if (handled.has(key)) return;               // 幂等：同 external_id 只处理一次
   handled.add(key);
-  const { members, resources } = v.mode === 'fixture' ? fixtureReceipts(job) : echoReceipts(job);
+  let members; let resources;
+  if (executor) {
+    // 真实执行器：失败即抛错（fail-closed），不写"看起来成功"的回执
+    const out = await executor.run(job);
+    members = out.members ?? [];
+    resources = out.resources ?? [];
+  } else if (v.mode === 'fixture') {
+    ({ members, resources } = fixtureReceipts(job));
+  } else {
+    ({ members, resources } = echoReceipts(job));
+  }
   atomicWrite(join(inbox, `${job.external_id}.status.json`), {
     protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running',
     updated_at: new Date().toISOString(),
@@ -88,11 +109,18 @@ function handleStop(stop) {
   if (v.verbose) console.log(`[stop] ${stop.external_id} → confirmed_stopped`);
 }
 
-function tick() {
+async function tick() {
   for (const f of readdirSync(outbox)) {
     if (f.endsWith('.job.json')) {
       const job = readJson(join(outbox, f));
-      if (job?.protocol === 'gungnir-bridge/1') handleJob(job);
+      if (job?.protocol === 'gungnir-bridge/1') {
+        try {
+          await handleJob(job);
+        } catch (e) {
+          handled.delete(`job:${job.external_id}`);   // 失败允许重试；不写假回执
+          process.stderr.write(`[job-error] ${job.external_id}: ${e.message}\n`);
+        }
+      }
     } else if (f.endsWith('.stop.json')) {
       const stop = readJson(join(outbox, f));
       if (stop?.protocol === 'gungnir-bridge/1') handleStop(stop);
@@ -100,11 +128,13 @@ function tick() {
   }
 }
 
+const executor = await loadExecutor();
+
 if (v.once) {
-  tick();
+  await tick();
 } else {
   const interval = Number(v.interval);
   console.log(`[responder] root=${v.root} mode=${v.mode} interval=${interval}ms（Ctrl-C 退出）`);
-  setInterval(tick, interval);
+  setInterval(() => { tick(); }, interval);
   tick();
 }
