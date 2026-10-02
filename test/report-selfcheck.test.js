@@ -48,3 +48,39 @@ test('漂移检测：报告生成后库有写入 → 复核如实标记漂移（
   const after = h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
   assert.equal(after.self_check.reproducible, true, '新导出应对齐当前水位（此后再次写入才会漂移）');
 });
+
+test('导出即校验（exportReportVerified）：一次调用拿到报告与可复现结论', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'vr-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const r = h.broker.exportReportVerified(h.eng.engagement_id, { format: 'both' });
+  assert.ok(r.paths.markdown && r.paths.json);
+  assert.equal(r.verify.reproducible, true);
+  assert.equal(r.verify.drift_seq, 0);
+  assert.ok(r.verify.checked_at);
+  assert.equal(r.verify.report_seq, r.watermark.seq);
+});
+
+test('导出即校验：库在导出后变化 → verify 如实报漂移（交付前可拦）', () => {
+  // 节奏档上限 2：每个任务跑完即时结项，避免撞并发闸（与业务无关的装置约束）
+  const h = harness({ authOverrides: { rhythm: 'open' } });
+  const run = (id) => {
+    const ex = h.broker.execute({ ...h.base, command_id: id, contract: h.contract() });
+    h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+    h.broker.settle(h.eng.engagement_id, ex.task_id);
+    return ex;
+  };
+
+  run('vr-2');
+  const ok = h.broker.exportReportVerified(h.eng.engagement_id, { format: 'md' });
+  assert.equal(ok.verify.reproducible, true);
+
+  // 取一份报告文本，然后在库继续变化之后再复核（模拟"导出后又有写入"）
+  const built = h.broker.buildReport(h.eng.engagement_id);
+  const store = h.store();
+  run('vr-3');
+  const verdict = verifyReportAgainstStore(built.markdown, store);
+  assert.equal(verdict.reproducible, false, '库已变化，复核必须报漂移');
+  assert.ok(verdict.drift.seq > 0, '应给出 seq 差');
+});

@@ -63,3 +63,16 @@ test('CLI 跳板与秘密子命令可跑', () => {
   assert.equal(status.secrets.length, 1);
   assert.equal(JSON.stringify(status).includes('cli-secret-123'), false, 'CLI 状态视图不得含明文');
 });
+
+test('CLI report --verify：交付前一体验证（一致时零退出）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-cli-vr-'));
+  const eng = run(home, ['engage', '--target', '10.0.0.0/24', '--rhythm', 'open']);
+  const ex = run(home, ['exec', '--engagement', eng.engagement_id, '--command-id', 'cli-vr-1',
+    '--target', '10.0.0.5', '--class', 'readonly']);
+  run(home, ['collect', '--engagement', eng.engagement_id, '--task', ex.task_id]);
+
+  const out = run(home, ['report', '--engagement', eng.engagement_id, '--verify', '--format', 'md']);
+  assert.equal(out.verify.reproducible, true);
+  assert.equal(out.verify.drift_seq, 0);
+  assert.ok(out.paths.markdown.endsWith('.md'));
+});
