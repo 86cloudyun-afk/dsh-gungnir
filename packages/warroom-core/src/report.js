@@ -235,15 +235,37 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, maxFactsPerType });
   const { watermark, evidence_digests } = built;
   mkdirSync(outDir, { recursive: true });
-  const out = { paths: {}, watermark, evidence_digests };
+
+  // 自校验：导出时立刻对照当前库复核水位与摘要（只读），把结论写进报告
+  const check = verifyReportAgainstStore(built.markdown, store);
+  const selfCheck = {
+    reproducible: check.reproducible,
+    checked_at: new Date().toISOString(),
+    report_snapshot: watermark.snapshot_id,
+    current_snapshot: check.current.snapshot_id,
+    drift_seq: check.drift.seq,
+  };
+  const checkLines = [
+    '',
+    '## 自校验（导出时即时复核）',
+    '',
+    `- 结果：${check.reproducible ? '**可复现**（水位与证据摘要一致）' : `**存在漂移**（seq 差 ${check.drift.seq}）`}`,
+    `- 复核时间：${selfCheck.checked_at}`,
+    `- 复核方式：\`node scripts/verify-report.mjs <本报告> --home <home> --engagement ${engagementId}\``,
+    '',
+  ];
+  const markdown = check.reproducible ? built.markdown.replace(/(\n## 声明)/, `${checkLines.join('\n')}$1`) : built.markdown + checkLines.join('\n');
+
+  const out = { paths: {}, watermark, evidence_digests, self_check: selfCheck };
   if (format === 'md' || format === 'both') {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
-    writeFileSync(path, built.markdown, 'utf8');
+    writeFileSync(path, markdown, 'utf8');
     out.paths.markdown = path;
   }
   if (format === 'json' || format === 'both') {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
     const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb });
+    json.self_check = selfCheck;
     writeFileSync(path, JSON.stringify(json, null, 2), 'utf8');
     out.paths.json = path;
     out.ioc_summary = json.ioc_summary;
