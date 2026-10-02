@@ -115,6 +115,20 @@ export class KnowledgeBase {
     return this.db.prepare('SELECT * FROM poc_usage WHERE code = ? ORDER BY id').all(code);
   }
 
+  /** 某战役用过的 POC（供报告「知识库复用」段）。 */
+  usageByEngagement(engagementId) {
+    const rows = this.db.prepare(`
+      SELECT u.code, u.asset, u.result, u.ts, p.title, p.category
+      FROM poc_usage u LEFT JOIN pocs p ON p.code = u.code
+      WHERE u.engagement_id = ? ORDER BY u.id
+    `).all(engagementId);
+    const byResult = rows.reduce((acc, r) => {
+      acc[r.result] = (acc[r.result] ?? 0) + 1;
+      return acc;
+    }, {});
+    return { rows, total: rows.length, distinct_pocs: new Set(rows.map((r) => r.code)).size, by_result: byResult };
+  }
+
   stats() {
     const byCategory = this.db.prepare('SELECT category, COUNT(*) AS n FROM poc GROUP BY category ORDER BY n DESC').all();
     const total = this.db.prepare('SELECT COUNT(*) AS n FROM poc').get().n;
