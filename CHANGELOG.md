@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Added
+- **`warroom doctor` 一键体检**：Node/sqlite 版本、docker daemon（不可用给 warn 不误报 fail）、
+  WARROOM_HOME 可写、global 与各战役库完整性 + schema 版本、秘密密钥权限、知识库存在性；
+  支持 `--json`；失败项非零退出，提示项不阻塞
+- **跳板台账与收口**：`JumphostManager.status`（主机/租约/路由总览）、`releaseRoute`（幂等收口）；
+  工具 `warroom_jumps`（status/release/sweep，工具数 23→24）、CLI `jump status|release`
+- **报告全景补强**：md 增「审计摘要（门闸判定分布）」与「跳板与隧道台账」两段，
+  JSON（`gungnir-report/1`）增 `audit_summary` 与 `jump_routes` 字段——一份报告说清战役全貌
+- **审计查询与导出**：`broker.audit`（按 decision/since 过滤 + 决策分布）、`broker.auditExport`
+  （JSONL，行数一致、写入时已脱敏）；工具 `warroom_audit`（工具数 22→23）、CLI `warroom audit`
+  （查询 / 导出两路）；拒绝路径同样留痕（deny 可追溯）
+- **凭据喷洒矩阵**（框架 §5.1）：`sprayMatrix`（凭据 × 服务 × 账号展开，标注 tried/locked，
+  只有 `run` 格子进 ready 列表）+ `sprayApply`（批量登记，重复格子跳过、**锁定结果切断后续**）；
+  工具 `warroom_spray_matrix`（工具数 21→22）
+- **应答器执行器插件**（ADR-004 项 4 收尾）：`--executor <path>` 挂载
+  `{ name, run(job) }`；内置 `echo-executor`（彩排）与 `dsh-redteam-executor`
+  （按 `GUNGNIR_EXECUTOR_CMD` 调外部执行器，stdin job → stdout 回执）；
+  **未配置/输出非法即失败、绝不写假回执**；失败可重试且不破坏幂等
 - **效率视图增强**（ADR-002 D10）：新增 `by_tier`（模型档位分桶）与 `rework`
   （重派任务数 / 返工率 / unresolved / unknown 计数）；角色与档位桶均带
   `facts_per_1000_tokens` 与 `ms_per_verified_fact`——「谁划算」有数字可依，仍无成本门闸

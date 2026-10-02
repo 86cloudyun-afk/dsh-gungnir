@@ -104,8 +104,26 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
 - **波内无屏障**：独立任务立即并行；依赖满足即刻交接下游（实测顺序 `recon-A → chain-B`）
 - 任务报终态后自动**结项**；成环/悬空依赖如实报错
 
+## 7.8 其余运维子命令（一览）
+
+```sh
+node bin/warroom.mjs audit  --engagement "$ENG" [--decision deny] [--since <iso>] [--export <dir>]
+node bin/warroom.mjs jumps  # 见下
+node bin/warroom.mjs jump status  --engagement "$ENG"          # 跳板/租约/路由总览
+node bin/warroom.mjs jump release --engagement "$ENG" --route <route_id>   # 幂等收口（拆隧道）
+node bin/warroom.mjs sweep  --engagement "$ENG" [--timeout-min 30]         # 超时任务转 unknown（不自动重试）
+node bin/warroom.mjs evidence --engagement "$ENG" --out <dir> [--target <名>] # 三段式 EVIDENCE_INDEX
+node bin/warroom.mjs shell  proof|verify --engagement "$ENG" …
+node bin/warroom.mjs spray  check|record --engagement "$ENG" --credential-ref … --service … --account …
+node bin/warroom.mjs metrics --engagement "$ENG" [--command-id … --tokens-in … --role … --model-tier …]
+node bin/warroom.mjs secret put|grant|status …
+```
+
+全部子命令都支持 `--json`；CLI 与工具/API 共用同一套门闸与事实库。
+
 ## 8. 下一步
 
+- 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
 - 六道闸自检：`node --test` + `scripts/{validate-tool-schemas,check-preset,fault-matrix,self-review}.mjs`
 - 挂载到 DSH：`node scripts/deploy-dsh.mjs --check`（见 [PRESET.md](PRESET.md)）
 - 真实执行层：`node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge"`（见 [DSH-BRIDGE-PROTOCOL.md](DSH-BRIDGE-PROTOCOL.md)）
