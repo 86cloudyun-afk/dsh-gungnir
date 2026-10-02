@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'weekly', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'weekly', 'poc', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,10 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  poc       知识库：add --code c --title t --category k [--body b --source s --allow-unsanitized]
+            search [--q 关键词] [--category k] [--sort relevance|recent|hits] [--limit n]
+            use --code c [--engagement id --asset a --result used|hit|miss|fail]
+            stats
   weekly    多战役周报（只读）：[--days n] [--out <file>] [--text] [--archive（按周归档）]
   deliver   一键交付：报告(all) + 证据包(含清单) + 备份 + 门禁判定 → 返回交付包路径
             --engagement <id> [--out <dir>] [--keep n] [--no-backup]
@@ -100,10 +104,14 @@ const { values: v } = parseArgs({
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
     all: { type: 'boolean', default: false }, confirm: { type: 'string' },
-    by: { type: 'string' }, note: { type: 'string' },
+    by: { type: 'string' }, note: { type: 'string' }, q: { type: 'string' },
+    sort: { type: 'string' }, asset: { type: 'string' }, result: { type: 'string' },
     profile: { type: 'string' }, backup: { type: 'boolean', default: true },
     'no-backup': { type: 'boolean', default: false }, days: { type: 'string' },
     archive: { type: 'boolean', default: false },
+    code: { type: 'string' }, title: { type: 'string' }, category: { type: 'string' },
+    body: { type: 'string' }, source: { type: 'string' }, versions: { type: 'string' },
+    'evidence-ref': { type: 'string' }, 'allow-unsanitized': { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -136,6 +144,28 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'poc': {
+    const kb = broker.knowledge;
+    const sub = argv[1] ?? 'stats';
+    if (sub === 'add') {
+      out(kb.addPoc({
+        code: need('code', v.code), title: need('title', v.title), category: need('category', v.category),
+        body: v.body ?? '', source: v.source ?? null, affected_versions: v.versions ?? null,
+        evidence_ref: v['evidence-ref'] ?? null,
+        allow_unsanitized: v['allow-unsanitized'] === true, note: v.note ?? '',
+      }));
+    } else if (sub === 'search') {
+      const rows = kb.search({ q: v.q ?? null, category: v.category ?? null, sort: v.sort ?? 'relevance', limit: v.limit ? Number(v.limit) : 20 });
+      out({ count: rows.length, rows });
+    } else if (sub === 'use') {
+      out(kb.use(need('code', v.code), {
+        engagement_id: v.engagement ?? 'unscoped', asset: v.asset ?? null, result: v.result ?? 'used',
+      }));
+    } else if (sub === 'usage') {
+      out(kb.usageByEngagement(need('engagement', v.engagement)));
+    } else out(kb.stats());
+    break;
+  }
   case 'weekly': {
     const { renderWeekly } = await import('../packages/warroom-core/src/weekly.js');
     if (v.archive) { out(broker.archiveWeekly({ days: v.days ? Number(v.days) : 7 })); break; }

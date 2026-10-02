@@ -87,6 +87,11 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 影响面摘要 | 等级/范围去重/控制面口径；未评估不猜 | `test/impact.test.js` | ✅ |
+| 看板 JSON 契约 | 七视图字段由真实样本推导；漂移即 CI 失败 | `test/gen-docs.test.js` | ✅ |
+| CLI 知识库 | poc 子命令与工具同源；未脱敏拒收 | `test/cli-poc.test.js` | ✅ |
+| 外部门禁 | 退出码 0/1/2；与 checklist 同源 | `test/gate-check.test.js` | ✅ |
+| 性能门（交付面） | HTML 报告与看板视图在 N=3000 下过闸 | `test/bench.test.js` | ✅ |
 | 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
 | 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
 | 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
@@ -141,8 +146,8 @@
 
 ## 数字快照
 
-- 测试：377 例（`node --test`）
+- 测试：391 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.16`（批次 1–15 已合并）
+- 标签：`v0.1.0-alpha.16`（批次 1–15 已合并；批次 16 合并时升 alpha.17）
