@@ -2,6 +2,35 @@
 // 输入是我们自己生成的 markdown 子集（标题/列表/表格/代码块/引用），因此用受限转换器而非引入依赖。
 // mermaid 图同时以 <pre class="mermaid"> 与源码块存在：有渲染器的环境看到图，没网的环境照样读得懂。
 
+/** 提取 h1-h3 生成目录条目（打印与小屏都用得上）。 */
+export function buildToc(markdown) {
+  const items = [];
+  const used = new Map();
+  for (const line of String(markdown).split('\n')) {
+    const m = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const level = m[1].length;
+    const text = m[2].trim();
+    const base = slugify(text);
+    const n = (used.get(base) ?? 0) + 1;
+    used.set(base, n);
+    items.push({ level, text, id: n === 1 ? base : `${base}-${n}` });
+  }
+  return items;
+}
+
+/** 目录块（页内锚点跳转；打印时照样有目录页）。 */
+function tocBlock(markdown) {
+  const items = buildToc(markdown);
+  if (items.length < 3) return '';   // 太短的报告不需要目录
+  const lines = ['<nav class="toc"><div class="toc-title">目录</div><ul>'];
+  for (const it of items) {
+    lines.push(`<li class="lvl-${it.level}"><a href="#${esc(it.id)}">${esc(it.text)}</a></li>`);
+  }
+  lines.push('</ul></nav>');
+  return lines.join('\n');
+}
+
 /** 封面块（纸面第一页）：谁的报告、什么视图、水位锚点。 */
 function coverBlock(meta, title) {
   const rows = [
@@ -29,13 +58,30 @@ function inline(text) {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
+/** 生成锚点（中文标题也要能用：非字母数字一律折叠为短横线）。 */
+export function slugify(text) {
+  const base = String(text).trim().toLowerCase()
+    .replace(/[`*_()\[\]{}"']/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || 'section';
+}
+
 /**
  * 受限 markdown → HTML 片段。
  * 支持：h1-h4、无序列表、表格、围栏代码块（含 mermaid）、引用块、水平线、普通段落。
+ * 标题自动带 `id` 锚点（供目录跳转）；同名标题加序号避免撞车。
  */
 export function markdownToHtml(md) {
   const lines = String(md).split('\n');
   const out = [];
+  const usedSlugs = new Map();
+  const anchor = (text) => {
+    const base = slugify(text);
+    const n = (usedSlugs.get(base) ?? 0) + 1;
+    usedSlugs.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  };
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -78,7 +124,8 @@ export function markdownToHtml(md) {
     const h = /^(#{1,4})\s+(.*)$/.exec(line);
     if (h) {
       const lvl = h[1].length;
-      out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
+      const id = anchor(h[2]);
+      out.push(`<h${lvl} id="${esc(id)}">${inline(h[2])}</h${lvl}>`);
       i += 1;
       continue;
     }
@@ -180,11 +227,21 @@ export function renderHtml({ markdown, title = 'GUNGNIR 战役报告', meta = nu
   .cover h1 { border:none; margin:.3rem 0 .5rem; }
   .cover dl { display:grid; grid-template-columns:max-content 1fr; gap:.2rem 1rem; margin:0; font-size:.92rem; }
   .cover dt { color:var(--muted); }
+  .toc { border:1px solid var(--line); border-radius:6px; padding:.8rem 1.1rem; margin:0 0 2rem; background:#fff; }
+  .toc-title { font-weight:600; letter-spacing:.04em; margin-bottom:.4rem; }
+  .toc ul { list-style:none; padding-left:0; margin:0; }
+  .toc li { margin:.15rem 0; }
+  .toc li.lvl-2 { padding-left:1rem; }
+  .toc li.lvl-3 { padding-left:2rem; font-size:.94em; color:var(--muted); }
+  .toc a { text-decoration:none; color:var(--fg); }
+  .toc a:hover { text-decoration:underline; }
+  @media print { .toc { break-after:page; background:#fff; } h2, h3 { break-after:avoid; } }
 </style>
 </head>
 <body>
 <main>
 ${meta ? coverBlock(meta, title) : ''}
+${tocBlock(markdown)}
 ${markdownToHtml(markdown)}
 <div class="print-footer">${esc(meta?.generated_at ?? '')} · GUNGNIR · 本文件自包含（无外部资源），可离线留存与打印</div>
 </main>
