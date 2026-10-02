@@ -14,7 +14,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` | ✅ 文件与校验器就绪（**真实 DSH 挂载层生效仍待集成**，见「缺口」——本条是 v0.1 唯一未闭环项） |
+| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（恰 36 个 `warroom_*`，0 内核工具），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
@@ -31,7 +31,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 
 | 验收项 | 证据 | 状态 |
 |---|---|---|
-| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker | ⚠️ 校验器就绪，真实挂载待集成 |
+| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（36 `warroom_*`，0 内核工具），非提示词拒绝 |
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
@@ -67,7 +67,7 @@ CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨
 | 缺口 | 影响 | 计划 |
 |---|---|---|
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
-| 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
+| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（36 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
 可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
