@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **应答器执行器插件**（ADR-004 项 4 收尾）：`--executor <path>` 挂载
+  `{ name, run(job) }`；内置 `echo-executor`（彩排）与 `dsh-redteam-executor`
+  （按 `GUNGNIR_EXECUTOR_CMD` 调外部执行器，stdin job → stdout 回执）；
+  **未配置/输出非法即失败、绝不写假回执**；失败可重试且不破坏幂等
 - **效率视图增强**（ADR-002 D10）：新增 `by_tier`（模型档位分桶）与 `rework`
   （重派任务数 / 返工率 / unresolved / unknown 计数）；角色与档位桶均带
   `facts_per_1000_tokens` 与 `ms_per_verified_fact`——「谁划算」有数字可依，仍无成本门闸
