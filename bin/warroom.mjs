@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,8 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  fact      事实查询（只读）：--engagement <id> [--type t] [--source s] [--since iso]
+            [--history] [--adapter a] [--limit n]
   backup    备份家目录全部库（一致性快照 + 完整性校验）：[--out <dir>] [--keep N]
   restore   恢复演练/落地：[--from <backup dir>] [--apply]（默认 dry-run，只给计划）
   maintain  维护动作：WAL 检查点 + 完整性自检
@@ -76,6 +78,8 @@ const { values: v } = parseArgs({
     'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
+    type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
+    adapter: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -105,6 +109,15 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'fact': {
+    const { store } = broker._eng(need('engagement', v.engagement));
+    out(store.queryFacts({
+      entityType: v.type ?? null, sourceId: v.source ?? null, since: v.since ?? null,
+      includeHistory: !!v.history, adapterInstance: v.adapter ?? null,
+      limit: v.limit ? Number(v.limit) : 500,
+    }));
+    break;
+  }
   case 'backup': {
     const { backupHome, latestBackup } = await import('../packages/warroom-core/src/maintenance.js');
     const r = backupHome({ home, dest: v.out ?? null, keep: v.keep ? Number(v.keep) : null });

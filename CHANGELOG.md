@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **事实查询下沉并补齐 CLI**：`store.queryFacts({entityType, sourceId, since, includeHistory, adapterInstance, limit})`
+  成为工具与 CLI 的唯一实现；`warroom fact --type/--source/--history/--adapter/--limit`
+  （默认只看有效事实，`--history` 可看被取代修订与取代总数）；工具 schema 同步扩展
 - **报告自校验**：导出瞬间对照当前库复核水位与证据摘要，把结论写进 md（「自校验（导出时即时复核）」段）
   与 JSON（`self_check` 字段）——交付物自带"可否复现"的结论与复核命令
 - **波次与节奏档联动**：波内同时在飞任务不超过档位上限（open=3 / restricted=2 / **stealth=1**），
