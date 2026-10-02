@@ -150,3 +150,28 @@ test('报告体量控制：每类事实上限生效且给出未列出计数，JS
   const md = readFileSync(both.paths.markdown, 'utf8');
   assert.match(md, /另有 \*\*6\*\* 条/);
 });
+
+test('报告收录知识库复用记录（md 段 + json kb_usage）', () => {
+  const h = harness();
+  h.broker.knowledge.addPoc({ code: 'KB-REPORT-1', title: '弱口令喷洒先例', category: 'weak-cred' });
+  void h.broker.knowledge.use('KB-REPORT-1', { engagement_id: h.eng.engagement_id, asset: '10.0.0.5', result: 'hit' });
+
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.match(md, /知识库复用（POC 使用记录）/);
+  assert.match(md, /KB-REPORT-1/);
+  assert.match(md, /结果 `hit`/);
+
+  const json = JSON.parse(readFileSync(r.paths.json, 'utf8'));
+  assert.equal(json.kb_usage.total, 1);
+  assert.equal(json.kb_usage.distinct_pocs, 1);
+  assert.equal(json.kb_usage.by_result.hit, 1);
+});
+
+test('未使用知识库时：报告不出现该段（不编造空段）', () => {
+  const h = harness();
+  const r = h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
+  const md = readFileSync(r.paths.markdown, 'utf8');
+  assert.equal(md.includes('知识库复用'), false);
+  assert.ok(r.self_check);
+});

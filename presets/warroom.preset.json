@@ -41,6 +41,7 @@
       "warroom_jumps",
       "warroom_secret_rotate",
       "warroom_egress_check",
+      "warroom_heartbeat",
       "skill"
     ],
     "deny": [

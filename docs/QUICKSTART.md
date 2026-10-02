@@ -182,6 +182,17 @@ secret put|grant|status|rotate | poc_search|poc_add|poc_use（工具）
 conformance [--module <path>] | metrics | spray check|record
 ```
 
+## 7.97 门禁与自检速查
+
+```sh
+npm run ci                                   # 六道闸一次跑完（判定在脚本里，别用 grep 退出码）
+node scripts/ci.mjs --list                   # 看有哪些闸
+node scripts/conformance.mjs                 # adapter 契约自检（内置 fake）
+node scripts/conformance.mjs --module ./my.mjs
+node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG"
+node bin/warroom.mjs doctor                  # 环境/数据/秘密/备份/出口门闸 体检
+```
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
