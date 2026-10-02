@@ -17,7 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
-  weekly    多战役周报（只读）：[--days n] [--out <file>] [--text]
+  weekly    多战役周报（只读）：[--days n] [--out <file>] [--text] [--archive（按周归档）]
   deliver   一键交付：报告(all) + 证据包(含清单) + 备份 + 门禁判定 → 返回交付包路径
             --engagement <id> [--out <dir>] [--keep n] [--no-backup]
   checklist 交付清单（验收项自动判定 + 人工确认）：--engagement <id> [--write] [--out <dir>] [--text]
@@ -103,6 +103,7 @@ const { values: v } = parseArgs({
     by: { type: 'string' }, note: { type: 'string' },
     profile: { type: 'string' }, backup: { type: 'boolean', default: true },
     'no-backup': { type: 'boolean', default: false }, days: { type: 'string' },
+    archive: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -137,6 +138,7 @@ const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); pro
 switch (command) {
   case 'weekly': {
     const { renderWeekly } = await import('../packages/warroom-core/src/weekly.js');
+    if (v.archive) { out(broker.archiveWeekly({ days: v.days ? Number(v.days) : 7 })); break; }
     const w = broker.weekly({ days: v.days ? Number(v.days) : 7 });
     if (v.out) {
       const { writeFileSync } = await import('node:fs');

@@ -981,8 +981,9 @@
           "days": {
             "type": "integer"
           },
-          "out": {
-            "type": "string"
+          "archive": {
+            "type": "boolean",
+            "description": "true = 归档到 <home>/reports/weekly/<ISO 周>.md"
           }
         },
         "required": [
