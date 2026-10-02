@@ -54,3 +54,32 @@ jobs:
         run: node scripts/gen-docs.mjs --check
       - name: 自审闸（秘密/链接/验收引用/卫生）
         run: node scripts/self-review.mjs
+
+  native-host:
+    # 真实挂载验收（ACCEPTANCE §8-1 / ADR-001 首行）：runner 上真装官方 DSH →
+    # 用官方 boot API 启 web profile → 断言预设无 broken + retain 成功 + 工具目录=允许集，
+    # 过了才 HOST_VERIFIED。--require-host 保证装不上即失败（绝不静默通过）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: 安装固定版官方 DSH（隔离到 RUNNER_TEMP，不污染工作区）
+        run: npm install --global --prefix "$RUNNER_TEMP/dsh-host" --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2
+      - name: 真实挂载验收 → HOST_VERIFIED
+        run: |
+          set -euo pipefail
+          anchor="$RUNNER_TEMP/dsh-host/lib/node_modules/@deepseek-ai/dsh/package.json"
+          mkdir -p "$RUNNER_TEMP/host-verify"
+          node scripts/verify-host.mjs --install-anchor "$anchor" --require-host \
+            2>&1 | tee "$RUNNER_TEMP/host-verify/host-verified.log"
+      - name: 保留验收证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-verified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/host-verify/
+          if-no-files-found: error
+          retention-days: 14
