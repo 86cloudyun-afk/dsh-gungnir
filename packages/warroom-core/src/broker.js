@@ -14,6 +14,7 @@ import { SecretVault } from './secrets.js';
 import { KnowledgeBase } from './knowledge.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
+import { exportEvidence } from './evidence.js';
 
 const now = () => new Date().toISOString();
 
@@ -294,6 +295,12 @@ export class Broker {
     return exportReportFile({
       store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir, format,
     });
+  }
+
+  /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
+  exportEvidence(engagementId, { outDir, target = null } = {}) {
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    return exportEvidence({ broker: this, engagementId, outDir: dir, target });
   }
 
   _engWithRow(engagementId) {
