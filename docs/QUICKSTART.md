@@ -233,8 +233,8 @@ node bin/warroom.mjs backup --keep 7
 ## 7.995 值班动线（每 30 分钟看什么）
 
 ```sh
-node bin/warroom.mjs watch  --engagement "$ENG" --text   # ① 现在有什么要我处理（路由/在飞/出口/壳 + 告警）
-node bin/warroom.mjs rate   --engagement "$ENG" --text   # ② 油表：wire 用量/间隔还剩多少/是否锁定
+node bin/warroom.mjs watch  --engagement "$ENG" --text   # ① 一屏：告警 + 路由/在飞/出口/壳 + 油表摘要
+node bin/warroom.mjs rate   --engagement "$ENG" --text   # ② 油表细看（按目标分布/抖动区间）
 node bin/warroom.mjs timeline --engagement "$ENG" --text # ③ 走到哪一步了（相位时间线）
 node bin/warroom.mjs doctor                              # ④ 机器是否健康（含备份新鲜度与报告漂移）
 node bin/warroom.mjs preflight --engagement "$ENG"       # ⑤ 能不能继续动手（三态）

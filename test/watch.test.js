@@ -81,3 +81,33 @@ test('CLI watch 文本与 JSON 双路可用', () => {
     { encoding: 'utf8', env }));
   assert.ok(Array.isArray(parsed.warnings));
 });
+
+test('值班一屏：watch 内置油表摘要（用量/剩余/间隔/并发/喷洒）与相应告警', () => {
+  const h = harness({ authOverrides: { rhythm: 'open' } });
+  const ex = h.broker.execute({ ...h.base, command_id: 'wr-1', contract: h.contract({ wire_cost: 5 }) });
+  h.broker.settle(h.eng.engagement_id, ex.task_id);
+  h.broker.sprayApply(h.eng.engagement_id, [{ credential_ref: 's1', service: 'ssh', account: 'root', result: 'locked' }]);
+
+  const v = h.broker.watch(h.eng.engagement_id);
+  assert.equal(v.rate.rhythm, 'open');
+  assert.equal(v.rate.wire_used, 5);
+  assert.equal(v.rate.wire_cap, 100000);
+  assert.equal(v.rate.wire_remaining, 99995);
+  assert.equal(v.rate.wire_exhausted, false);
+  assert.equal(v.rate.concurrency_cap, 3);
+  assert.equal(v.rate.spray_locked, 1);
+  assert.ok(v.warnings.some((w) => w.includes('喷洒台账已有 1 次锁定')), JSON.stringify(v.warnings));
+
+  const text = renderWatch(v);
+  assert.match(text, /油表（open）：wire 5\/100000（剩 99995）/);
+  assert.match(text, /喷洒台账：1 次 · ⚠️ 锁定 1/);
+});
+
+test('wire 用尽 → watch 直接给告警（不必再跑 rate）', () => {
+  const h = harness({ authOverrides: { rhythm: 'stealth' } });   // stealth 档上限 100
+  const ex = h.broker.execute({ ...h.base, command_id: 'wr-2', contract: h.contract({ wire_cost: 100 }) });
+  h.broker.settle(h.eng.engagement_id, ex.task_id);
+  const v = h.broker.watch(h.eng.engagement_id);
+  assert.equal(v.rate.wire_exhausted, true);
+  assert.ok(v.warnings.some((w) => w.includes('wire 预算已用尽')));
+});
