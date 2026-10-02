@@ -39,11 +39,14 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
 > 折叠标量（`>-`）会因此变成非法 YAML（实测报 `bad indentation of a mapping entry`）。
 > 表达式在 loader 作用域求值，`process.getBuiltinModule('node:fs')` 可用。
 
-**开工与授权（真实路径，2026-10-02 修正）**：会话收到操作员的**开工指令**后，由
-`warroom_engage`（工具）把「靶标范围 + 指令标识」冻结成结构化授权对象（`auth_version` / `auth_hash`），
-此后所有副作用都绑定该对象；CLI 侧等价入口是 `warroom engage`。
-**宿主侧自动截获开工指令尚未实现**（v0.2 候选）——此前文档写成"宿主截获"，与实现不符，已按实际改正。
-自举四步见 `presets/roles/commander.md`「开工动线」。
+**开工与授权（ADR-001 D3）**：可信宿主或操作员 CLI 调用 `Broker.createEngagement` / `warroom engage`，
+把操作员确认的范围冻结为结构化授权对象。模型只引用已有 `engagement_id` / `auth_version`，
+不能用自填的 `user_message_id`、targets 或 overrides 创建授权。跳板导入、路由取得和出口实测同样由可信宿主/CLI 完成；
+会话保留台账、收口及已有验证结果的 record/status。缺少前置时停止并报告给操作员。
+宿主自动截获开工指令尚未实现；此修复不新增捕获或来源认证协议。
+
+历史授权记录的 id/version/hash/scope 原样保留。本补丁不因记录含 `user_message_id` 就认定其来源可信，
+也不修改或批量迁移历史数据；部署前由可信操作员核实授权来源，无法确认的记录通过既有撤销流程处理。
 
 **生效**：host 平面变更需重启 `dsh web`——**只能由操作员在自己的终端执行**：
 
@@ -55,9 +58,8 @@ launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery
 > 用 `launchctl submit` 提交"重启 + 自检"脚本后，launchd 按节流间隔（~10s）**反复重跑**该任务，
 > 每次重跑都 `kickstart -k`，导致 **17:15:20–17:34:14 之间 108 次重启**，宿主不停掉线、
 > 会话被打断。agent 侧只做只读诊断与配置准备，重启留给操作员——这条是纪律，不是建议。
-重启后新建会话选预设「红队指挥（GUNGNIR）」，直接发**开工指令**（靶标 + 范围）：
-会话调用 `warroom_engage` 把该指令冻结为结构化授权对象（开工指令即授权事件，ADR-001 D3；
-宿主侧自动截获未实现，见上）。
+重启后由操作员完成可信授权与出口前置，再把已有授权引用交给预设「红队指挥（GUNGNIR）」会话。
+会话不得调用 `warroom_engage` 或 `warroom_jumps import/acquire`、`warroom_egress_check probe`；这些动作不在模型工具面。
 
 ## 预设"消失"的两个真机陷阱（都踩过）
 

@@ -1,10 +1,9 @@
 {
-  "schema": "gungnir-tools/1",
-  "generated_from": "packages/warroom-tools/src/index.js",
+  "baseline": "70a5a775127b77dd143ff9e39cd2cc0f94097255",
+  "source_blob": "3c83f9467d87dcd42a51857e7c3d5f2f6164d4a5",
   "tools": [
     {
       "name": "warroom_execute",
-      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -41,12 +40,10 @@
           "contract"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_collect",
-      "description": "回执入库（成员级幂等 + 代际隔离）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -67,12 +64,10 @@
           "receipt"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_cancel",
-      "description": "请求取消（幂等）；停止由资源清单逐项探针证实",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -91,12 +86,10 @@
           "task_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_fact_query",
-      "description": "事实查询（只读）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -126,12 +119,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_secret_put",
-      "description": "登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -146,12 +137,10 @@
           "plaintext"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_secret_grant",
-      "description": "为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -177,12 +166,10 @@
           "purpose"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_secret_status",
-      "description": "秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -194,12 +181,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_report_export",
-      "description": "导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -239,12 +224,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_status",
-      "description": "任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -260,12 +243,10 @@
           "task_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_reconcile",
-      "description": "对账 unknown/unresolved 任务（探针定论，绝不默认失败重做）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -281,12 +262,10 @@
           "task_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_redispatch",
-      "description": "重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -305,12 +284,10 @@
           "task_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_shell_status",
-      "description": "shell 状态三字段：历史最高证明 / 当前有效性 / 最后验证时间",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -322,12 +299,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_shell_verify",
-      "description": "记录 shell 历史最高证明或再验证当前有效性（当前可控性不得由历史默认继承）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -353,12 +328,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_spray_check",
-      "description": "喷洒前查断点：该(凭据×服务×账号)是否已试过、账号是否已锁定",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -382,12 +355,10 @@
           "account"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_spray_record",
-      "description": "登记一次喷洒结果（success/fail/locked/skipped）；锁定后拒绝继续（防锁死）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -421,12 +392,10 @@
           "result"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_metrics",
-      "description": "效率遥测：记录任务级 tokens/耗时/有效产出，或查询战役聚合（无成本门闸）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -459,12 +428,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_poc_search",
-      "description": "知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -487,12 +454,10 @@
           }
         },
         "additionalProperties": true
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_poc_add",
-      "description": "回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -524,12 +489,10 @@
           "category"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_poc_use",
-      "description": "登记 POC 在某战役某资产上的使用（跨战役复用留痕）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -551,12 +514,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_sweep_timeouts",
-      "description": "超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -571,12 +532,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_evidence_export",
-      "description": "证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -608,12 +567,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_spray_matrix",
-      "description": "凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -645,12 +602,10 @@
           "services"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_audit",
-      "description": "审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -691,12 +646,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_jumps",
-      "description": "跳板台账与收口：status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -721,12 +674,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_secret_rotate",
-      "description": "轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -738,12 +689,10 @@
           "confirm"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_egress_check",
-      "description": "出口验证：record（记录可信宿主的验证结果）/ status（查询，含有效期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -778,12 +727,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_heartbeat",
-      "description": "长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -802,12 +749,10 @@
           "task_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_preflight",
-      "description": "开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -831,12 +776,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_aggregate",
-      "description": "跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -849,12 +792,10 @@
           "sessions_db"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_timeline",
-      "description": "战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -866,12 +807,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_watch",
-      "description": "巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -886,12 +825,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_rate_view",
-      "description": "速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -903,12 +840,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_checklist",
-      "description": "交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -943,12 +878,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_deliver",
-      "description": "一键交付：报告(all)+证据包(含清单)+备份+交付门禁判定，返回产物路径与结论",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -969,12 +902,10 @@
           "engagement_id"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_weekly",
-      "description": "多战役周报（只读）：窗口内活跃战役的事实/报告/交付门禁汇总",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -990,12 +921,10 @@
           "days"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     },
     {
       "name": "warroom_fleet",
-      "description": "舰队视图（只读）：所有战役的巡检汇总（在飞/超阈/路由/告警/交付门禁）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1007,17 +936,46 @@
           "timeout_min"
         ],
         "additionalProperties": false
-      },
-      "in_allowlist": true
+      }
     }
   ],
-  "preset": {
-    "id": "warroom-gungnir",
-    "roles": [
-      "commander",
-      "recon",
-      "chain"
-    ],
-    "allowlist_mode": "allowlist"
-  }
+  "allow": [
+    "warroom_execute",
+    "warroom_collect",
+    "warroom_cancel",
+    "warroom_status",
+    "warroom_reconcile",
+    "warroom_redispatch",
+    "warroom_fact_query",
+    "warroom_secret_put",
+    "warroom_secret_grant",
+    "warroom_secret_status",
+    "warroom_report_export",
+    "warroom_shell_status",
+    "warroom_shell_verify",
+    "warroom_spray_check",
+    "warroom_spray_record",
+    "warroom_metrics",
+    "warroom_poc_search",
+    "warroom_poc_add",
+    "warroom_poc_use",
+    "warroom_sweep_timeouts",
+    "warroom_evidence_export",
+    "warroom_spray_matrix",
+    "warroom_audit",
+    "warroom_jumps",
+    "warroom_secret_rotate",
+    "warroom_egress_check",
+    "warroom_heartbeat",
+    "warroom_preflight",
+    "warroom_aggregate",
+    "warroom_timeline",
+    "warroom_watch",
+    "warroom_rate_view",
+    "warroom_checklist",
+    "warroom_deliver",
+    "warroom_weekly",
+    "warroom_fleet",
+    "skill"
+  ]
 }
