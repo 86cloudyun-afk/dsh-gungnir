@@ -73,3 +73,43 @@ test('CLI preflight：blocked 时非零退出；degraded 时零退出', () => {
   assert.equal(degraded.code, 0, 'degraded 不阻塞');
   assert.equal(JSON.parse(degraded.out).verdict, 'degraded');
 });
+
+test('带演练计划：波次目标逐个核授权范围（越界即 blocked）', () => {
+  const h = harness();
+  const inScope = { tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'] }, { id: 'B', role: 'chain', targets: ['10.0.0.9'], depends_on: ['A'] }] };
+  const ok = h.broker.preflight(h.eng.engagement_id, { meeting: inScope });
+  assert.equal(ok.checks.find((c) => c.dim === 'plan' && c.name === '波次目标 ⊆ 授权范围').status, 'ok');
+  assert.ok(ok.next.some((n) => n.includes('按计划开工')));
+  assert.match(ok.checks.find((c) => c.name === '并发与层数').detail, /2 层/);
+
+  const out = { tasks: [{ id: 'C', role: 'recon', targets: ['192.168.99.7'] }] };
+  const bad = h.broker.preflight(h.eng.engagement_id, { meeting: out });
+  assert.equal(bad.verdict, 'blocked');
+  assert.ok(bad.blockers.some((b) => b.includes('越界目标') && b.includes('192.168.99.7')));
+});
+
+test('计划成环 → 预检直接报 blocked（不等到派单才炸）', () => {
+  const h = harness();
+  const cyclic = { tasks: [
+    { id: 'X', role: 'recon', targets: ['10.0.0.5'], depends_on: ['Y'] },
+    { id: 'Y', role: 'recon', targets: ['10.0.0.6'], depends_on: ['X'] },
+  ] };
+  const r = h.broker.preflight(h.eng.engagement_id, { meeting: cyclic });
+  assert.equal(r.verdict, 'blocked');
+  assert.ok(r.blockers.some((b) => b.includes('波次计划可生成')));
+});
+
+test('CLI preflight --meeting 可用（越界即非零退出）', () => {
+  const h = harness();
+  const planPath = join(h.home, 'plan.json');
+  writeFileSync(planPath, JSON.stringify({ tasks: [{ id: 'Z', role: 'recon', targets: ['203.0.113.99'] }] }));
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  let code = 0;
+  let out = '';
+  try {
+    out = execFileSync('node', ['bin/warroom.mjs', 'preflight', '--engagement', h.eng.engagement_id,
+      '--meeting', planPath, '--home', h.home, '--json'], { encoding: 'utf8', env });
+  } catch (e) { code = e.status; out = e.stdout ?? ''; }
+  assert.equal(code, 1, '越界目标应让预检非零退出');
+  assert.equal(JSON.parse(out).verdict, 'blocked');
+});

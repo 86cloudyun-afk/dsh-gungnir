@@ -442,11 +442,20 @@ export const TOOLS = [
     description: '开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' },
+        meeting_tasks: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+          description: '可选：波次任务列表（逐个核对是否在授权范围内）',
+        },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.preflight(args.engagement_id),
+    run: (core, args) => core.broker.preflight(args.engagement_id, {
+      meeting: args.meeting_tasks ? { tasks: args.meeting_tasks } : null,
+    }),
   },
 ];
 

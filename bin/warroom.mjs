@@ -17,7 +17,8 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
-  preflight 开工前预检：--engagement <id> → ready|degraded|blocked（含下一步建议）
+  preflight 开工前预检：--engagement <id> [--meeting <wave.json>] → ready|degraded|blocked
+            （给了会议文件就逐个核对波次目标是否在授权范围内）
   heartbeat  长时任务心跳：--engagement <id> --task <task_id> [--note n]
   conformance  adapter 一致性套件自检：[--module <path>]
   egress    出口验证：status | record --jumphost <id> --ip <ip> [--verdict pass|fail] [--route r]
@@ -115,7 +116,12 @@ const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); pro
 
 switch (command) {
   case 'preflight': {
-    const r = broker.preflight(need('engagement', v.engagement));
+    let meeting = null;
+    if (v.meeting) {
+      const { readFileSync } = await import('node:fs');
+      meeting = JSON.parse(readFileSync(v.meeting, 'utf8'));
+    }
+    const r = broker.preflight(need('engagement', v.engagement), { meeting });
     out(r);
     if (r.verdict === 'blocked') process.exitCode = 1;
     break;
