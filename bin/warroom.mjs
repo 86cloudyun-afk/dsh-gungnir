@@ -18,6 +18,7 @@ function usage() {
 用法：node bin/warroom.mjs <命令> [选项]
 
   checklist 交付清单（验收项自动判定 + 人工确认）：--engagement <id> [--write] [--out <dir>] [--text]
+            [--strict（必过项未全通过即非零退出）] [--profile delivery|progress]
   rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
@@ -92,7 +93,8 @@ const { values: v } = parseArgs({
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
-    write: { type: 'boolean', default: false },
+    write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
+    profile: { type: 'string' },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -130,11 +132,12 @@ switch (command) {
     const engagementId = need('engagement', v.engagement);
     if (v.write) out(broker.exportChecklist(engagementId, { outDir: v.out ?? null }));
     else {
-      const c = broker.checklist(engagementId);
+      const c = broker.checklist(engagementId, { profile: v.strict ? 'delivery' : (v.profile ?? 'delivery') });
       if (v.text || !v.json) {
         console.log(renderChecklist(c));
         if (v.json) out(c);
       } else out(c);
+      if (v.strict && !c.deliverable) process.exitCode = 1;   // 交付门禁：必过项未全通过即非零
     }
     break;
   }

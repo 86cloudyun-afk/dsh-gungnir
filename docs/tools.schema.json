@@ -920,6 +920,13 @@
           },
           "out_dir": {
             "type": "string"
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "delivery",
+              "progress"
+            ]
           }
         },
         "required": [

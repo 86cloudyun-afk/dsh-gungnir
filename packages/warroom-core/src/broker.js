@@ -456,8 +456,8 @@ export class Broker {
   }
 
   /** 交付清单（验收项自动判定 + 人工确认项，只读）。 */
-  checklist(engagementId) {
-    return buildChecklist({ broker: this, engagementId });
+  checklist(engagementId, { profile = 'delivery' } = {}) {
+    return buildChecklist({ broker: this, engagementId, profile });
   }
 
   /** 交付清单落盘为交付附件（写进证据目录）。 */
