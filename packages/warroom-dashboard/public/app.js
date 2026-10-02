@@ -1,4 +1,4 @@
-import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary } from './graph.js';
+import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary, messageMatchesSelection, retainSelection } from './graph.js';
 import { requestData } from './transport.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -69,6 +69,7 @@ async function refresh({ reset = false, initial = false } = {}) {
   const controller = new AbortController();
   state.controller = controller;
   const oldSelection = state.selection;
+  const oldSnapshot = state.snapshot;
   if (reset || initial) {
     state.snapshot = null;
     state.selectedId = null;
@@ -105,9 +106,8 @@ async function refresh({ reset = false, initial = false } = {}) {
       snapshot.conversation = { ...snapshot.conversation, status: 'unavailable', messages: [] };
     }
     state.snapshot = snapshot;
-    const sameEngagement = oldSelection && snapshot.engagement?.engagement_id === state.engagement;
-    if (sameEngagement && oldSelection.kind === 'node' && snapshot.nodes.some((node) => node.id === oldSelection.id)) { state.selection = oldSelection; state.selectedId = oldSelection.id; }
-    else { state.selection = null; state.selectedId = null; }
+    state.selection = !reset && !initial ? retainSelection(oldSnapshot, snapshot, oldSelection) : null;
+    state.selectedId = state.selection?.kind === 'node' ? state.selection.id : null;
     render();
     setStatus(statusText(snapshot));
   } catch (error) {
@@ -396,9 +396,9 @@ function messageRelated(message) {
   }
   if (selection.kind === 'route') {
     const tasks = new Set((state.snapshot?.tasks || []).filter((task) => task.route_id === selection.id).map((task) => task.task_id || task.id));
-    return message.route_ids?.includes(selection.id) || message.task_ids?.some((id) => tasks.has(id));
+    return messageMatchesSelection(message, selection) || message.task_ids?.some((id) => tasks.has(id));
   }
-  return message.task_ids?.includes(selection.id) || selection.route_ids?.some((id) => message.route_ids?.includes(id));
+  return messageMatchesSelection(message, selection);
 }
 
 function clearRenderedData() {

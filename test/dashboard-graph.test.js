@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDemoSnapshot } from '../packages/warroom-dashboard/src/demo.js';
-import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary } from '../packages/warroom-dashboard/public/graph.js';
+import { layoutGraph, focusedSubgraph, collapseEvidence, findExactNode, fitNodeLabel, routeSelection, taskSelection, snapshotSummary, messageMatchesSelection, retainSelection } from '../packages/warroom-dashboard/public/graph.js';
 
 test('layout keeps fork, merge, shared route IDs, isolated nodes and stable coordinates', () => {
   const snapshot = createDemoSnapshot();
@@ -130,4 +130,30 @@ test('summary reports partial totals and independent risks including expired pen
   assert.equal(summary.totals.nodes, 20);
   assert.deepEqual(summary.risks, { failed: 1, pending: 2, expired: 1 });
   assert.equal(snapshotSummary({ nodes: [], edges: [], routes: [], tasks: [], diagnostics: {} }).totals.nodes, null);
+});
+
+test('route and task selections match node-only messages through explicit mapped node IDs', () => {
+  const message = { node_ids: ['n1'], route_ids: [], task_ids: [] };
+  assert.equal(messageMatchesSelection(message, { kind: 'route', id: 'r1', node_ids: ['n1'], edge_ids: [] }), true);
+  assert.equal(messageMatchesSelection(message, { kind: 'task', id: 't1', node_ids: ['n1'], edge_ids: [], route_ids: [] }), true);
+  assert.equal(messageMatchesSelection({ ...message, node_ids: ['unrelated'] }, { kind: 'route', id: 'r1', node_ids: ['n1'] }), false);
+});
+
+test('same-scope refresh retains only still-unique route/task mappings and rebuilds them', () => {
+  const oldSnapshot = {
+    mode: 'real', engagement: { engagement_id: 'eng-1' },
+    nodes: [{ id: 'n1', task_ids: ['t1'] }], edges: [],
+    routes: [{ route_id: 'r1', node_ids: ['n1'], edge_ids: ['e-old'] }],
+    tasks: [{ task_id: 't1', route_id: 'r1' }],
+  };
+  const newSnapshot = {
+    ...oldSnapshot,
+    routes: [{ route_id: 'r1', node_ids: ['n1'], edge_ids: ['e-new'] }],
+  };
+  assert.deepEqual(retainSelection(oldSnapshot, newSnapshot, { kind: 'route', id: 'r1', node_ids: ['stale'], edge_ids: ['stale'] }), { kind: 'route', id: 'r1', node_ids: ['n1'], edge_ids: ['e-new'] });
+  assert.deepEqual(retainSelection(oldSnapshot, newSnapshot, { kind: 'task', id: 't1', node_ids: ['stale'], edge_ids: [], route_ids: [] }), { kind: 'task', id: 't1', node_ids: ['n1'], edge_ids: ['e-new'], route_ids: ['r1'] });
+  assert.equal(retainSelection(oldSnapshot, { ...newSnapshot, routes: [] }, { kind: 'route', id: 'r1' }), null);
+  assert.equal(retainSelection(oldSnapshot, { ...newSnapshot, tasks: [{ task_id: 't1' }, { task_id: 't1' }] }, { kind: 'task', id: 't1' }), null);
+  assert.equal(retainSelection(oldSnapshot, { ...newSnapshot, mode: 'demo' }, { kind: 'route', id: 'r1' }), null);
+  assert.equal(retainSelection(oldSnapshot, { ...newSnapshot, engagement: { engagement_id: 'eng-2' } }, { kind: 'route', id: 'r1' }), null);
 });
