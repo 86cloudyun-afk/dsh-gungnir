@@ -122,6 +122,16 @@ node bin/warroom.mjs secret put|grant|status …
 
 全部子命令都支持 `--json`；CLI 与工具/API 共用同一套门闸与事实库。
 
+## 7.9 家目录配置（可选）
+
+```sh
+node bin/warroom.mjs config init            # 生成 $WARROOM_HOME/warroom.json（示例默认值）
+node bin/warroom.mjs config show            # 查看当前生效配置
+```
+
+默认值覆盖：`rhythm`（新战役默认节奏档）、`timeoutMin`（sweep 超时）、`adapterKind`、
+`bridgeTimeoutMs`、`fenceImage`、`waveConcurrency`。**拼错字段会报错**，不会被静默忽略。
+
 ## 8. 下一步
 
 - 一键体检：`node bin/warroom.mjs doctor`（环境/数据/秘密）
