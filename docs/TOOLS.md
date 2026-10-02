@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**31**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**32**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -12,7 +12,7 @@
 | `warroom_secret_put` | 登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文 | `{ plaintext*:string, label:string }` | ✅ |
 | `warroom_secret_grant` | 为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行 | `{ secret_ref*:string, engagement_id:string, task_id*:string, purpose*:string, ttl_seconds:integer }` | ✅ |
 | `warroom_secret_status` | 秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文） | `{ engagement_id*:string }` | ✅ |
-| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|both, max_facts_per_type:integer, audience:client|blue|full }` | ✅ |
+| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|html|both|all, max_facts_per_type:integer, audience:client|blue|full, verify:boolean }` | ✅ |
 | `warroom_status` | 任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数 | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_reconcile` | 对账 unknown/unresolved 任务（探针定论，绝不默认失败重做） | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_redispatch` | 重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离） | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |
@@ -36,6 +36,7 @@
 | `warroom_aggregate` | 跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库 | `{ sessions_db*:string }` | ✅ |
 | `warroom_timeline` | 战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线 | `{ engagement_id*:string }` | ✅ |
 | `warroom_watch` | 巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项 | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
+| `warroom_rate_view` | 速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账 | `{ engagement_id*:string }` | ✅ |
 
 ## 约定
 

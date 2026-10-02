@@ -46,6 +46,7 @@
       "warroom_aggregate",
       "warroom_timeline",
       "warroom_watch",
+      "warroom_rate_view",
       "skill"
     ],
     "deny": [

@@ -214,7 +214,9 @@
             "enum": [
               "md",
               "json",
-              "both"
+              "html",
+              "both",
+              "all"
             ]
           },
           "max_facts_per_type": {
@@ -227,6 +229,10 @@
               "blue",
               "full"
             ]
+          },
+          "verify": {
+            "type": "boolean",
+            "description": "true = 导出后立刻复核可复现性并返回结论"
           }
         },
         "required": [
@@ -870,6 +876,23 @@
           },
           "timeout_min": {
             "type": "integer"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_rate_view",
+      "description": "速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
           }
         },
         "required": [

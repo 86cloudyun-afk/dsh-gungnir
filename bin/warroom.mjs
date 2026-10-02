@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,7 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
@@ -89,6 +90,7 @@ const { values: v } = parseArgs({
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
+    verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -121,6 +123,15 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'rate': {
+    const { renderRateView } = await import('../packages/warroom-core/src/rate-view.js');
+    const rv = broker.rateView(need('engagement', v.engagement));
+    if (v.text || !v.json) {
+      console.log(renderRateView(rv));
+      if (v.json) out(rv);
+    } else out(rv);
+    break;
+  }
   case 'watch': {
     const { renderWatch } = await import('../packages/warroom-core/src/watch.js');
     const v2 = broker.watch(need('engagement', v.engagement), { timeoutMin: v['timeout-min'] ? Number(v['timeout-min']) : null });
@@ -321,11 +332,13 @@ switch (command) {
     out(broker.revoke(need('engagement', v.engagement), v.reason ?? 'cli'));
     break;
   case 'report':
-    out(broker.exportReport(need('engagement', v.engagement), {
+    const r = broker.exportReportVerified(need('engagement', v.engagement), {
       outDir: v.out, format: v.format ?? 'md',
       maxFactsPerType: v['max-facts'] ? Number(v['max-facts']) : 50,
       audience: v.audience ?? 'full',
-    }));
+    });
+    out(r);
+    if (v.verify && !r.verify.reproducible) process.exitCode = 1;   // 交付前发现漂移 → 非零退出
     break;
   case 'audit': {
     const engagementId = need('engagement', v.engagement);
@@ -398,7 +411,18 @@ switch (command) {
         wall_time_ms: Number(v['wall-time-ms'] ?? 0), verified_facts: Number(v['verified-facts'] ?? 0),
         role: v.role,
       }));
-    } else out(broker.metrics(engagementId));
+    } else {
+      const m = broker.metrics(engagementId);
+      if (v.csv) {
+        const { metricsToRows } = await import('../packages/warroom-core/src/metrics-export.js');
+        const r = metricsToRows(m);
+        if (v.out) {
+          const { writeFileSync } = await import('node:fs');
+          writeFileSync(v.out, r.csv, 'utf8');
+          out({ path: v.out, rows: r.rows.length });
+        } else process.stdout.write(r.csv);
+      } else out(m);
+    }
     break;
   }
   case 'secret': {

@@ -70,6 +70,8 @@ node bin/warroom.mjs cancel --engagement "$ENG" --task "$TID" --json
 ## 6. 报告：同一份证据的两个视图
 
 ```sh
+node bin/warroom.mjs report --engagement "$ENG" --format all                  # md + json + html
+node bin/warroom.mjs report --engagement "$ENG" --format html --audience client
 node bin/warroom.mjs report --engagement "$ENG" --format both                 # 全量（内部）
 node bin/warroom.mjs report --engagement "$ENG" --format md --audience client  # 客户版
 node bin/warroom.mjs report --engagement "$ENG" --format md --audience blue    # 蓝队版 --json
@@ -218,6 +220,8 @@ node scripts/egress-check.mjs --home "$WARROOM_HOME" --engagement "$ENG"
 node bin/warroom.mjs preflight --engagement "$ENG" --meeting wave.json --json   # ready|degraded|blocked
 node bin/warroom.mjs wave --dry-run --engagement "$ENG" --meeting wave.json
 node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json
+node bin/warroom.mjs report --engagement "$ENG" --format all                  # md + json + html
+node bin/warroom.mjs report --engagement "$ENG" --format html --audience client
 node bin/warroom.mjs report --engagement "$ENG" --format both                 # 全量（内部）
 node bin/warroom.mjs report --engagement "$ENG" --format md --audience client  # 客户版
 node bin/warroom.mjs report --engagement "$ENG" --format md --audience blue    # 蓝队版
@@ -225,6 +229,19 @@ node bin/warroom.mjs evidence --engagement "$ENG" --out findings/evidence/10.0.0
 node bin/warroom.mjs aggregate --sessions-db "$DSH_HOME/storages/pentest-sessions.db" --out aggregate.json
 node bin/warroom.mjs backup --keep 7
 ```
+
+## 7.995 值班动线（每 30 分钟看什么）
+
+```sh
+node bin/warroom.mjs watch  --engagement "$ENG" --text   # ① 现在有什么要我处理（路由/在飞/出口/壳 + 告警）
+node bin/warroom.mjs rate   --engagement "$ENG" --text   # ② 油表：wire 用量/间隔还剩多少/是否锁定
+node bin/warroom.mjs timeline --engagement "$ENG" --text # ③ 走到哪一步了（相位时间线）
+node bin/warroom.mjs doctor                              # ④ 机器是否健康（含备份新鲜度与报告漂移）
+node bin/warroom.mjs preflight --engagement "$ENG"       # ⑤ 能不能继续动手（三态）
+```
+
+判断顺序：**告警 → 油表 → 漂移**。`watch` 有告警先处理（失效路由/超阈值任务/unresolved 残留）；
+`rate` 看是否触顶或锁定；`doctor` 报"报告已漂移"就重出报告再交付。
 
 ## 8. 下一步
 

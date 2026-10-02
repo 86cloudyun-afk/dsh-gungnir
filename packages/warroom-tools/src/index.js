@@ -122,17 +122,23 @@ export const TOOLS = [
       type: 'object',
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
-        format: { type: 'string', enum: ['md', 'json', 'both'] },
+        format: { type: 'string', enum: ['md', 'json', 'html', 'both', 'all'] },
         max_facts_per_type: { type: 'integer' },
         audience: { type: 'string', enum: ['client', 'blue', 'full'] },
+        verify: { type: 'boolean', description: 'true = 导出后立刻复核可复现性并返回结论' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportReport(args.engagement_id, {
-      outDir: args.out_dir, format: args.format ?? 'md',
-      maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
-    }),
+    run: (core, args) => (args.verify
+      ? core.broker.exportReportVerified(args.engagement_id, {
+        outDir: args.out_dir, format: args.format ?? 'md',
+        maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
+      })
+      : core.broker.exportReport(args.engagement_id, {
+        outDir: args.out_dir, format: args.format ?? 'md',
+        maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
+      })),
   },
   {
     name: 'warroom_status',
@@ -500,6 +506,17 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => core.broker.watch(args.engagement_id, { timeoutMin: args.timeout_min ?? null }),
+  },
+  {
+    name: 'warroom_rate_view',
+    description: '速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.rateView(args.engagement_id),
   },
 ];
 
