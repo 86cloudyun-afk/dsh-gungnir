@@ -6,6 +6,7 @@ import { KnowledgeBase } from './knowledge.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
+import { buildTopology, toMermaid } from './topology.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -53,6 +54,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     catch { return []; }
   })();
 
+  // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
+  const topology = buildTopology(snap.rows);
+
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
 
@@ -80,6 +84,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     audit_summary: auditSummary,
     jump_routes: routes,
     kb_usage: kbUsage,
+    topology: R(topology),
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -196,6 +201,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     catch { return []; }
   })();
 
+  // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
+  const topology = buildTopology(snap.rows);
+
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
 
@@ -210,6 +218,20 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
+  if (topology.edges.length > 0) {
+    lines.push('## 攻击路径拓扑');
+    lines.push('');
+    lines.push(toMermaid(topology));
+    lines.push('');
+    lines.push(`- 节点 ${topology.nodes.length} · 边 ${topology.edges.length}`
+      + `（边来源：${topology.derived_from}）`);
+    if (topology.unexplained > 0) {
+      lines.push(`- ⚠️ 有 **${topology.unexplained}** 条事实（弱点/链路/控制面）**未给出引用关系**，`
+        + '因此图上没有边——请补记 `payload.steps` 或 `payload.path` 后再出图');
+    }
+    lines.push('');
+  }
+
   if (kbUsage.total > 0) {
     lines.push('## 知识库复用（POC 使用记录）');
     lines.push('');

@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **报告攻击路径拓扑**（`topology.js`）：按事实 payload 的显式引用（`steps`/`path`/`achieved_via`）
+  画边、隐式引用（`asset`/`target`/`host`/`via`/`source_ref`/`unlocks`）补边并标注「推断」；
+  报告 md 出 mermaid `flowchart LR` 图 + JSON `topology`；**无引用不画边**，
+  并如实提示"有 N 条弱点/链路/控制面事实未给出引用关系"
 - **单命令门禁** `npm run ci`（`scripts/ci.mjs`）：顺序跑六道闸，打印逐闸退出码与汇总结论，
   任一失败即非零退出；支持 `--list` / `--only <names>`。自审闸规则同步**加强**：
   校验 CI 入口确实覆盖六道闸（runner 指向也算），并核对 runner 内登记的闸数
