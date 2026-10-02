@@ -1,0 +1,1 @@
+{"name":"@gungnir/warroom-dashboard","version":"1.0.0","private":true,"type":"module","exports":{".":"./src/snapshot.js"},"scripts":{"test":"node --test ../../test/dashboard-snapshot.test.js"}}
