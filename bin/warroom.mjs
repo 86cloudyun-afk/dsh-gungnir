@@ -89,7 +89,7 @@ const { values: v } = parseArgs({
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
-    verify: { type: 'boolean', default: false },
+    verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -401,7 +401,18 @@ switch (command) {
         wall_time_ms: Number(v['wall-time-ms'] ?? 0), verified_facts: Number(v['verified-facts'] ?? 0),
         role: v.role,
       }));
-    } else out(broker.metrics(engagementId));
+    } else {
+      const m = broker.metrics(engagementId);
+      if (v.csv) {
+        const { metricsToRows } = await import('../packages/warroom-core/src/metrics-export.js');
+        const r = metricsToRows(m);
+        if (v.out) {
+          const { writeFileSync } = await import('node:fs');
+          writeFileSync(v.out, r.csv, 'utf8');
+          out({ path: v.out, rows: r.rows.length });
+        } else process.stdout.write(r.csv);
+      } else out(m);
+    }
     break;
   }
   case 'secret': {
