@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **效率四段观测**（框架 §11：排队 / 交接 / 执行 / 失败与返工）：`metrics().segments` ——
+  排队（立项→首派）、交接（派发→首回执）、执行（首回执→结项）、返工（次数 + 墙钟）；
+  全部由已有时间戳算出（`command_queue.ts` → `gate_log.collect` → `gate_log.settle`），
+  **无数据一律 null**；`broker.collect` 增留痕（accepted/隔离原因）供分段与审计共用
 - **执行三桶一等公民**（框架 §4）：`buckets.js` —— 桶 A（容器+sidecar，**必须有活跃 route**，
   任务容器只接 `--internal` 且 DNS 不落宿主）、桶 B（本机直连，**不允许经 socks**）、
   桶 C（跳板侧，需指定跳板，**情报与凭据不落跳板**）；每种桶给出 allowed/forbidden/不变量清单；
