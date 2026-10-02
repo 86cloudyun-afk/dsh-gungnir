@@ -371,6 +371,22 @@ export const TOOLS = [
       return core.jumps.status(args.engagement_id);
     },
   },
+  {
+    name: 'warroom_secret_rotate',
+    description: '轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解',
+    input_schema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean' } },
+      required: ['confirm'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if (args.confirm !== true) {
+        throw Object.assign(new Error('轮换属于高风险动作：需 confirm=true'), { code: 'E_GATE_MISSING_TUPLE' });
+      }
+      return core.broker.secrets.rotateKey();
+    },
+  },
 ];
 
 export { ERR };
