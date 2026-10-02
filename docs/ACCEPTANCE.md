@@ -87,6 +87,12 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 活跃 route 生命周期 | 心跳续期；租约释放/长时无心跳 → stale；围栏不再取该出口 | `test/route-liveness.test.js` | ✅ |
+| 长时任务心跳 | 持续心跳不被清扫；心跳失效转 unknown 且基准标为 heartbeat | `test/heartbeat.test.js` | ✅ |
+| 报告攻击路径拓扑 | 显式引用优先、隐式标「推断」、无引用不画边 | `test/topology.test.js` | ✅ |
+| 知识库复用入报告 | md 段 + json `kb_usage`；未使用不出现 | `test/ioc-report.test.js` | ✅ |
+| 单命令门禁 | 六闸逐条跑、汇总判定、失败非零退出 | `test/ci-runner.test.js` | ✅ |
+| 桥接 adapter 过一致性套件 | 跨进程 + 停止逐项证实 | `test/conformance-bridge.test.js` | ✅ |
 | 备份保留与恢复演练 | `--keep` 只轮转自动备份；restore 默认 dry-run，apply 前先做恢复前快照 | `test/restore.test.js` | ✅ |
 | 波次与节奏档联动 | 同时在飞 ≤ 档位上限；波末未结项如实报错 | `test/wave.test.js` | ✅ |
 | 报告自校验 | 导出即复核；漂移如实标记 | `test/report-selfcheck.test.js` | ✅ |
@@ -101,8 +107,8 @@
 
 ## 数字快照
 
-- 测试：229 例（`node --test`）
+- 测试：251 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=7（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.9`（批次 1–8 已合并）
+- 标签：`v0.1.0-alpha.9`（批次 1–8 已合并；批次 9 合并时升 alpha.10）
