@@ -384,19 +384,45 @@ export const TOOLS = [
   },
   {
     name: 'warroom_jumps',
-    description: '跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）',
+    description: '跳板台账与出口：import（登记跳板，需 hosts）/ acquire（为本战役取一条出口路由，需 target）'
+      + ' / status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）',
     input_schema: {
       type: 'object',
       properties: {
         engagement_id: { type: 'string' },
-        action: { type: 'string', enum: ['status', 'release', 'sweep', 'sweep_routes', 'heartbeat'] },
+        action: { type: 'string', enum: ['status', 'import', 'acquire', 'release', 'sweep', 'sweep_routes', 'heartbeat'] },
         route_id: { type: 'string' },
+        target: { type: 'string', description: 'acquire 用：本次要出网的目标（域名/IP）' },
+        hosts: {
+          type: 'array',
+          description: 'import 用：跳板清单（来自操作员的 advisory/jumphosts.md）',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' }, role: { type: 'string' }, ssh_host: { type: 'string' },
+              addr_v4: { type: 'string' }, addr_v6: { type: 'string' }, quota: { type: 'integer' },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => {
       const action = args.action ?? 'status';
+      // 自举动词：会话必须能自己把"零跳板"变成"有可用出口"（此前工具面只有查询类动作，
+      // 导致真机事故：四线全阻塞、`hosts=0 routes=0` 而无法自救——CLI 有 import/acquire，工具面没有）
+      if (action === 'import') {
+        const hosts = args.hosts ?? [];
+        if (hosts.length === 0) throw new Error('import 需要 hosts（非空数组）');
+        return { imported: core.jumps.importHosts(hosts), hosts: core.jumps.status(args.engagement_id).hosts ?? null };
+      }
+      if (action === 'acquire') {
+        if (!args.target) throw new Error('acquire 需要 target（本次出网目标）');
+        return core.jumps.acquire({ engagement_id: args.engagement_id, target: args.target });
+      }
       if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
       if (action === 'sweep_routes') return core.jumps.sweepRoutes();
@@ -456,6 +482,53 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => core.broker.heartbeat(args.engagement_id, args.task_id, { note: args.note ?? null }),
+  },
+  {
+    name: 'warroom_engage',
+    description: '冻结授权并建战役（开工指令即授权事件）：给 targets（靶标/范围）+ user_message_id（操作员开工指令原文或会话 id）。'
+      + '冻结后返回 auth_version / auth_hash，后续所有副作用都绑定该授权对象；目标范围之外的动作一律被门闸拒绝。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          description: '授权范围内的靶标（域名/IP/CIDR）；必须来自操作员的开工指令',
+          items: { type: 'string' },
+        },
+        user_message_id: { type: 'string', description: '开工指令的标识（会话 id 或指令哈希），作为授权事件来源' },
+        engagement_id: { type: 'string', description: '可选：显式指定战役 id（跨会话沿用同一战役时必须保持一致）' },
+        rhythm: { type: 'string', enum: ['open', 'restricted', 'stealth'] },
+        window_hours: { type: 'integer' },
+        action_class_limit: { type: 'string', enum: ['readonly', 'active', 'destructive'] },
+      },
+      required: ['targets', 'user_message_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if (!Array.isArray(args.targets) || args.targets.length === 0) {
+        throw new Error('warroom_engage 需要非空 targets（来自操作员开工指令；不得自行推测范围）');
+      }
+      const r = core.broker.createEngagement({
+        user_message_id: args.user_message_id,
+        targets: args.targets,
+        engagement_id: args.engagement_id ?? null,
+        overrides: {
+          ...(args.rhythm ? { rhythm: args.rhythm } : {}),
+          ...(args.window_hours ? { window_hours: Number(args.window_hours) } : {}),
+          ...(args.action_class_limit ? { action_class_limit: args.action_class_limit } : {}),
+        },
+      });
+      return {
+        engagement_id: r.engagement_id,
+        auth_version: r.auth_version,
+        auth_hash: r.auth_hash,
+        scope: r.auth_object?.scope ?? args.targets,
+        rhythm: r.auth_object?.rhythm,
+        window_end: r.auth_object?.window_end,
+        next: ['warroom_jumps action=import hosts=[...]', 'warroom_jumps action=acquire target=<靶标>',
+          'warroom_egress_check（出口现测并记录）', 'warroom_execute（派单）'],
+      };
+    },
   },
   {
     name: 'warroom_preflight',

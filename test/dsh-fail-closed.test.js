@@ -9,6 +9,7 @@
 //   正例——健康预设在 fail-closed 默认开启下仍干净挂载（无回归）；
 //   负例——注入 allow:[] 的预设在 list() 里 broken 且 retain() 抛（= 开会被拒）。
 import { test } from 'node:test';
+import { TOOLS } from '../packages/warroom-tools/src/index.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +29,9 @@ function fakeTools() {
 const fullAllow = [...TOOL_NAMES, 'skill'];
 
 // ---- 单元：fail-closed 条件 ----
+/** 工具总数（与工具表同源，不再写死数字）。 */
+const TOOLS_LEN = TOOLS.length;
+
 test('fail-closed：声明 toolPolicy 但 allow 为空数组 → apply 抛（拒绝挂载）', () => {
   assert.throws(
     () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: '/tmp/wr-fc-1', toolPolicy: { mode: 'allowlist', allow: [] } }),
@@ -62,10 +66,10 @@ test('failClosed:false → 显式关闭 fail-closed：空 allow 不抛（可控�
   assert.equal(f.registered.length, 0);
 });
 
-test('无 toolPolicy（向后兼容）→ 不受 fail-closed 影响，注册全部 36', () => {
+test('无 toolPolicy（向后兼容）→ 不受 fail-closed 影响，注册全部工具', () => {
   const f = fakeTools();
   const svc = entry.apply({ tools: f.tools, on() {} }, { home: '/tmp/wr-fc-6' });
-  assert.equal(f.registered.length, 36);
+  assert.equal(f.registered.length, TOOLS_LEN);
   assert.equal(svc.failClosed, true);
 });
 
@@ -93,7 +97,7 @@ test('failClosed:false → preset 不可读时降级为无策略（显式旁路�
   });
   assert.equal(svc.failClosed, false);
   assert.equal(svc.gateStatus, 'no-policy');
-  assert.equal(f.registered.length, 36);
+  assert.equal(f.registered.length, TOOLS_LEN);
 });
 
 // ---- 验收：本机真实 DSH 挂载 ----
