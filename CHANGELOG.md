@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **单命令门禁** `npm run ci`（`scripts/ci.mjs`）：顺序跑六道闸，打印逐闸退出码与汇总结论，
+  任一失败即非零退出；支持 `--list` / `--only <names>`。自审闸规则同步**加强**：
+  校验 CI 入口确实覆盖六道闸（runner 指向也算），并核对 runner 内登记的闸数
 - **报告收录知识库复用**：`KnowledgeBase.usageByEngagement`（按战役查 POC 使用记录，含标题/分类/
   资产/结果）→ 报告 md 新增「知识库复用（POC 使用记录）」段 + JSON `kb_usage`；未使用则不出现该段
 - **长时任务心跳**（schema v8）：`broker.heartbeat(engagementId, taskId, {note})` / 工具
