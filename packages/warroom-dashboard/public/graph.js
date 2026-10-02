@@ -105,17 +105,137 @@ function walkClosure(start, adjacency, included) {
 }
 
 export function collapseEvidence(snapshot, { includeEvidence = true } = {}) {
-  const hidden = includeEvidence ? [] : (snapshot.nodes || []).filter((node) => node.layer === 2);
-  const shared = new Map();
-  for (const node of hidden) {
-    for (const routeId of node.route_ids || []) shared.set(routeId, (shared.get(routeId) || 0) + 1);
+  const evidence = includeEvidence ? [] : (snapshot.nodes || []).filter((node) => node.layer === 2);
+  const folded = includeEvidence ? snapshot : collapseEvidenceGraph(snapshot);
+  const aggregateNodes = includeEvidence ? [] : (folded?.nodes || []).filter((node) => node.kind === 'evidence-aggregate');
+  const hiddenNodeCount = aggregateNodes.reduce((total, node) => total + (node.hidden_node_count || 0), 0);
+  const aggregateSourceIds = new Set(aggregateNodes.flatMap((node) => node.aggregate_source_ids || []));
+  const retainedNodeCount = evidence.length - hiddenNodeCount;
+  const evidenceById = new Map(evidence.map((node) => [node.id, node]));
+  const aggregates = aggregateNodes.map((node) => {
+    const shared = new Map();
+    for (const sourceId of node.aggregate_source_ids || []) {
+      for (const routeId of evidenceById.get(sourceId)?.route_ids || []) shared.set(routeId, (shared.get(routeId) || 0) + 1);
+    }
+    return {
+      ...node,
+      shared_route_ids: [...shared.keys()].sort(),
+      shared_dependencies: [...shared].filter(([, count]) => count > 1).map(([route_id, count]) => ({ route_id, count })),
+    };
+  });
+  return {
+    hidden_node_count: hiddenNodeCount,
+    retained_node_count: retainedNodeCount,
+    aggregate_nodes: aggregates,
+    retained_node_ids: evidence.filter((node) => !aggregateSourceIds.has(node.id)).map((node) => node.id),
+    route_notes: routeNotes(snapshot),
+    anomalies: anomalies(snapshot),
+  };
+}
+
+export function collapseEvidenceGraph(snapshot) {
+  const hiddenNodes = (snapshot?.nodes || []).filter((node) => node.layer === 2).slice().sort((left, right) => left.id.localeCompare(right.id));
+  if (!hiddenNodes.length) return snapshot;
+  const groups = new Map();
+  for (const node of hiddenNodes) {
+    const signature = evidenceStructureSignature(node, snapshot.edges || []);
+    if (!groups.has(signature)) groups.set(signature, []);
+    groups.get(signature).push(node);
   }
-  const aggregate = hidden.length ? [{
-    id: 'aggregate:evidence', kind: 'evidence-aggregate', label: `证据折叠 · ${hidden.length} 项`,
-    hidden_node_count: hidden.length, shared_route_ids: [...shared.keys()].sort(),
-    shared_dependencies: [...shared].filter(([, count]) => count > 1).map(([route_id, count]) => ({ route_id, count })),
-  }] : [];
-  return { hidden_node_count: hidden.length, aggregate_nodes: aggregate, route_notes: routeNotes(snapshot), anomalies: anomalies(snapshot) };
+  const mergeGroups = [...groups.values()].filter((group) => group.length > 1).sort((left, right) => left[0].id.localeCompare(right[0].id));
+  if (!mergeGroups.length) return snapshot;
+
+  const hiddenIds = new Set(mergeGroups.flatMap((group) => group.map((node) => node.id)));
+  const usedIds = new Set((snapshot.nodes || []).filter((node) => !hiddenIds.has(node.id)).map((node) => node.id));
+  const nodeIdMap = new Map();
+  const aggregateNodes = [];
+  for (const group of mergeGroups) {
+    const baseId = aggregateNodes.length === 0 ? 'aggregate:evidence' : `aggregate:evidence:${encodeURIComponent(group[0].id)}`;
+    let aggregateId = baseId;
+    let suffix = 1;
+    while (usedIds.has(aggregateId)) aggregateId = `${baseId}:${suffix++}`;
+    usedIds.add(aggregateId);
+    for (const node of group) nodeIdMap.set(node.id, aggregateId);
+    const first = group[0];
+    aggregateNodes.push({
+      ...first,
+      id: aggregateId,
+      source_id: aggregateId,
+      entity_type: 'evidence-aggregate',
+      label: `证据聚合 · ${group.length} 项`,
+      kind: 'evidence-aggregate',
+      aggregate_source_ids: group.map((node) => node.id),
+      aggregate_sources: group.map((node) => node.source_id),
+      hidden_node_count: group.length,
+    });
+  }
+  const emitted = new Set();
+  const nodes = (snapshot.nodes || []).flatMap((node) => {
+    const aggregateId = nodeIdMap.get(node.id);
+    if (!aggregateId) return [node];
+    if (emitted.has(aggregateId)) return [];
+    emitted.add(aggregateId);
+    const aggregate = aggregateNodes.find((item) => item.id === aggregateId);
+    return [aggregate];
+  });
+  const edges = (snapshot.edges || []).map((edge) => {
+    const from = nodeIdMap.get(edge.from) || edge.from;
+    const to = nodeIdMap.get(edge.to) || edge.to;
+    const aggregate = from !== edge.from || to !== edge.to;
+    return aggregate ? { ...edge, id: `${edge.id}:collapsed`, from, to, aggregate: true } : edge;
+  });
+  return { ...snapshot, nodes, edges };
+}
+
+function evidenceStructureSignature(node, edges) {
+  const incoming = new Map();
+  const outgoing = new Map();
+  for (const edge of edges) {
+    if (edge.to === node.id) {
+      if (!incoming.has(edge.from)) incoming.set(edge.from, []);
+      incoming.get(edge.from).push(edgeSignature(edge));
+    }
+    if (edge.from === node.id) {
+      if (!outgoing.has(edge.to)) outgoing.set(edge.to, []);
+      outgoing.get(edge.to).push(edgeSignature(edge));
+    }
+  }
+  const metadata = {
+    adapter_instance: node.adapter_instance ?? null,
+    entity_type: node.entity_type ?? null,
+    route_ids: sortedValues(node.route_ids),
+    task_ids: sortedValues(node.task_ids),
+    state: node.state ?? null,
+    highest_proof: node.highest_proof ?? null,
+    proof: node.proof ?? null,
+    current_validity: node.current_validity ?? null,
+    risk: node.risk ?? null,
+    risk_state: node.risk_state ?? null,
+    risks: node.risks ?? null,
+    risk_metadata: node.risk_metadata ?? null,
+    severity: node.severity ?? null,
+    lease: node.lease ?? null,
+    egress: node.egress ?? null,
+    risk_fields: Object.fromEntries(Object.entries(node)
+      .filter(([key]) => /risk|validity|proof|state|severity|lease|egress/i.test(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => [key, sortObject(value)])),
+  };
+  return JSON.stringify({ incoming: sortNeighborSignature(incoming), outgoing: sortNeighborSignature(outgoing), metadata: sortObject(metadata) });
+}
+
+function edgeSignature(edge) {
+  const { id, from, to, label, ...semantics } = edge;
+  return sortObject(semantics);
+}
+function sortNeighborSignature(neighbors) {
+  return [...neighbors].sort(([left], [right]) => left.localeCompare(right)).map(([id, edges]) => [id, edges.map(edgeSignature).map((edge) => JSON.stringify(edge)).sort()]);
+}
+function sortedValues(values) { return [...new Set(values || [])].sort(); }
+function sortObject(value) {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortObject(value[key])]));
 }
 
 export function findExactNode(snapshot, query) {

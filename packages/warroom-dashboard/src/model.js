@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
+import { redact } from '../../warroom-core/src/redactor.js';
 
 const clean = (value, max = 240) => typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max)
   : null;
 const tupleKey = (adapter, type, source) => JSON.stringify([adapter, type, source]);
 const stableId = (adapter, type, source) => `fact:${createHash('sha256').update(tupleKey(adapter, type, source)).digest('hex').slice(0, 24)}`;
+
+export function normalizeDisplayText(value, max = 240) {
+  if (typeof value !== 'string') return null;
+  return redact(value).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max) || null;
+}
 
 export function projectFacts(rows, diagnostics) {
   const facts = decodeRows(rows, diagnostics);
@@ -19,7 +25,7 @@ export function projectFacts(rows, diagnostics) {
     const to = resolveReference(toRef, active, byTriple, bySource, diagnostics, sourceAdapter);
     if (!from || !to || from === to) return;
     const edgeId = `edge:${edges.length}:${from}:${to}`;
-    edges.push({ id: edgeId, from, to, label: clean(label) || '引用', kind, route_ids: cleanStrings(routeIds) });
+    edges.push({ id: edgeId, from, to, label: normalizeDisplayText(label) || '引用', kind, route_ids: cleanStrings(routeIds) });
   }
 
   for (const row of active) {
@@ -79,7 +85,7 @@ function projectNode(row) {
     source_id: clean(row.source_id),
     adapter_instance: clean(row.adapter_instance),
     entity_type: clean(row.entity_type),
-    label: clean(payload.label) || clean(row.source_id),
+    label: normalizeDisplayText(payload.label) || normalizeDisplayText(row.source_id),
     layer: Number.isInteger(layer) ? Math.max(0, Math.min(4, layer)) : layerFor(row.entity_type),
     state: stateOf(payload.state),
     route_ids: cleanStrings(payload.route_ids),

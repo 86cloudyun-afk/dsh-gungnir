@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { parseArgs } from 'node:util';
 import { startDashboardServer } from '../packages/warroom-dashboard/src/server.js';
 import { createDemoSnapshot } from '../packages/warroom-dashboard/src/demo.js';
+import { collapseEvidenceGraph } from '../packages/warroom-dashboard/public/graph.js';
 import { createDashboardSmokeFixture } from './dashboard-smoke-fixture.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -59,10 +60,14 @@ try {
   await page.keyboard.press('Space');
   result.checks.push('node-to-conversation linking and SVG Enter/Space focus');
   await page.getByRole('button', { name: '折叠证据', exact: true }).click();
-  assert.equal(await page.locator('#global-graph [data-node-id="aggregate:evidence"]').count(), 1);
+  const foldedFixture = collapseEvidenceGraph(fixture.snapshot);
+  assert.deepEqual(await page.locator('#global-graph [data-node-id]').evaluateAll(nodes => nodes.map(node => node.dataset.nodeId).sort()), foldedFixture.nodes.map(node => node.id).sort());
+  assert.equal(await page.locator('#global-graph .graph-edge').count(), fixture.snapshot.edges.length);
   assert.equal(await page.locator('.route-note').count(), 4);
   assert.match(await page.locator('#focus-anomalies').innerText(), /失败 [1-9]/);
-  await page.locator('#global-graph [data-node-id="aggregate:evidence"]').click();
+  const firstAggregate = foldedFixture.nodes.find(node => node.kind === 'evidence-aggregate');
+  if (firstAggregate) await page.locator(`#global-graph [data-node-id=${JSON.stringify(firstAggregate.id)}]`).click();
+  else await page.getByRole('button', { name: '折叠证据', exact: true }).click();
   assert.equal(await page.locator('#global-graph [data-node-id]').count(), 21);
   await page.getByRole('button', { name: '完整图', exact: true }).click();
   assert.equal(await page.locator('.detail-panel').isVisible(), false);
@@ -118,6 +123,39 @@ try {
   result.checks.push('partial totals, reference ambiguity, shared-jump choices, expired risk and malicious/long labels');
   await page.unroute('**/api/demo');
 
+  const foldDto = createDemoSnapshot();
+  const factNode = (id, layer, state = 'unknown') => ({ id, source_id: id, label: id, layer, state, route_ids: [], task_ids: [] });
+  foldDto.nodes = [factNode('path-a', 1), factNode('evidence-in', 2), factNode('evidence-out', 2), factNode('path-b', 3), factNode('parallel-start', 1), factNode('parallel-one', 2), factNode('parallel-two', 2), factNode('parallel-end', 3)];
+  foldDto.edges = [
+    { id: 'a-e1', from: 'path-a', to: 'evidence-in', kind: 'reference', route_ids: [] },
+    { id: 'e2-b', from: 'evidence-out', to: 'path-b', kind: 'reference', route_ids: [] },
+    { id: 'p-e1', from: 'parallel-start', to: 'parallel-one', kind: 'explicit', route_ids: [] },
+    { id: 'p-e2', from: 'parallel-start', to: 'parallel-two', kind: 'explicit', route_ids: [] },
+    { id: 'e1-q', from: 'parallel-one', to: 'parallel-end', kind: 'explicit', route_ids: [] },
+    { id: 'e2-q', from: 'parallel-two', to: 'parallel-end', kind: 'explicit', route_ids: [] },
+  ];
+  foldDto.conversation.messages = [];
+  foldDto.diagnostics.counts = { nodes: 8, edges: 6, routes: 4, tasks: 0 };
+  await page.route('**/api/demo', route => route.fulfill({ json: foldDto }));
+  await page.getByRole('button', { name: '显式加载演示数据', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('#global-graph [data-node-id]').length === 8);
+  await page.getByRole('button', { name: '折叠证据', exact: true }).click();
+  assert.equal(await page.locator('#global-graph [data-node-id]').count(), 7, 'Equivalent parallel evidence folds to one node');
+  assert.equal(await page.locator('#global-graph [data-node-id="evidence-in"]').count(), 1);
+  assert.equal(await page.locator('#global-graph [data-node-id="evidence-out"]').count(), 1, 'Disconnected path evidence stays separate');
+  assert.equal(await page.locator('#global-graph .graph-edge').count(), 6, 'Each original relationship is retained');
+  const foldAggregate = collapseEvidenceGraph(foldDto).nodes.find(node => node.kind === 'evidence-aggregate');
+  assert(foldAggregate && foldAggregate.aggregate_source_ids.length === 2);
+  await page.locator('#map-search').fill('parallel-two');
+  await page.getByRole('button', { name: '定位搜索结果', exact: true }).click();
+  assert(await page.locator(`#global-graph [data-node-id=${JSON.stringify(foldAggregate.id)}]`).evaluate(node => node.classList.contains('selected')), 'Original ID search highlights its collapsed group');
+  await page.locator(`#global-graph [data-node-id=${JSON.stringify(foldAggregate.id)}]`).focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#global-graph [data-node-id]').count(), 8);
+  assert.equal(await page.locator('.route-note').count(), 4);
+  result.checks.push('actual SVG folds equivalent evidence, preserves disconnected paths and original-ID highlight, and expands by keyboard');
+  await page.unroute('**/api/demo');
+
   await page.route('**/api/snapshot?*', route => route.fulfill({ status: 503, json: { error: { code: 'E_FIXTURE_UNAVAILABLE' } } }));
   await page.getByRole('button', { name: '返回真实数据', exact: true }).click();
   await page.locator('#global-error').waitFor({ state: 'visible' });
@@ -141,8 +179,15 @@ try {
     await page.getByRole('button', { name: '定位搜索结果', exact: true }).click();
     assert.match(await page.locator('#breadcrumb').innerText(), new RegExp(extra.id));
     await page.getByRole('button', { name: '折叠证据', exact: true }).click();
+    const largeFolded = collapseEvidenceGraph(large.snapshot);
+    assert(largeFolded.nodes.length < large.snapshot.nodes.length, 'Large evidence folding must reduce visible nodes');
+    assert.equal(await page.locator('#global-graph [data-node-id]').count(), largeFolded.nodes.length);
+    assert.equal(await page.locator('#global-graph .graph-edge').count(), large.snapshot.edges.length);
     assert.equal(await page.locator('.route-note').count(), 4);
-    await page.locator('#global-graph [data-node-id="aggregate:evidence"]').click();
+    const largeAggregate = largeFolded.nodes.find(node => node.aggregate_source_ids?.includes(extra.id));
+    assert(largeAggregate);
+    assert(await page.locator(`#global-graph [data-node-id=${JSON.stringify(largeAggregate.id)}]`).evaluate(node => node.classList.contains('selected')));
+    await page.locator(`#global-graph [data-node-id=${JSON.stringify(largeAggregate.id)}]`).click();
     assert.equal(await page.locator('#global-graph [data-node-id]').count(), 261);
     assert.deepEqual(large.hashes(), largeBefore);
     result.checks.push('actual 261-node SQLite graph preserves disconnected evidence, edges and exact search through folding');

@@ -2,13 +2,13 @@
 
 ## GUNGNIR 对话战图交付（2026-10-03）
 
-Dashboard 定向测试 **32/32**。临时 SQLite 与 Chrome 通过 21/261 节点、桌面/窄屏、对话双向定位、路线/任务引用、折叠与错误清空验证；当前安装的 DSH 0.2.0-rc.2 在独立临时 HOME/cwd 中通过实际 Client 页签、会话冷读、opaque iframe 和认证/作用域拒绝验证。两轮浏览器均无页面错误，事实库与全局库哈希未变。测试会话和数据库均为合成夹具；不改变既有生产 `HOST_VERIFIED` 记录。复现命令和截图见 [战图验收记录](dashboard/validation.md)，接入说明见 [使用指南](dashboard/usage.md)。
+Dashboard 定向测试 **41/41**。临时 SQLite 与 Chrome 通过 21/261 节点、桌面/窄屏、对话双向定位、路线/任务引用、折叠与错误清空验证；当前安装的 DSH 0.2.0-rc.2 在独立临时 HOME/cwd 中通过实际 Client 页签、会话冷读、opaque iframe 和认证/作用域拒绝验证。两轮浏览器均无页面错误，事实库与全局库哈希未变。测试会话和数据库均为合成夹具；不改变既有生产 `HOST_VERIFIED` 记录。复现命令和截图见 [战图验收记录](dashboard/validation.md)，接入说明见 [使用指南](dashboard/usage.md)。
 
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**501 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**510 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -156,7 +156,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：501 例（`node --test`）
+- 测试：510 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：37 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
