@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **家目录配置** `$WARROOM_HOME/warroom.json`：默认节奏档 / sweep 超时 / adapter 类型 /
+  桥超时 / 围栏镜像 / 波内并发提示；**非法或未知字段明确报错**（不静默忽略，避免"以为生效了"）；
+  `warroom config show|init [--force]`；Broker 与插件服务都读取它
 - **验收映射刷新**：`docs/ACCEPTANCE.md` 新增「批次 4–6 新增能力 → 判据/证据/状态」映射表（15 项）
 - **执行器接入闭环**：`docs/DSH-EXECUTOR.md`（三步接法 + 语义约束表 + 接入检查单）、
   `executors/example-role-cmd.mjs`（可跑示例：按 role 产出占位事实与资源）；
