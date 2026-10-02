@@ -28,7 +28,7 @@
 | `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string }` | ✅ |
 | `warroom_spray_matrix` | 凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子 | `{ engagement_id*:string, credentials*:array, services*:array, accounts:array }` | ✅ |
 | `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
-| `warroom_jumps` | 跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约） | `{ engagement_id*:string, action:status|release|sweep, route_id:string }` | ✅ |
+| `warroom_jumps` | 跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期） | `{ engagement_id*:string, action:status|release|sweep|sweep_routes|heartbeat, route_id:string }` | ✅ |
 | `warroom_secret_rotate` | 轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解 | `{ confirm*:boolean }` | ✅ |
 | `warroom_egress_check` | 出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
 
