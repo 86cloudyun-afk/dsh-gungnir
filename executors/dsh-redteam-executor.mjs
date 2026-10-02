@@ -10,11 +10,17 @@
 // 执行器崩溃/输出非法 → 抛错，主控侧表现为任务 unknown/unresolved，而不是完成。
 import { execFile } from 'node:child_process';
 
-function runCommand(cmdline, job, timeoutMs = 120000) {
+function runCommand(cmdline, job, timeoutMs = Number(process.env.GUNGNIR_EXECUTOR_TIMEOUT_MS ?? 900000)) {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = cmdline.split(' ').filter(Boolean);
     const child = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(`executor 执行失败：${err.message}; stderr=${stderr?.slice(0, 500)}`));
+      if (err) {
+        // 原因必须可诊断：退出码/信号 + stderr 与 stdout 尾部
+        // （真机踩过：这里只带 err.message，stderr 为空时空话一条 → 指挥层无从判断该改什么）
+        const why = err.killed || err.signal ? `killed(${err.signal ?? 'timeout'})` : `exit=${err.code}`;
+        const tail = `${String(stderr ?? '').slice(-400)}${stdout ? ' | stdout:' + String(stdout).slice(-200) : ''}`.trim();
+        return reject(new Error(`executor 执行失败：${why}；${tail || '（子进程无输出）'}`));
+      }
       try {
         resolve(JSON.parse(stdout));
       } catch (e) {

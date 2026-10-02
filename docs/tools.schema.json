@@ -4,7 +4,7 @@
   "tools": [
     {
       "name": "warroom_execute",
-      "description": "唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发",
+      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。",
       "input_schema": {
         "type": "object",
         "properties": {

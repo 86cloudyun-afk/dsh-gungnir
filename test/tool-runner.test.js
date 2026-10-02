@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { planCommands, parseDomains, parseAssets, parseFindings, runJob } from '../executors/tool-runner.mjs';
+import { planCommands, parseDomains, parseAssets, parseFindings, parseHttp, runJob, runTool } from '../executors/tool-runner.mjs';
 
 function fakeTools() {
   const dir = mkdtempSync(join(tmpdir(), 'wr-fake-tools-'));
@@ -110,4 +110,74 @@ test('计划是纯函数：域名/URL 都能取到目标', () => {
   assert.deepEqual(parseDomains('x.example.test\n\n# comment\n', 't').length, 1);
   assert.equal(parseAssets('{"url":"https://z.test"}').length, 1);
   assert.equal(parseFindings('not json').length, 0);
+});
+
+test('动作对齐：http_get 只发一次请求（不按角色猜成扫描）', () => {
+  const plan = planCommands('assess', ['t.example'], { action: 'http_get', url: 'https://t.example/login' });
+  assert.equal(plan.commands.length, 1);
+  assert.equal(plan.commands[0].tool, 'http_get');
+  assert.match(plan.commands[0].cmd, /curl -sS -i -m 20/);
+  assert.match(plan.commands[0].cmd, /https:\/\/t\.example\/login/);
+  assert.equal(plan.requests, 1, '只看一眼 = 1 个请求');
+});
+
+test('动作对齐：exec（任意命令）明确拒绝，并列出可用动作', () => {
+  const plan = planCommands('assess', ['t.example'], { action: 'exec' });
+  assert.equal(plan.commands.length, 0);
+  assert.match(plan.reason, /不属于本通道/);
+  assert.match(plan.reason, /http_get/);
+  assert.match(plan.reason, /recon/);
+});
+
+test('动作对齐：role=assess 但 action 是别的 → 不再默认跑 nuclei', () => {
+  const plan = planCommands('assess', ['t.example'], { action: 'whatever' });
+  assert.equal(plan.commands.length, 0, '未实装的动作必须拒绝，而不是退化成扫描');
+  assert.match(plan.reason, /未实装/);
+});
+
+test('http_get 解析：状态码/标题/Server/跳转/耗时进事实', () => {
+  const raw = [
+    'HTTP/1.1 200 OK', 'Server: nginx/1.25', 'X-Powered-By: Express', 'Set-Cookie: session=x; Path=/',
+    '', '<html><head><title>登录 - 门户</title></head>', '', '__CURL__200 1234 0.42',
+  ].join('\n');
+  const members = parseHttp(raw);
+  assert.equal(members.length, 1);
+  const p = members[0].payload;
+  assert.equal(p.status, 200);
+  assert.equal(p.title, '登录 - 门户');
+  assert.equal(p.server, 'nginx/1.25');
+  assert.equal(p.powered_by, 'Express');
+  assert.equal(p.set_cookie_name, 'session');
+  assert.equal(p.size, 1234);
+});
+
+test('执行器失败必须可诊断：包装层带上 killed/exit 与输出尾部', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wr-wrap-'));
+  const ex = join(dir, 'boom.mjs');
+  writeFileSync(ex, `process.stderr.write('具体原因: 工具没装\\n'); process.exit(9);`);
+  process.env.GUNGNIR_EXECUTOR_CMD = `/usr/local/bin/node ${ex}`;
+  try {
+    const mod = await import('../executors/dsh-redteam-executor.mjs');
+    await assert.rejects(() => mod.default.run({ external_id: 'x', role: 'recon', contract: { targets: ['t'] } }),
+      (e) => /exit=9/.test(e.message) && /具体原因/.test(e.message));
+  } finally { delete process.env.GUNGNIR_EXECUTOR_CMD; }
+});
+
+test('curl 必须显式 -x（只靠 ALL_PROXY 会 CONNECT 后失败）+ 子进程环境里不许残留代理变量', () => {
+  const withExit = planCommands('assess', ['t.example'], { action: 'http_get', url: 'https://t.example/login', exit: 'socks5h://127.0.0.1:21071' });
+  assert.match(withExit.commands[0].cmd, /-x socks5h:\/\/127\.0\.0\.1:21071/, '必须显式带 -x');
+
+  // runTool 清代理变量：注入一个「会打印代理环境」的假命令
+  const dir = mkdtempSync(join(tmpdir(), 'wr-env-'));
+  const probe = join(dir, 'env.sh');
+  writeFileSync(probe, 'echo "HTTP_PROXY=${HTTP_PROXY:-none} ALL_PROXY=${ALL_PROXY:-none}"');
+  const prev = process.env.HTTP_PROXY;
+  process.env.HTTP_PROXY = 'http://127.0.0.1:18780';      // 模拟本机环境代理在场
+  try {
+    const r = runTool(`bash ${probe}`, { artifactDir: mkdtempSync(join(tmpdir(), 'wr-art6-')), id: 'env', timeoutMs: 20000 });
+    assert.match(r.stdout, /HTTP_PROXY=none/, '子进程里不得残留本机代理变量（否则静默回落本机出口）');
+    assert.match(r.stdout, /ALL_PROXY=none/);
+  } finally {
+    if (prev === undefined) delete process.env.HTTP_PROXY; else process.env.HTTP_PROXY = prev;
+  }
 });
