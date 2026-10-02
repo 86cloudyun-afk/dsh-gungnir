@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
+import { FactStore } from '../packages/warroom-core/src/store.js';
+import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 import { readDashboardSnapshot, listDashboardEngagements, createDemoSnapshot } from '../packages/warroom-dashboard/src/snapshot.js';
 
 const NOW = '2026-10-03T00:45:00.000Z';
@@ -60,7 +62,7 @@ function fixture() {
 }
 function closeFixture(item) { rmSync(item.root,{recursive:true,force:true}); }
 
-test('uses the core home layout, reads atomically, and preserves identity and authoritative task state',()=>{
+test('uses the core home layout, read-only transactions, and authoritative task state',()=>{
  const x=fixture(); try {
   writeFileSync(join(x.home,'warroom.json'),JSON.stringify({egressMaxAgeMin:60}));
   const before=[sha(x.factPath),sha(x.globalPath)];
@@ -97,6 +99,24 @@ test('egress requires exact host, route, active lease era, non-recovered check, 
   const recovered=new DatabaseSync(x.factPath);recovered.prepare('UPDATE egress_checks SET jumphost_id=?,recovered_at=? WHERE route_id=?').run('host-1',NOW,'live-route');recovered.close();
   assert.equal(readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:NOW}).routes.find((route)=>route.route_id==='live-route').egress.current,false);
  } finally {closeFixture(x);}
+});
+
+
+test('normal JumphostManager heartbeat preserves a fresh exact-route pass',()=>{
+ const x=fixture(); const global=new DatabaseSync(x.globalPath); const fact=new DatabaseSync(x.factPath);
+ try {
+  const manager=new JumphostManager({globalDb:global,getFactStore:()=>new FactStore(fact,'demo-eng-001'),ttlMinutes:30});
+  const RealDate=globalThis.Date;
+  try {
+   globalThis.Date=class extends RealDate {
+    constructor(...args){super(...(args.length?args:['2026-10-03T00:45:00.000Z']));}
+    static now(){return RealDate.parse('2026-10-03T00:45:00.000Z');}
+   };
+   manager.heartbeatRoute({route_id:'live-route',engagementId:'demo-eng-001'});
+  } finally {globalThis.Date=RealDate;}
+  const snapshot=readDashboardSnapshot({home:x.home,engagementId:'demo-eng-001',now:'2026-10-03T00:50:00.000Z'});
+  assert.equal(snapshot.routes.find((route)=>route.route_id==='live-route').egress.current,true);
+ } finally {fact.close();global.close();closeFixture(x);}
 });
 
 test('home engagement ID mismatch, path escapes, missing/corrupt databases fail with stable codes',()=>{
