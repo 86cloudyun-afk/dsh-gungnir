@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**28**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**29**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -33,6 +33,7 @@
 | `warroom_egress_check` | 出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
 | `warroom_heartbeat` | 长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判） | `{ engagement_id*:string, task_id*:string, note:string }` | ✅ |
 | `warroom_preflight` | 开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked | `{ engagement_id*:string, meeting_tasks:array }` | ✅ |
+| `warroom_aggregate` | 跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库 | `{ sessions_db*:string }` | ✅ |
 
 ## 约定
 

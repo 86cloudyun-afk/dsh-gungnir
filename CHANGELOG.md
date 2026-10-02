@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **跨会话聚合视图（只读边界，框架 §7）**：`aggregate.js` —— 各战役库与 DSH 聚合库
+  （`pentest-sessions.db`）**一律 `readOnly` 打开**，合并出战果总表（战役数/事实数/shell 数/分类统计），
+  输出 `gungnir-aggregate/1`；工具 `warroom_aggregate`（29 个工具）、CLI
+  `warroom aggregate [--sessions-db <path>] [--out <file>]`；**回归守着"写入必须失败"**
 - **效率四段观测**（框架 §11：排队 / 交接 / 执行 / 失败与返工）：`metrics().segments` ——
   排队（立项→首派）、交接（派发→首回执）、执行（首回执→结项）、返工（次数 + 墙钟）；
   全部由已有时间戳算出（`command_queue.ts` → `gate_log.collect` → `gate_log.settle`），
