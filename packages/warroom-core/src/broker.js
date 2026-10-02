@@ -914,16 +914,56 @@ export class Broker {
   redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    if (cmd.engagement_id !== engagementId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
+    }
     if (!['failed', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
     }
-    const row = this._auth(engagementId).row;
+    let contract;
+    try { contract = JSON.parse(cmd.contract); }
+    catch { throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted contract is invalid JSON'); }
+    validateContract(contract ?? {});
+    if (contract.engagement_id !== cmd.engagement_id || contract.task_id !== cmd.task_id) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'persisted contract 不属于该任务');
+    }
+    // 原契约与队列都必须保留原授权版本；不能将历史越权重派洗成当前授权。
+    const [original, current] = [contract.generation, cmd.generation].map((value) => {
+      const match = typeof value === 'string' && /^[0-9]+:[0-9]+:[0-9]+$/.exec(value);
+      const parts = match && match[0] === value ? value.split(':').map(Number) : [];
+      if (parts.length !== 3 || parts.some((n) => !Number.isSafeInteger(n)) ||
+          parts[0] < 1 || parts[1] < 0 || parts[2] < 1) {
+        throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted generation required');
+      }
+      return parts;
+    });
+    if (current[2] !== cmd.attempt || !Number.isSafeInteger(cmd.attempt + 1)) {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'persisted attempt inconsistent or exhausted');
+    }
+    if (original[0] !== current[0]) {
+      throw warroomError(ERR.E_GATE_AUTH_EXPIRED, 'original authorization version was changed');
+    }
+    validateFourTuple({ engagement_id: engagementId, auth_version: original[0],
+      task_id: cmd.task_id, action_class: contract.action_class });
+    const { row, auth } = this._auth(engagementId);
+    const nowMs = this._nowMs();
+    const start = Date.parse(auth.window_start), end = Date.parse(auth.window_end);
+    if (![nowMs, start, end].every(Number.isFinite) || start > end) {
+      throw warroomError(ERR.E_GATE_WINDOW_CLOSED, 'authorization window or clock invalid');
+    }
+    checkAgainstAuth({ auth: { ...auth, auth_version: row.auth_version },
+      auth_version: original[0], nowMs, contract });
+    // 重派接口没有新人工批准；destructive 不继承已消费的令牌。
+    // 不支持重派的 adapter 不得因 optional call 而假报 running。
+    if (typeof this.adapter.redispatch !== 'function') {
+      throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, 'adapter does not support redispatch');
+    }
     const attempt = cmd.attempt + 1;
-    const generation = makeGeneration(row.auth_version, this.dispatchCounter, attempt);
+    const generation = makeGeneration(original[0], current[1], attempt);
     this._setCommandState(cmd.command_id, 'running');
     this.global.prepare('UPDATE command_queue SET attempt = ?, generation = ? WHERE command_id = ?')
       .run(attempt, generation, cmd.command_id);
-    this.adapter.redispatch?.(cmd.command_id, { ...JSON.parse(cmd.contract), generation }, attempt);
+    this.adapter.redispatch(cmd.command_id, { ...contract, generation }, attempt);
     this._gate(engagementId, 'redispatch', { task_id: cmd.task_id, attempt, reason });
     return { task_id: cmd.task_id, attempt, generation, state: 'running' };
   }
