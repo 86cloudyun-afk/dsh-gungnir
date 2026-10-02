@@ -327,6 +327,24 @@ export const TOOLS = [
       return core.broker.sprayMatrix(engagement_id, rest);
     },
   },
+  {
+    name: 'warroom_audit',
+    description: '审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, decision: { type: 'string' },
+        since: { type: 'string' }, limit: { type: 'integer' }, export_dir: { type: 'string' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, export_dir, ...opts } = args;
+      if (export_dir) return core.broker.auditExport(engagement_id, { outDir: export_dir });
+      return core.broker.audit(engagement_id, opts);
+    },
+  },
 ];
 
 export { ERR };
