@@ -1,0 +1,212 @@
+// Service-owned scheduler. Tool executions register durable work and own no tail Promise.
+import { createHash, randomUUID } from 'node:crypto';
+import { isTerminal, canTransition, validateReceipt } from '../../shared-types/src/index.js';
+
+export class HostTaskRunner {
+  constructor({ broker, delivery, intervalMs = 100 }) {
+    this.broker = broker;
+    this.delivery = delivery;
+    this.intervalMs = intervalMs;
+    this.closed = false;
+    this.active = null;
+    this.timer = null;
+  }
+
+  start() {
+    if (this.closed || this.timer) return;
+    const schedule = (delay) => {
+      this.timer = setTimeout(async () => {
+        this.timer = null;
+        try { await this.tick(); } catch (e) { this._error(e); }
+        if (!this.closed) schedule(this.intervalMs);
+      }, delay);
+      this.timer.unref?.();
+    };
+    schedule(0);
+  }
+
+  tick() {
+    if (this.closed) return Promise.resolve();
+    if (this.active) return this.active;
+    this.active = Promise.resolve().then(() => this._tick()).finally(() => { this.active = null; });
+    return this.active;
+  }
+
+  async dispose() {
+    this.closed = true;
+    clearTimeout(this.timer);
+    this.timer = null;
+    await this.active;
+  }
+
+  _error(e) {
+    this.broker.global.prepare(`INSERT INTO op_log (op_id, kind, state, detail, ts)
+      VALUES (?, 'host_task_error', 'unresolved', ?, ?)`).run(randomUUID(), e.code ?? 'HOST_OBSERVER_ERROR', new Date().toISOString());
+  }
+
+  _owner(command_id) {
+    return this.broker.global.prepare(`SELECT o.*, r.request_id AS stop_request_id FROM task_owners o
+      JOIN command_queue c USING(command_id)
+      LEFT JOIN task_cancellations r ON r.command_id = o.command_id AND r.generation = c.generation
+      WHERE o.command_id = ?`).get(command_id);
+  }
+
+  _authorized(cmd, owner) {
+    try {
+      this.broker.assertHostAuthorization(cmd, owner);
+      return true;
+    } catch { return false; }
+  }
+
+  _attach(cmd) {
+    if (this.broker.adapter.lookup(cmd.command_id)) return true;
+    return !!this.broker.adapter.hydrate?.(cmd.command_id, JSON.parse(cmd.contract), cmd.state);
+  }
+
+  _notice(cmd, state, event_seq) {
+    const id = createHash('sha256').update(JSON.stringify([cmd.command_id, cmd.generation, event_seq, state])).digest('hex');
+    this.broker.global.prepare(`INSERT OR IGNORE INTO task_notifications
+      (notice_id, command_id, generation, event_seq, state, ts) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(`warroom-${id}`, cmd.command_id, cmd.generation, event_seq, state, new Date().toISOString());
+  }
+
+  _manifest(cmd, { available = true, stopping = false, stop_request_id } = {}) {
+    const db = this.broker.global;
+    const current = available ? this.broker.adapter.manifestOf(cmd.task_id,
+      { stopping, stop_request_id, generation: cmd.generation }) ?? [] : [];
+    for (const resource of current) {
+      if (typeof resource.id !== 'string' || !resource.id || typeof resource.kind !== 'string' || !resource.kind) {
+        throw Object.assign(new Error('resource identity missing'), { code: 'E_RESOURCE_IDENTITY' });
+      }
+      db.prepare('INSERT OR IGNORE INTO task_resources (command_id, generation, resource_id, kind) VALUES (?, ?, ?, ?)')
+        .run(cmd.command_id, cmd.generation, resource.id, resource.kind);
+    }
+    return db.prepare('SELECT resource_id, kind FROM task_resources WHERE command_id = ? AND generation = ?')
+      .all(cmd.command_id, cmd.generation).map((r) => ({ id: r.resource_id, kind: r.kind,
+        check: current.find((m) => m.id === r.resource_id && m.kind === r.kind)?.check ?? (() => false) }));
+  }
+
+  _stateNotice(cmd, state, event_seq) {
+    const db = this.broker.global;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      this.broker._setCommandState(cmd.command_id, state);
+      this._notice(cmd, state, event_seq);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+
+  _stop(cmd, owner) {
+    if (!owner.dispatch_attempted) {
+      this._stateNotice(cmd, 'cancelled', 0);
+      return;
+    }
+    let attached = false;
+    try { attached = this._attach(cmd); } catch (e) { this._error(e); }
+    // Capture known identities before propagating stop invalidates older evidence.
+    try { this._manifest(cmd, { available: attached }); } catch (e) { this._error(e); }
+    if (attached && !owner.stop_attempted) {
+      // Persist before propagation; a restart only observes, never repeats a stop action.
+      this.broker.global.prepare('UPDATE task_owners SET stop_attempted = 1 WHERE command_id = ?').run(cmd.command_id);
+      try { this.broker.adapter.cancel(cmd.task_id, 'host cancel requested', { request_id: owner.stop_request_id }); }
+      catch (e) { this._error(e); }
+    }
+    let manifest = [];
+    try { manifest = this._manifest(cmd, { available: attached, stopping: true, stop_request_id: owner.stop_request_id }); }
+    catch (e) { this._error(e); }
+    const proven = manifest.map((m) => {
+      let stopped = false;
+      try { stopped = m.check() === true; } catch (e) { this._error(e); }
+      return { id: m.id, kind: m.kind, stopped };
+    });
+    const next = proven.length > 0 && proven.every((m) => m.stopped) ? 'confirmed_stopped' : 'unresolved';
+    if (cmd.state !== next) this.broker._gate(cmd.engagement_id, 'host_stop_proof', { task_id: cmd.task_id, state: next, manifest: proven });
+    this._stateNotice(cmd, next, next === 'unresolved' ? 0 : -1);
+  }
+
+  _observe(cmd, owner) {
+    const event = this.broker.adapter.observe?.(cmd.task_id);
+    if (!event || typeof event.generation !== 'string' || event.generation !== cmd.generation ||
+        !Number.isSafeInteger(event.event_seq) || event.event_seq <= owner.last_event_seq) return;
+    // Cancellation cannot be converted to success by a late runtime event.
+    if (owner.cancel_requested || isTerminal(cmd.state)) return;
+    if (!['running', 'unknown', 'done', 'partial', 'failed'].includes(event.state)) return;
+    if (['done', 'partial'].includes(event.state)) {
+      if (event.receipt?.generation !== event.generation) return;
+      validateReceipt(event.receipt);
+      const collected = this.broker.collectHostObservation(cmd.engagement_id, cmd.task_id, event);
+      if (!collected.accepted) return;
+    }
+    const db = this.broker.global;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // A missed running event can leave queued at terminal observation.
+      if (cmd.state === 'queued' && ['done', 'partial', 'failed'].includes(event.state)) {
+        this.broker._setCommandState(cmd.command_id, 'running');
+      }
+      if (event.state !== this.broker._findCommand(cmd.task_id).state &&
+          !canTransition(this.broker._findCommand(cmd.task_id).state, event.state)) {
+        db.exec('ROLLBACK'); return;
+      }
+      this.broker._setCommandState(cmd.command_id, event.state);
+      db.prepare('UPDATE task_owners SET last_event_seq = ? WHERE command_id = ?').run(event.event_seq, cmd.command_id);
+      if (isTerminal(event.state)) this._notice(cmd, event.state, event.event_seq);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+
+  async _tick() {
+    const db = this.broker.global;
+    const rows = db.prepare('SELECT c.* FROM command_queue c JOIN task_owners o USING(command_id)').all();
+    for (let cmd of rows) {
+      if (this.closed) return;
+      try {
+        let owner = this._owner(cmd.command_id);
+        if (isTerminal(cmd.state)) continue;
+        if (!this._authorized(cmd, owner) && !owner.cancel_requested) {
+          this.broker.cancel(cmd.engagement_id, cmd.task_id, 'authorization revoked or expired');
+          owner = this._owner(cmd.command_id); cmd = this.broker._findCommand(cmd.task_id);
+        }
+        if (owner.cancel_requested) { this._stop(cmd, owner); continue; }
+        if (cmd.state === 'queued' && !owner.dispatch_attempted) this.broker.dispatchQueued(cmd.command_id);
+        else if (cmd.state === 'queued') this.broker._setCommandState(cmd.command_id, 'unknown');
+        cmd = this.broker._findCommand(cmd.task_id);
+        owner = this._owner(cmd.command_id);
+        if (owner.dispatch_attempted && !isTerminal(cmd.state) && this._attach(cmd)) {
+          this._manifest(cmd);
+          this._observe(cmd, owner);
+        }
+      } catch (e) { this._error(e); }
+    }
+    const pending = db.prepare("SELECT * FROM task_notifications WHERE delivery_state = 'pending' ORDER BY rowid").all();
+    for (const notice of pending) {
+      if (this.closed) return;
+      const cmd = this.broker._findCommand(notice.command_id);
+      const owner = this._owner(notice.command_id);
+      const valid = () => {
+        const current = this.broker._findCommand(notice.command_id);
+        const own = this._owner(notice.command_id);
+        return !this.closed && current.generation === notice.generation &&
+          (!['done', 'partial', 'failed'].includes(notice.state) ||
+            (!own.cancel_requested && this._authorized(current, own)));
+      };
+      if (!valid()) {
+        db.prepare("UPDATE task_notifications SET delivery_state = 'blocked', detail = 'generation or authorization changed' WHERE notice_id = ?").run(notice.notice_id);
+        continue;
+      }
+      try {
+        const result = await this.delivery.deliver(owner, { ...notice, task_id: cmd.task_id }, valid);
+        if (this.closed) return;
+        if (result?.status === 'delivered' || result?.status === 'blocked') {
+          db.exec('BEGIN IMMEDIATE');
+          try {
+            db.prepare('UPDATE task_notifications SET delivery_state = ? WHERE notice_id = ?').run(result.status, notice.notice_id);
+            if (result.status === 'delivered') db.prepare('UPDATE task_owners SET delivery_cursor = ? WHERE command_id = ?')
+              .run(result.cursor ?? owner.delivery_cursor, notice.command_id);
+            db.exec('COMMIT');
+          } catch (e) { db.exec('ROLLBACK'); throw e; }
+        }
+      } catch (e) { this._error(e); }
+    }
+  }
+}

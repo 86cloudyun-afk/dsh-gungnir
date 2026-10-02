@@ -17,7 +17,7 @@ function writeJob(root, id, extra = {}) {
   mkdirSync(join(root, 'outbox'), { recursive: true });
   writeFileSync(join(root, 'outbox', `${id}.job.json`), JSON.stringify({
     protocol: 'gungnir-bridge/1', external_id: id, role: 'recon',
-    contract: { resources: [], fake_members: [], ...extra },
+    contract: { generation: '1:1:1', resources: [], fake_members: [], ...extra },
   }));
 }
 
@@ -40,6 +40,7 @@ export default {
   name: 'test-exec',
   async run(job) {
     return {
+      generation: job.contract.generation,
       members: [{ entity_type: 'vuln', source_id: job.external_id + '-v', revision_no: 1,
                   content_hash: 'h', payload: { note: '来自自定义执行器' } }],
       resources: [{ id: job.external_id + '-port', kind: 'port', port: 1, stopped: true }],
@@ -72,6 +73,7 @@ process.stdin.on('data', (d) => { buf += d; });
 process.stdin.on('end', () => {
   const job = JSON.parse(buf);
   process.stdout.write(JSON.stringify({
+    generation: job.contract.generation,
     members: [{ entity_type: 'asset', source_id: job.external_id + '-a', revision_no: 1, content_hash: 'h', payload: {} }],
     resources: [],
   }));

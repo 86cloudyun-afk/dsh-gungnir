@@ -155,5 +155,21 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 - 测试：391 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
+- schema 版本：fact=6 / global=9（**按 label 计算目标版本**；高版本库拒绝打开）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）
+
+## Proposed ADR-005 本机离线初测
+
+| 行为 | 证据 | 范围 |
+|---|---|---|
+| 派单先登记、立即 queued；宿主首次派发；预算/批准失效拒绝 | `test/host-tasks.test.js` | 惰性 adapter，无真实模型/目标 |
+| 完成源代际/游标、重复乱序、丢通知重启、取消/撤销不复活 | `test/host-runner.test.js` | 服务/SQLite 离线边界 |
+| 忙闲父会话、用户消息优先、通知接受后丢确认去重、身份失配 | `test/host-delivery.test.js` | 原生 API 形状的持久日志装置，非模型运行验收 |
+| 跨进程惰性 worker、应答器持久领取、重启不重执行、资源不假停 | `test/host-responder.test.js` | 临时目录与无副作用 executor |
+| CLI wave 与允许集/deny 保持固定安全基线 | `test/wave-cli.test.js`、`test/dsh-toolpolicy.test.js`、`test/dsh-mount.test.js` | 36 工具基线；不覆盖上游新增 engage |
+
+Mac 不是最终验收平台；真实 DSH 会话与模型、云/服务器、真实资源停止、部署、发布均未运行。
+上游变基风险见 [兼容记录](UPSTREAM-COMPATIBILITY-2026-10-02.md)。完整本机计数及环境失败以交付测试记录为准，
+本节不把初测或环境跳过标成最终验收通过。
+精确结果见 [本次本机验证记录](VALIDATION-PARENT-STANDBY-2026-10-02.md)：六闸通过，497 通过／0 失败／6 跳过；
+独立复审原 8 项重要问题已定向闭环，真实运行范围仍未验证。

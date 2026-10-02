@@ -2,6 +2,7 @@
 // 这里只做形态转换与参数校验；业务逻辑全在 broker（服务端唯一副作用通道）。
 import { TOOLS } from '../../warroom-tools/src/index.js';
 import { validateFourTuple, ERR } from '../../shared-types/src/index.js';
+import { parentIdentity } from './host-delivery.js';
 
 /**
  * @param {{broker:object}} service
@@ -12,7 +13,12 @@ export function dshTools(service) {
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
-    execute: (args = {}) => {
+    execute: (args = {}, exec) => {
+      if (t.name === 'warroom_execute' && exec) {
+        if (exec.signal?.aborted) throw new Error('parent tool invocation cancelled');
+        if (!service.tasks || !exec.agent) throw new Error('host background delivery and parent agent required');
+        return service.broker.execute(args, { deferDispatch: true, parent: parentIdentity(exec.agent) });
+      }
       // 执行类工具先做四元组形状校验（其余校验在 broker 内部，缺一不可）
       if (t.name === 'warroom_execute') {
         const contract = args.contract ?? {};

@@ -23,7 +23,7 @@ export class FileBridgeDriver {
    *   onJob     可选：进程内应答器钩子（测试用，同步应答）
    *   timeoutMs 等待执行层应答的上限；超时 → unknown（绝不默认失败）
    */
-  constructor({ root, onJob, pollMs = 20, timeoutMs = 2000 }) {
+  constructor({ root, onJob, pollMs = 20, timeoutMs = 2000, background = false }) {
     this.root = root;
     this.outbox = join(root, 'outbox');
     this.inbox = join(root, 'inbox');
@@ -33,6 +33,8 @@ export class FileBridgeDriver {
     this.pollMs = pollMs;
     this.timeoutMs = timeoutMs;
     this.seq = 0;
+    this.background = background;
+    this.generations = new Map();
   }
 
   _jobPath(id) { return join(this.outbox, `${id}.job.json`); }
@@ -55,22 +57,56 @@ export class FileBridgeDriver {
   spawnRole(role, contract) {
     this.seq += 1;
     const external_id = contract.task_id ?? `bridge-${this.seq}`;
-    const job = { protocol: PROTOCOL, external_id, role, contract, issued_at: new Date().toISOString() };
+    this.generations.set(external_id, contract.generation);
+    const job = { protocol: PROTOCOL, external_id, role, contract, background: this.background, issued_at: new Date().toISOString() };
     atomicWrite(this._jobPath(external_id), job);
+    if (this.background) return { external_id, state: 'queued' };
     if (this.onJob) this.onJob(job); // 进程内应答器（测试/彩排）
     const st = this._awaitFile(this._statusPath(external_id), 'spawn');
     return { external_id, state: st?.state ?? 'unknown' };
   }
 
-  stopRole(externalId) {
-    atomicWrite(this._stopPath(externalId), { protocol: PROTOCOL, external_id: externalId, action: 'stop', at: new Date().toISOString() });
+  stopRole(externalId, _reason, { request_id } = {}) {
+    if (this.background && (typeof request_id !== 'string' || !request_id)) throw new Error('durable cancellation identity required');
+    const source = this.statusOf(externalId);
+    const after_event_seq = source?.generation === this.generations.get(externalId) &&
+      Number.isSafeInteger(source.event_seq) && source.event_seq >= 0 ? source.event_seq : 0;
+    atomicWrite(this._stopPath(externalId), { protocol: PROTOCOL, external_id: externalId,
+      generation: this.generations.get(externalId), request_id, after_event_seq, action: 'stop', at: new Date().toISOString() });
+    if (this.background) return { state: 'cancel_requested' };
     const st = this._awaitFile(this._statusPath(externalId), 'stop');
     return { state: st?.state ?? 'unknown' };
   }
 
   statusOf(externalId) {
     const st = readJson(this._statusPath(externalId));
-    return st ? { state: st.state } : null;
+    return st ? { state: st.state, generation: st.generation, event_seq: st.event_seq } : null;
+  }
+
+  attachRole(_role, contract) {
+    this.generations.set(contract.task_id, contract.generation);
+    const job = readJson(this._jobPath(contract.task_id));
+    if (job && (job.external_id !== contract.task_id || job.contract?.generation !== contract.generation)) {
+      throw new Error('existing bridge job identity/generation mismatch');
+    }
+    // Recovery never creates a file, including after an attempted write was lost.
+    return { external_id: contract.task_id, state: this.statusOf(contract.task_id)?.state ?? 'unknown' };
+  }
+
+  collectReceipt(externalId) {
+    const f = readJson(this._factsPath(externalId));
+    return { generation: f?.generation, members: f?.members ?? [] };
+  }
+
+  observationOf(externalId) {
+    const st = readJson(this._statusPath(externalId));
+    if (!st || st.external_id !== externalId) return null;
+    const f = readJson(this._factsPath(externalId));
+    const receipt = f && f.external_id === externalId &&
+      (!this.background || f.event_seq === st.event_seq) ? {
+      receipt_id: `bridge-${externalId}-${st.event_seq}`, generation: f.generation, members: f.members,
+    } : null;
+    return { state: st.state, generation: st.generation, event_seq: st.event_seq, receipt };
   }
 
   collectFacts(externalId) {
@@ -79,8 +115,30 @@ export class FileBridgeDriver {
   }
 
   /** 探针：执行层上报"各资源是否已停止"，host 侧可再叠加自己的实测（端口/PID/容器）。 */
-  probes(externalId) {
+  resourcesOf(externalId) {
+    const source = readJson(this._probesPath(externalId));
+    if (source?.external_id !== externalId || source.generation !== this.generations.get(externalId) ||
+        !Array.isArray(source.resources)) return [];
+    // Suspected resource identities remain required even if their proof is stale.
+    return source.resources.map((r, i) => ({ id: typeof r.id === 'string' && r.id ? r.id : `${externalId}-unidentified-${i}`,
+      kind: typeof r.kind === 'string' && r.kind ? r.kind : 'unknown' }));
+  }
+
+  probes(externalId, { stopping = false, stop_request_id, generation = this.generations.get(externalId) } = {}) {
     const p = readJson(this._probesPath(externalId));
+    if (this.background && (p?.external_id !== externalId || p?.generation !== this.generations.get(externalId) || p.generation !== generation)) return [];
+    if (this.background) {
+      const status = readJson(this._statusPath(externalId));
+      if (!Number.isSafeInteger(p.event_seq) || p.event_seq <= 0 || status?.external_id !== externalId ||
+          status.generation !== p.generation || status.event_seq !== p.event_seq) return [];
+      if (stopping) {
+        const stop = readJson(this._stopPath(externalId));
+        if (stop?.generation !== p.generation || !Number.isSafeInteger(stop.after_event_seq) ||
+            p.event_seq <= stop.after_event_seq || typeof stop_request_id !== 'string' || !stop_request_id ||
+            stop.request_id !== stop_request_id ||
+            p.stop_request_id !== stop.request_id) return [];
+      }
+    }
     if (!p?.resources) return [];
     return p.resources.map((r) => ({
       id: r.id,

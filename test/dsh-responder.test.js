@@ -69,7 +69,7 @@ test('应答器幂等：重复 job 文件不产生第二份回执副作用', asy
   await new Promise((r) => child.on('exit', r));
 
   const job = {
-    protocol: 'gungnir-bridge/1', external_id: 'idem-1', role: 'recon', contract: { resources: [], fake_members: [] },
+    protocol: 'gungnir-bridge/1', external_id: 'idem-1', role: 'recon', contract: { generation: '1:1:1', resources: [], fake_members: [] },
   };
   const { writeFileSync: wf } = await import('node:fs');
   wf(join(root, 'outbox', 'idem-1.job.json'), JSON.stringify(job));
@@ -84,16 +84,18 @@ test('fixture 模式：应答器按预置回执响应（可编排异常场景）
   const fixtures = join(root, 'fixtures');
   mkdirSync(fixtures, { recursive: true });
   writeFileSync(join(fixtures, 'fx-1.facts.json'), JSON.stringify({
+    generation: '1:1:1', external_id: 'fx-1',
     members: [{ entity_type: 'vuln', source_id: 'v-fx', revision_no: 1, content_hash: 'h-fx', payload: { id: 'CVE-DEMO' } }],
   }));
   writeFileSync(join(fixtures, 'fx-1.probes.json'), JSON.stringify({
+    generation: '1:1:1', external_id: 'fx-1',
     resources: [{ id: 'fx-1-session', kind: 'session', stopped: true }],
   }));
 
   const child = startResponder(root, ['--once', '--mode', 'fixture', '--fixture', fixtures]);
   await new Promise((r) => child.on('exit', r));
 
-  const job = { protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'vuln', contract: { resources: [], fake_members: [] } };
+  const job = { protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'vuln', contract: { generation: '1:1:1', resources: [], fake_members: [] } };
   // --once 在启动时扫过空 outbox；投递后需要再跑一次应答器
   writeFileSync(join(root, 'outbox', 'fx-1.job.json'), JSON.stringify(job));
   const child2 = spawn('node', ['scripts/dsh-bridge-responder.mjs', '--root', root, '--once', '--mode', 'fixture', '--fixture', fixtures], { stdio: 'ignore' });
@@ -112,7 +114,7 @@ test('fixture 模式缺夹具 → 不写假回执（fail-closed），错误留�
   // 先造一个 job（无对应夹具）
   mkdirSync(join(root, 'outbox'), { recursive: true });
   writeFileSync(join(root, 'outbox', 'fx-1.job.json'), JSON.stringify({
-    protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'recon', contract: { resources: ['container'], fake_members: [] },
+    protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'recon', contract: { generation: '1:1:1', resources: ['container'], fake_members: [] },
   }));
   const r = spawnSync('node', [
     'scripts/dsh-bridge-responder.mjs', '--root', root, '--mode', 'fixture', '--once',

@@ -39,11 +39,15 @@ export class LocalRedteamDriver {
   }
   statusOf(externalId) {
     const r = this.runs.get(externalId);
-    return r ? { state: r.state } : null;
+    return r ? { state: r.state, generation: r.contract.generation } : null;
   }
   collectFacts(externalId) {
     const r = this.runs.get(externalId);
     return r ? (r.contract.fake_members ?? []) : [];
+  }
+  collectReceipt(externalId) {
+    const r = this.runs.get(externalId);
+    return { generation: r?.contract.generation, members: this.collectFacts(externalId) };
   }
   probes(externalId) {
     const r = this.runs.get(externalId);
@@ -88,6 +92,16 @@ export class RedteamModeAdapter {
     throw warroomError(ERR.E_TASK_NOT_FOUND, `redteam 任务 ${taskIdOrCommandId} 不存在`);
   }
 
+  hydrate(command_id, contract) {
+    if (this.commands.has(command_id)) return this.commands.get(command_id);
+    if (typeof this.driver.attachRole !== 'function') return null;
+    const role = this.roleByIntent[contract.intent] ?? 'assess';
+    const { external_id } = this.driver.attachRole(role, contract);
+    const rec = { task_id: contract.task_id, external_id, generation: contract.generation, contract, role };
+    this.commands.set(command_id, rec);
+    return rec;
+  }
+
   lookup(command_id) {
     const rec = this.commands.get(command_id);
     return rec ? { task_id: rec.task_id, state: this.driver.statusOf(rec.external_id)?.state ?? null } : null;
@@ -96,7 +110,12 @@ export class RedteamModeAdapter {
   status(taskIdOrCommandId) {
     const rec = this._byTask(taskIdOrCommandId);
     const st = this.driver.statusOf(rec.external_id);
-    return st ? { state: st.state, generation: rec.generation, role: rec.role } : null;
+    return st ? { ...st, role: rec.role } : null;
+  }
+
+  observe(taskIdOrCommandId) {
+    const rec = this._byTask(taskIdOrCommandId);
+    return this.driver.observationOf?.(rec.external_id) ?? null;
   }
 
   /**
@@ -105,43 +124,47 @@ export class RedteamModeAdapter {
    * 因此清单 = 契约资源 ∪ 应答器回报的资源；应答器尚未回报时按 **未证实（check=false）** 处理，
    * 绝不因为"没收到回报"就当作已停止（fail-closed）。
    */
-  manifestOf(taskIdOrCommandId) {
+  manifestOf(taskIdOrCommandId, opts = {}) {
     const rec = this._byTask(taskIdOrCommandId);
-    const reported = this.driver.probes(rec.external_id) ?? [];
-    const byId = new Map(reported.map((p) => [p.id, p]));
+    const reported = this.driver.probes(rec.external_id, opts) ?? [];
+    const key = (p) => JSON.stringify([p.id, p.kind]);
+    const byId = new Map(reported.map((p) => [key(p), p]));
     const declared = [];
-    for (const r of rec.contract?.resources ?? []) {
+    const resources = this.driver.background ? ['session', ...(rec.contract?.resources ?? [])] : rec.contract?.resources ?? [];
+    for (const r of resources) {
       const spec = typeof r === 'string' ? { r, kind: r } : { r, ...r };
       const id = spec.id ?? `${rec.external_id}-${spec.kind ?? 'resource'}`;
       declared.push({
         id,
         kind: spec.kind ?? 'resource',
         // 延迟绑定：每次调用都重读应答器实测状态（fail-closed，但不会"一次 false 永远 false"）
-        check: byId.get(id)?.check ?? (() => {
-          const now = (this.driver.probes(rec.external_id) ?? []).find((x) => x.id === id);
+        check: byId.get(key({ id, kind: spec.kind ?? 'resource' }))?.check ?? (() => {
+          const now = (this.driver.probes(rec.external_id, opts) ?? []).find((x) => x.id === id && x.kind === (spec.kind ?? 'resource'));
           return now ? now.check() : false;
         }),
       });
     }
     // 应答器回报但契约未声明的（执行层自行创建的资源）也要出现在清单里
-    for (const p of reported) {
-      if (!declared.some((d) => d.id === p.id)) declared.push({ id: p.id, kind: p.kind, check: p.check });
+    const identities = this.driver.background ? this.driver.resourcesOf?.(rec.external_id) ?? [] : [];
+    for (const p of [...reported, ...identities]) {
+      if (!declared.some((d) => key(d) === key(p))) declared.push({ id: p.id, kind: p.kind,
+        check: byId.get(key(p))?.check ?? (() => false) });
     }
     return declared;
   }
 
-  cancel(taskIdOrCommandId, reason) {
+  cancel(taskIdOrCommandId, reason, request) {
     const rec = this._byTask(taskIdOrCommandId);
-    return this.driver.stopRole(rec.external_id, reason);
+    return this.driver.stopRole(rec.external_id, reason, request);
   }
 
   collect(taskIdOrCommandId, opts = {}) {
     const rec = this._byTask(taskIdOrCommandId);
-    const members = this.driver.collectFacts(rec.external_id);
+    const source = this.driver.collectReceipt?.(rec.external_id);
     return {
       receipt_id: opts.receipt_id ?? `rt-rcp-${rec.external_id}`,
-      generation: opts.generation ?? rec.generation,
-      members: opts.members ?? members,
+      generation: source?.generation,
+      members: source?.members ?? this.driver.collectFacts(rec.external_id),
     };
   }
 
