@@ -41,9 +41,12 @@ test('loadToolPolicy 从 config.preset 声明文件读取 toolPolicy', () => {
   const tp = loadToolPolicy({ preset: join(process.cwd(), 'presets', 'warroom.preset.json') });
   assert.equal(tp.mode, 'allowlist');
   assert.ok(Array.isArray(tp.allow) && tp.allow.includes('warroom_execute'));
-  // 非法/缺省路径安全回落 null
-  assert.equal(loadToolPolicy({ preset: '/no/such/file.json' }), null);
+  // 无路径 → null（向后兼容无策略）
   assert.equal(loadToolPolicy({}), null);
+  // 显式给了路径却不可读 → 抛 E_PRESET_UNREADABLE（不得静默当无策略）
+  assert.throws(
+    () => loadToolPolicy({ preset: '/no/such/file.json' }),
+    (e) => e && e.code === 'E_PRESET_UNREADABLE' && /不可读/.test(e.message));
 });
 
 // ---- 验收：本机真实 DSH 挂载后，枚举主控会话工具目录 ----
