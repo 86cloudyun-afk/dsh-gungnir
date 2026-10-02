@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Added
+- **机器可读 schema 导出** `docs/tools.schema.json`（`gungnir-tools/1`：24 个工具的
+  name/description/input_schema + 允许清单命中 + 预设角色），随代码同步校验（漂移即 CI 失败）
+- **`warroom init` 首启向导**：建家目录 → 写示例配置（已存在则保留，`--force` 覆盖）→
+  `--with-jumphost-sample` 导入占位跳板 → `--target` 建首个战役 → 打印下一步命令清单
+- **审计分页与 CSV 导出**：`audit({limit, offset, order})` 返回 `page{matched,has_more}`；
+  `auditExportCsv`（RFC4180 转义、可按 decision/since 过滤）；工具与 CLI 同步暴露
+  （`--limit/--offset/--order/--format csv`）
+- **家目录配置** `$WARROOM_HOME/warroom.json`：默认节奏档 / sweep 超时 / adapter 类型 /
+  桥超时 / 围栏镜像 / 波内并发提示；**非法或未知字段明确报错**（不静默忽略，避免"以为生效了"）；
+  `warroom config show|init [--force]`；Broker 与插件服务都读取它
+- **验收映射刷新**：`docs/ACCEPTANCE.md` 新增「批次 4–6 新增能力 → 判据/证据/状态」映射表（15 项）
+- **执行器接入闭环**：`docs/DSH-EXECUTOR.md`（三步接法 + 语义约束表 + 接入检查单）、
+  `executors/example-role-cmd.mjs`（可跑示例：按 role 产出占位事实与资源）；
+  **三方端到端回归**（GUNGNIR ↔ 应答器子进程 ↔ 执行器孙进程）
+- **波次演练模式** `warroom wave --dry-run`：只出计划（依赖序、**同层可并行分组**、会议预览、
+  各任务动作类别与资源类型），**不落库、不派单、不占并发名额**；演练与执行共用同一依赖判定，
+  成环/悬空依赖在演练阶段即暴露
 - **性能门扩展**：规模冒烟新增审计导出、JSON 报告、喷洒矩阵三项阈值；
   实测 N=5000 时：入库 18ms / 快照 12ms / md 报告 90ms / **json 报告 145ms** / 审计 0.4ms / 矩阵 9ms
 - **`warroom doctor` 一键体检**：Node/sqlite 版本、docker daemon（不可用给 warn 不误报 fail）、

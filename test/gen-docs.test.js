@@ -9,7 +9,7 @@ const run = (flag) => execFileSync('node', ['scripts/gen-docs.mjs', flag], { enc
 
 test('docs/TOOLS.md 与代码同步（--check 通过）', () => {
   const out = run('--check');
-  assert.match(out, /工具文档同步/);
+  assert.match(out, /同步（24 个工具）|工具文档与 schema 导出同步/);
 });
 
 test('生成内容覆盖全部工具与约定', () => {
@@ -32,4 +32,26 @@ test('漂移会被检出（写入后 --check 必须失败）', () => {
     unlinkSync(bak);
   }
   assert.ok(existsSync('docs/TOOLS.md'));
+});
+
+test('机器可读 schema 导出：结构与同步校验', () => {
+  const raw = readFileSync('docs/tools.schema.json', 'utf8');
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.schema, 'gungnir-tools/1');
+  assert.equal(parsed.tools.length, TOOLS.length);
+  assert.ok(parsed.tools.every((t) => t.name && t.input_schema && typeof t.in_allowlist === 'boolean'));
+  assert.equal(parsed.preset.allowlist_mode, 'allowlist');
+
+  // 漂移检出：写入后 --check 必须失败
+  const bak = 'docs/tools.schema.json.bak-test';
+  copyFileSync('docs/tools.schema.json', bak);
+  try {
+    writeFileSync('docs/tools.schema.json', raw.replace('gungnir-tools/1', 'gungnir-tools/0'));
+    let failed = false;
+    try { run('--check'); } catch (e) { failed = true; assert.match(String(e.stderr), /tools\.schema\.json/); }
+    assert.equal(failed, true);
+  } finally {
+    copyFileSync(bak, 'docs/tools.schema.json');
+    unlinkSync(bak);
+  }
 });
