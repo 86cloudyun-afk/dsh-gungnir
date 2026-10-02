@@ -38,6 +38,8 @@ function atomicWrite(path, obj) {
 
 const sha = (s) => `sha256:${createHash('sha256').update(String(s)).digest('hex')}`;
 const handled = new Set();
+/** 已被要求停止的任务：其执行体结束后**不得**把状态写回 done（停了就是停了）。 */
+const stopRequested = new Set();
 
 /** echo 模式：按 contract.fake_members 生成事实；会话/容器资源按 contract.resources 推导。 */
 function echoReceipts(job) {
@@ -77,34 +79,68 @@ async function loadExecutor() {
   return ex;
 }
 
-async function handleJob(job) {
+const writeStatus = (id, state, extra = {}) => atomicWrite(join(inbox, `${id}.status.json`), {
+  protocol: 'gungnir-bridge/1', external_id: id, state, updated_at: new Date().toISOString(), ...extra,
+});
+
+/**
+ * 处理一个 job：**先确认，再异步执行**。
+ *
+ * 为什么必须这样（真机教训）：桥侧等待状态文件的默认上限只有 `bridgeTimeoutMs`（2 秒），
+ * 而真实工具（subfinder/httpx/nuclei）要跑几十秒到几分钟。旧实现"跑完才写状态" →
+ * 每次真派单都被判成超时/派单丢失，看起来就像"开不了战"。
+ * 现在：立刻写 `running`（派单秒回），执行完再写 facts/probes + `done`；
+ * 失败写 `failed` 且**不写 facts**（fail-closed，绝不假装成功）。
+ */
+async function handleJob(job, { wait = false } = {}) {
   const key = `job:${job.external_id}`;
   if (handled.has(key)) return;               // 幂等：同 external_id 只处理一次
   handled.add(key);
-  let members; let resources;
-  if (executor) {
-    // 真实执行器：失败即抛错（fail-closed），不写"看起来成功"的回执
-    const out = await executor.run(job);
-    members = out.members ?? [];
-    resources = out.resources ?? [];
-  } else if (v.mode === 'fixture') {
-    ({ members, resources } = fixtureReceipts(job));
-  } else {
-    ({ members, resources } = echoReceipts(job));
-  }
-  atomicWrite(join(inbox, `${job.external_id}.status.json`), {
-    protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running',
-    updated_at: new Date().toISOString(),
-  });
-  atomicWrite(join(inbox, `${job.external_id}.facts.json`), { protocol: 'gungnir-bridge/1', members });
-  atomicWrite(join(inbox, `${job.external_id}.probes.json`), { protocol: 'gungnir-bridge/1', resources });
-  if (v.verbose) console.log(`[job] ${job.external_id} role=${job.role} members=${members.length} resources=${resources.length}`);
+  // 常驻模式：立刻确认（派单方不必等工具跑完，桥默认只等 2s）；
+  // 单次模式（--once，测试/彩排用）：不写中间态，跑完再落终态。
+  if (!wait) writeStatus(job.external_id, 'running');
+  if (v.verbose) console.log(`[job] ${job.external_id} role=${job.role} accepted`);
+  const run = (async () => {
+    try {
+      let members; let resources;
+      if (executor) {
+        // 真实执行器：失败即抛错（fail-closed），不写"看起来成功"的回执
+        const out = await executor.run(job);
+        members = out.members ?? [];
+        resources = out.resources ?? [];
+      } else if (v.mode === 'fixture') {
+        ({ members, resources } = fixtureReceipts(job));
+      } else {
+        ({ members, resources } = echoReceipts(job));
+      }
+      if (stopRequested.has(job.external_id)) {
+        // 执行期间收到了停止请求：**不写事实、不写 done**；把资源如实标记为已停止后写 confirmed_stopped。
+        // 没有资源可证时只写状态、不造证据（主控仍会因"无停止证明"停在 unresolved，符合 ADR-003）。
+        if (resources.length > 0) {
+          atomicWrite(join(inbox, `${job.external_id}.probes.json`),
+            { protocol: 'gungnir-bridge/1', resources: resources.map((r) => ({ ...r, stopped: true })) });
+        }
+        writeStatus(job.external_id, 'confirmed_stopped');
+        return;
+      }
+      atomicWrite(join(inbox, `${job.external_id}.facts.json`), { protocol: 'gungnir-bridge/1', members });
+      atomicWrite(join(inbox, `${job.external_id}.probes.json`), { protocol: 'gungnir-bridge/1', resources });
+      writeStatus(job.external_id, 'done', { members: members.length });
+      if (v.verbose) console.log(`[job] ${job.external_id} done members=${members.length} resources=${resources.length}`);
+    } catch (e) {
+      // 失败：明确状态 + 不写 facts；由主控 reconcile 定论（绝不自动重试）
+      writeStatus(job.external_id, 'failed', { detail: String(e?.message ?? e).slice(0, 500) });
+      process.stderr.write(`[job] ${job.external_id} failed: ${e?.message ?? e}\n`);
+    }
+  })();
+  if (wait) await run;                        // 单次模式：等执行体结束再返回
 }
 
 function handleStop(stop) {
   const key = `stop:${stop.external_id}`;
   if (handled.has(key)) return;
   handled.add(key);
+  stopRequested.add(stop.external_id);
   const cur = readJson(join(inbox, `${stop.external_id}.probes.json`)) ?? { resources: [] };
   const stopped = (cur.resources ?? []).map((r) => ({ ...r, stopped: true }));
   atomicWrite(join(inbox, `${stop.external_id}.probes.json`), { protocol: 'gungnir-bridge/1', resources: stopped });
@@ -121,7 +157,7 @@ async function tick() {
       const job = readJson(join(outbox, f));
       if (job?.protocol === 'gungnir-bridge/1') {
         try {
-          await handleJob(job);
+          await handleJob(job, { wait: Boolean(v.once) });
         } catch (e) {
           handled.delete(`job:${job.external_id}`);   // 失败允许重试；不写假回执
           process.stderr.write(`[job-error] ${job.external_id}: ${e.message}\n`);
