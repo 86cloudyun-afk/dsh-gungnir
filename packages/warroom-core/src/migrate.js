@@ -71,6 +71,17 @@ export const MIGRATIONS = [
     },
   },
   {
+    version: 7,
+    labels: ['global'],
+    up(db) {
+      // v7：密钥轮换支撑——记录每条秘密所用密钥的标识
+      const cols = db.prepare('PRAGMA table_info(secret_store)').all().map((c) => c.name);
+      if (!cols.includes('key_id')) {
+        db.exec("ALTER TABLE secret_store ADD COLUMN key_id TEXT");
+      }
+    },
+  },
+  {
     version: 6,
     labels: ['fact'],
     up(db) {

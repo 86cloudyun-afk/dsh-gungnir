@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS command_queue (
 );
 CREATE TABLE IF NOT EXISTS secret_store (
   secret_ref TEXT PRIMARY KEY, label TEXT NOT NULL,
-  ciphertext BLOB NOT NULL, iv TEXT NOT NULL, tag TEXT NOT NULL, created_at TEXT NOT NULL
+  ciphertext BLOB NOT NULL, iv TEXT NOT NULL, tag TEXT NOT NULL, created_at TEXT NOT NULL,
+  key_id TEXT
 );
 CREATE TABLE IF NOT EXISTS secret_grants (
   grant_id TEXT PRIMARY KEY, secret_ref TEXT NOT NULL, engagement_id TEXT,

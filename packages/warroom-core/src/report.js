@@ -74,8 +74,12 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   };
 }
 
-/** 生成报告 markdown（含水位）；所有文本过 redactor。 */
-export function buildReport({ store, engagementId, engagementRow, vault, globalDb }) {
+/**
+ * 生成报告 markdown（含水位）；所有文本过 redactor。
+ * @param {{maxFactsPerType?:number}} opts.maxFactsPerType 每类事实最多列出多少条（默认 50），
+ *   超出部分只给计数与摘要——避免大 N 下报告被事实流水账淹没（全量在 JSON 视图里）。
+ */
+export function buildReport({ store, engagementId, engagementRow, vault, globalDb, maxFactsPerType = 50 }) {
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
@@ -150,9 +154,14 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     if (!rows) continue;
     lines.push(`### ${type}（${rows.length}）`);
     lines.push('');
-    for (const r of rows) {
+    const shown = rows.slice(0, maxFactsPerType);
+    for (const r of shown) {
       const rev = `r${r.revision_no}`;
       lines.push(`- [${r.adapter_instance}] ${r.source_id} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+    }
+    if (rows.length > shown.length) {
+      lines.push(`- …另有 **${rows.length - shown.length}** 条同类事实未逐条列出`
+        + `（md 上限 ${maxFactsPerType}/类；全量见 JSON 报告 \`--format json|both\`）`);
     }
     lines.push('');
   }
@@ -214,6 +223,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     markdown,
     watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
     evidence_digests: { fact_members: sha(JSON.stringify(snap.rows)) },
+    size: { md_bytes: Buffer.byteLength(markdown, 'utf8'), facts: snap.rows.length, max_facts_per_type: maxFactsPerType },
   };
 }
 
@@ -221,8 +231,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
  * 导出到文件；format: 'md' | 'json' | 'both'。
  * 返回 {path|paths, watermark, evidence_digests}。
  */
-export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir, format = 'md' }) {
-  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb });
+export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir, format = 'md', maxFactsPerType = 50 }) {
+  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, maxFactsPerType });
   const { watermark, evidence_digests } = built;
   mkdirSync(outDir, { recursive: true });
   const out = { paths: {}, watermark, evidence_digests };
