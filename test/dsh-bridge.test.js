@@ -19,8 +19,9 @@ function responder(driver) {
   };
   return (job) => {
     state.set(job.external_id, { session_up: true, container_up: (job.contract.resources ?? []).includes('container') });
-    write(driver._statusPath(job.external_id), { protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running' });
+    write(driver._statusPath(job.external_id), { protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running', generation: job.contract.generation });
     write(driver._factsPath(job.external_id), {
+      generation: job.contract.generation,
       members: job.contract.fake_members ?? [{
         entity_type: 'asset', source_id: 'bridge-a1', revision_no: 1, content_hash: 'h-b1', payload: { ip: '10.0.0.5' },
       }],
