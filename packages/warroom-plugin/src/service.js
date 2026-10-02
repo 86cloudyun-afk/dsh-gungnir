@@ -13,17 +13,26 @@ import { loadConfig } from '../../warroom-core/src/config.js';
 
 export const SERVICE_NAME = 'warroom';
 
-/** 依执行层选择 adapter：fake（离线）| local（内存红队驱动）| bridge（DSH 文件桥）。 */
+/** 依执行层选择 adapter：fake（离线）| local（内存红队驱动）| bridge（DSH 文件桥）。
+ * 未知 kind 一律抛错（fail-closed）：不得静默退回 FakeAdapter——否则操作员以为走了
+ * bridge/local，实际在离线假适配器上「跑通」，静默降级。缺省/undefined → fake。
+ */
 export function makeAdapter(kind = 'fake', opts = {}) {
-  switch (kind) {
+  const k = kind ?? 'fake';
+  switch (k) {
     case 'bridge':
       return new RedteamModeAdapter({
         driver: new DshRedteamDriver({ root: opts.bridgeRoot ?? join(opts.home ?? '.', 'dsh-bridge'), ...opts.driver }),
       });
     case 'local':
       return new RedteamModeAdapter({ driver: new LocalRedteamDriver() });
-    default:
+    case 'fake':
       return new FakeAdapter();
+    default: {
+      const e = new Error(`unknown adapterKind ${JSON.stringify(k)}（允许：fake|local|bridge）`);
+      e.code = 'E_GATE_MISSING_TUPLE';
+      throw e;
+    }
   }
 }
 

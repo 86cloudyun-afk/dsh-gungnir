@@ -18,6 +18,22 @@ test('服务工厂：三种 adapter 均可引导，且启动即再水化', () =>
   }
 });
 
+
+test('未知 adapterKind → 抛错（fail-closed，禁止静默退回 FakeAdapter）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-plugin-badkind-'));
+  assert.throws(
+    () => createWarroomService({ home, adapterKind: 'bridg' }),
+    (e) => e && e.code === 'E_GATE_MISSING_TUPLE' && /unknown adapterKind/.test(e.message),
+  );
+  assert.throws(
+    () => makeAdapter('turbo'),
+    (e) => e && e.code === 'E_GATE_MISSING_TUPLE' && /turbo/.test(e.message),
+  );
+  // 缺省 / undefined 仍是合法的 fake（安全默认，不是静默降级）
+  assert.equal(makeAdapter().instanceId, makeAdapter('fake').instanceId);
+  assert.equal(makeAdapter(undefined).instanceId, makeAdapter('fake').instanceId);
+});
+
 test('apply(ctx) 注册服务并响应 dispose（cordis 契约）', () => {
   const home = mkdtempSync(join(tmpdir(), 'wr-plugin-apply-'));
   const registered = {};
