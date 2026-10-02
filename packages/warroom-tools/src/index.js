@@ -490,6 +490,17 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.timeline(args.engagement_id),
   },
+  {
+    name: 'warroom_watch',
+    description: '巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, timeout_min: { type: 'integer' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.watch(args.engagement_id, { timeoutMin: args.timeout_min ?? null }),
+  },
 ];
 
 export { ERR };
