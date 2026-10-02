@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   bridgeTimeoutMs: 2000,       // 桥等待执行层应答上限
   fenceImage: 'alpine:latest', // 围栏任务容器镜像
   waveConcurrency: null,       // 波内并发提示（null = 由节奏档决定）
+  bucket: 'A',                 // 执行桶（框架 §4）：A 容器化出口 / B 本机直连 / C 跳板侧
   requireEgressCheck: false,   // true = 出网前必须有近期通过的出口验证（框架 §11 门闸）
   egressMaxAgeMin: 60,         // 出口验证的有效期（分钟）
 });
@@ -43,6 +44,7 @@ export function loadConfig(home, { allowMissing = true } = {}) {
   if (cfg.waveConcurrency !== null && (!Number.isInteger(cfg.waveConcurrency) || cfg.waveConcurrency <= 0)) {
     errors.push('waveConcurrency 必须是正整数或 null');
   }
+  if (!['A', 'B', 'C'].includes(cfg.bucket)) errors.push('bucket 必须是 A|B|C');
   if (typeof cfg.requireEgressCheck !== 'boolean') errors.push('requireEgressCheck 必须是布尔值');
   if (!Number.isInteger(cfg.egressMaxAgeMin) || cfg.egressMaxAgeMin <= 0) errors.push('egressMaxAgeMin 必须是正整数');
   const unknown = Object.keys(raw).filter((k) => !(k in DEFAULT_CONFIG));
