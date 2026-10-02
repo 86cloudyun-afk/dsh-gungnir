@@ -48,12 +48,17 @@ test('CLI shell / spray / metrics 子命令可用', () => {
 
 test('deploy 脚本：--print 输出合法挂载片段；--check 报告 profile 状态', () => {
   const snippet = execFileSync('node', ['scripts/deploy-dsh.mjs', '--print'], { encoding: 'utf8' });
-  assert.match(snippet, /id: warroom-gungnir/);
-  assert.match(snippet, /preset: .*warroom\.preset\.json/);
+  // 真实契约（dsh 0.2.0-rc.2）：一行 `@deepseek-ai/dsh-agent-preset` + 子插件清单
+  assert.match(snippet, /id: preset-warroom-gungnir/);
+  assert.match(snippet, /name: '@deepseek-ai\/dsh-agent-preset'/);
+  assert.match(snippet, /packages\/warroom-plugin\/src\/dsh-entry\.mjs/);
+  assert.match(snippet, /presets\/roles\/commander\.md/, '角色文本在运行期读文件');
+  assert.match(snippet, /warroom\.preset\.json/, '声明文件可追溯');
 
   const home = mkdtempSync(join(tmpdir(), 'wr-deploy-'));
   const check = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home], { encoding: 'utf8', env: nodeEnv() });
-  assert.match(check, /预设文件可读/);
+  assert.match(check, /预设文件可读（声明允许清单 37 项）/);
+  assert.match(check, /声明允许清单 == 实际注册工具（36 个/);
 });
 
 test('deploy 脚本 --apply 幂等且先备份', async () => {

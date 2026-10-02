@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { harness } from '../packages/warroom-core/src/testing.js';
+import { TOOLS as TOOLS_REF } from '../packages/warroom-tools/src/index.js';
 import { auditSanitization, POC_CATEGORIES } from '../packages/warroom-core/src/knowledge.js';
 
 test('脱敏审计：内网地址/环回/内部域名/未替换占位 全部命中', () => {
@@ -145,4 +146,16 @@ test('关键词区分：code/title 命中权重高于 source', () => {
   kb.addPoc({ code: 'KW-2', title: '通用模板', category: 'other', source: 'shiro 反序列化 报告', body: 'TARGET' });
   const rows = kb.search({ q: 'shiro' });
   assert.equal(rows[0].code, 'KW-1', `标题命中权重应更高，实际 ${rows.map((r) => r.code).join(',')}`);
+});
+
+test('知识库检索工具返回对象（宿主契约：数组会被拒）', () => {
+  const h = harness();
+  h.broker.knowledge.addPoc({ code: 'TOOL-1', title: '工具契约', category: 'other', body: 'TARGET' });
+  const tool = TOOLS_REF.find((t) => t.name === 'warroom_poc_search');
+  const out = tool.run({ broker: h.broker }, { q: '工具契约' });
+  assert.equal(Array.isArray(out), false, '必须是对象而不是数组');
+  assert.equal(out.count, 1);
+  assert.equal(out.rows[0].code, 'TOOL-1');
+  // 核心 API 仍返回数组（内部调用方语义不变）
+  assert.ok(Array.isArray(h.broker.knowledge.search({ q: '工具契约' })));
 });
