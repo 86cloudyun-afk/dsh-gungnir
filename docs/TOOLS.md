@@ -8,7 +8,7 @@
 | `warroom_execute` | 唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发 | `{ command_id*:string, engagement_id*:string, auth_version*:integer, action_class*:readonly|active|destructive, contract*:object, manual_approval_token:string }` | ✅ |
 | `warroom_collect` | 回执入库（成员级幂等 + 代际隔离） | `{ engagement_id*:string, task_id*:string, receipt*:object }` | ✅ |
 | `warroom_cancel` | 请求取消（幂等）；停止由资源清单逐项探针证实 | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |
-| `warroom_fact_query` | 事实查询（只读） | `{ engagement_id*:string, entity_type:string }` | ✅ |
+| `warroom_fact_query` | 事实查询（只读） | `{ engagement_id*:string, entity_type:string, source_id:string, since:string, include_history:boolean, adapter_instance:string, limit:integer }` | ✅ |
 | `warroom_secret_put` | 登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文 | `{ plaintext*:string, label:string }` | ✅ |
 | `warroom_secret_grant` | 为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行 | `{ secret_ref*:string, engagement_id:string, task_id*:string, purpose*:string, ttl_seconds:integer }` | ✅ |
 | `warroom_secret_status` | 秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文） | `{ engagement_id*:string }` | ✅ |

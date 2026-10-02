@@ -105,6 +105,21 @@
           },
           "entity_type": {
             "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "include_history": {
+            "type": "boolean"
+          },
+          "adapter_instance": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
           }
         },
         "required": [
