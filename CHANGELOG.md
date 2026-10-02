@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **报告体量控制**：md 报告每类事实默认最多列 50 条（`--max-facts` / `max_facts_per_type` 可调），
+  超出只给计数与提示（**全量仍在 JSON 视图**）；返回 `size{md_bytes,facts}`
 - **密钥轮换**（高级秘密管理）：`rotateKey()` 归档旧密钥（`keys/<key_id>.bin`，600）→ 换新密钥 →
   **单事务重加密全部秘密**并更新 `key_id`（schema v7）；旧秘密轮换后照常可解（历史密钥参与解密），
   缺少历史密钥时**明确报错**而不是静默失败；工具 `warroom_secret_rotate`（需 `confirm=true`）、

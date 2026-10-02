@@ -201,6 +201,9 @@
               "json",
               "both"
             ]
+          },
+          "max_facts_per_type": {
+            "type": "integer"
           }
         },
         "required": [
