@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **机器可读 schema 导出** `docs/tools.schema.json`（`gungnir-tools/1`：24 个工具的
+  name/description/input_schema + 允许清单命中 + 预设角色），随代码同步校验（漂移即 CI 失败）
 - **`warroom init` 首启向导**：建家目录 → 写示例配置（已存在则保留，`--force` 覆盖）→
   `--with-jumphost-sample` 导入占位跳板 → `--target` 建首个战役 → 打印下一步命令清单
 - **审计分页与 CSV 导出**：`audit({limit, offset, order})` 返回 `page{matched,has_more}`；

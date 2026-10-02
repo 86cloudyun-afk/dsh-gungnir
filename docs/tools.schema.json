@@ -1,0 +1,678 @@
+{
+  "schema": "gungnir-tools/1",
+  "generated_from": "packages/warroom-tools/src/index.js",
+  "tools": [
+    {
+      "name": "warroom_execute",
+      "description": "唯一副作用入口：四元组 + 契约经服务端 broker 校验后派发",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "auth_version": {
+            "type": "integer"
+          },
+          "action_class": {
+            "type": "string",
+            "enum": [
+              "readonly",
+              "active",
+              "destructive"
+            ]
+          },
+          "contract": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "manual_approval_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "engagement_id",
+          "auth_version",
+          "action_class",
+          "contract"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_collect",
+      "description": "回执入库（成员级幂等 + 代际隔离）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id",
+          "receipt"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_cancel",
+      "description": "请求取消（幂等）；停止由资源清单逐项探针证实",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_fact_query",
+      "description": "事实查询（只读）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_secret_put",
+      "description": "登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plaintext": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plaintext"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_secret_grant",
+      "description": "为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "secret_ref": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "secret_ref",
+          "task_id",
+          "purpose"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_secret_status",
+      "description": "秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_report_export",
+      "description": "导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "md",
+              "json",
+              "both"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_status",
+      "description": "任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_reconcile",
+      "description": "对账 unknown/unresolved 任务（探针定论，绝不默认失败重做）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_redispatch",
+      "description": "重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_shell_status",
+      "description": "shell 状态三字段：历史最高证明 / 当前有效性 / 最后验证时间",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_shell_verify",
+      "description": "记录 shell 历史最高证明或再验证当前有效性（当前可控性不得由历史默认继承）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "proof": {
+            "type": "string"
+          },
+          "validity": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "likely",
+              "confirmed_lost"
+            ]
+          },
+          "evidence_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_spray_check",
+      "description": "喷洒前查断点：该(凭据×服务×账号)是否已试过、账号是否已锁定",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credential_ref",
+          "service",
+          "account"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_spray_record",
+      "description": "登记一次喷洒结果（success/fail/locked/skipped）；锁定后拒绝继续（防锁死）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "success",
+              "fail",
+              "locked",
+              "skipped"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credential_ref",
+          "service",
+          "account",
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_metrics",
+      "description": "效率遥测：记录任务级 tokens/耗时/有效产出，或查询战役聚合（无成本门闸）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          },
+          "wall_time_ms": {
+            "type": "integer"
+          },
+          "verified_facts": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string"
+          },
+          "model_tier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_poc_search",
+      "description": "知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_poc_add",
+      "description": "回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "affected_versions": {
+            "type": "string"
+          },
+          "evidence_ref": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "category"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_poc_use",
+      "description": "登记 POC 在某战役某资产上的使用（跨战役复用留痕）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_sweep_timeouts",
+      "description": "超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "timeout_min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_evidence_export",
+      "description": "证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_spray_matrix",
+      "description": "凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credentials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credentials",
+          "services"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_audit",
+      "description": "审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "export_dir": {
+            "type": "string"
+          },
+          "export_format": {
+            "type": "string",
+            "enum": [
+              "jsonl",
+              "csv"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_jumps",
+      "description": "跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约）",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "release",
+              "sweep"
+            ]
+          },
+          "route_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    }
+  ],
+  "preset": {
+    "id": "warroom-gungnir",
+    "roles": [
+      "commander",
+      "recon",
+      "chain"
+    ],
+    "allowlist_mode": "allowlist"
+  }
+}
