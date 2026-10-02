@@ -165,6 +165,40 @@ export function taskSelection(snapshot, taskId) {
   return { task, candidates: tasks, route_ids: route?.route ? [routeId] : [], node_ids: [...new Set([...nodes.map((node) => node.id), ...(route?.node_ids || [])])], edge_ids: route?.edge_ids || [] };
 }
 
+export function messageMatchesSelection(message, selection) {
+  if (!message || !selection) return false;
+  const linkedNodes = new Set(selection.node_ids || []);
+  const nodeMatch = (message.node_ids || []).some((id) => linkedNodes.has(id));
+  if (selection.kind === 'route') return nodeMatch || message.route_ids?.includes(selection.id) || false;
+  if (selection.kind === 'task') return nodeMatch || message.task_ids?.includes(selection.id) || (selection.route_ids || []).some((id) => message.route_ids?.includes(id));
+  return false;
+}
+
+export function retainSelection(oldSnapshot, newSnapshot, selection) {
+  if (!selection || !oldSnapshot || !newSnapshot) return null;
+  const oldEngagement = oldSnapshot.engagement?.engagement_id;
+  const newEngagement = newSnapshot.engagement?.engagement_id;
+  if (!oldEngagement || oldEngagement !== newEngagement) return null;
+  if ((oldSnapshot.mode || 'real') !== (newSnapshot.mode || 'real')) return null;
+  if (selection.kind === 'node') return newSnapshot.nodes?.some((node) => node.id === selection.id) ? { kind: 'node', id: selection.id } : null;
+  if (selection.kind === 'route') {
+    const matches = (newSnapshot.routes || []).filter((route) => route.route_id === selection.id);
+    if (matches.length !== 1) return null;
+    const resolved = routeSelection(newSnapshot, selection.id);
+    return { kind: 'route', id: selection.id, node_ids: resolved.node_ids, edge_ids: resolved.edge_ids };
+  }
+  if (selection.kind === 'task') {
+    const resolved = taskSelection(newSnapshot, selection.id);
+    if (!resolved.task) return null;
+    if (resolved.task.route_id) {
+      const routes = (newSnapshot.routes || []).filter((route) => route.route_id === resolved.task.route_id);
+      if (routes.length !== 1) return null;
+    }
+    return { kind: 'task', id: selection.id, node_ids: resolved.node_ids, edge_ids: resolved.edge_ids, route_ids: resolved.route_ids };
+  }
+  return null;
+}
+
 export function snapshotSummary(snapshot) {
   const diagnostics = snapshot?.diagnostics || {};
   const counts = diagnostics.counts || {};
