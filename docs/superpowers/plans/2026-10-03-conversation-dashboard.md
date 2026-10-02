@@ -4,7 +4,7 @@
 
 **Goal:** Deliver the approved conversation-linked minimalist complex battle map as working software and a reviewed PR.
 
-**Architecture:** Add a separate zero-runtime-dependency dashboard package. A strictly read-only SQLite projection feeds browser SVG views; a loopback server and a DSH webServer adapter share the same handler. Conversation providers read an explicitly selected session and never execute agent actions.
+**Architecture:** Add a separate zero-runtime-dependency dashboard package. A strictly read-only SQLite projection feeds browser SVG views; a loopback server delivers local data, while a DSH Client view uses a sandboxed static iframe (allow-scripts only, opaque origin) and authenticated native RPC. Native session scope is validated against server-side fixed bindings on every request. Conversation providers never execute agent actions.
 
 **Tech Stack:** Node >=22.13, node:sqlite, node:http, ES modules, browser DOM/SVG; existing node:test and Playwright for browser validation.
 
@@ -56,17 +56,19 @@
 - Create: `packages/warroom-dashboard/public/styles.css`
 - Create: `packages/warroom-dashboard/public/app.js`
 - Create: `packages/warroom-dashboard/public/graph.js`
+- Create: `packages/warroom-dashboard/public/transport.js`
 - Test: `test/dashboard-graph.test.js`
+- Test: `test/dashboard-transport.test.js`
 
 **Interfaces:**
 - Consumes: Task 1 DTO; `/api/engagements`, `/api/snapshot?engagement=<id>&session=<id>`, `/api/sessions`, `/api/demo`. The demo endpoint is explicitly selected.
-- Produces: `layoutGraph(snapshot, options)` and `focusedSubgraph(snapshot, selectedId)` from graph.js. CSS/JS use relative assets so the DSH registered page's base path works.
+- Produces: `layoutGraph(snapshot, options)` and `focusedSubgraph(snapshot, selectedId)` from graph.js. CSS/JS use relative assets so the DSH registered page base path works. `requestData(path, { signal })` uses loopback fetch normally and strict postMessage bridge in `?embedded=1` mode. Wrapper puts `bridgeNonce` and `parentOrigin` in the iframe URL. Bridge request: `{type:"gungnir-dashboard/request",nonce,requestId,path}`; cancel: `{type:"gungnir-dashboard/cancel",nonce,requestId}`; response: `{type:"gungnir-dashboard/response",nonce,requestId,ok,data?,error?:{code,message}}`. Child validates parent source/origin and nonce; parent validates exact iframe source, null opaque origin and nonce. Validate IDs, endpoint allowlist and timeouts; never HTTP fallback in embedded mode.
 
 - [ ] Write failing graph tests for forks/merges, stable IDs/coordinates, cycle-safe focus, disconnected nodes, orthogonal paths and collapse preserving risky route summaries.
 - [ ] Run `node --test test/dashboard-graph.test.js` and retain the expected failure evidence.
 - [ ] Implement deterministic five-rank layout, fine SVG wires, compact nodes and route-note bands. Shared dependencies retain all route IDs; cycles stay visible. Large graphs scroll/zoom instead of silently dropping nodes.
 - [ ] Implement desktop left dialogue plus upper global/lower drilldown, complete full-map mode, selection tethers, exact-ID search, node↔conversation linking and route-aware highlight.
-- [ ] Implement pan/zoom/fit, label details, explicit refresh, retained selection only for the same engagement, race-safe fetches and honest empty/error/stale states. Narrow screen stacks panels; focusable SVG nodes and buttons support keyboard selection.
+- [ ] Implement strict local/embedded transport and test source/origin, cancellation, timeout, endpoint rejection and no embedded HTTP fallback. Implement pan/zoom/fit, label details, explicit refresh, retained selection only for the same engagement, race-safe fetches and honest empty/error/stale states. Narrow screen stacks panels; focusable SVG nodes and buttons support keyboard selection.
 - [ ] Keep route notes/aggregate anomalies visible when evidence kinds are collapsed or focus changes. Add state legend; selected blue/mint outline must not overwrite amber/red verification status.
 - [ ] Run graph tests and return a report. Controller runs actual browser scenarios after Task 3 provides the server.
 
@@ -75,19 +77,24 @@
 **Files:**
 - Create: `packages/warroom-dashboard/src/server.js`
 - Create: `packages/warroom-dashboard/src/dsh-entry.mjs`
+- Create: `packages/warroom-dashboard/src/client.js`
+- Create: `packages/warroom-dashboard/src/conversation.js`
+- Modify: `packages/warroom-dashboard/package.json` (native exports/manifest)
 - Create: `bin/dashboard.mjs`
 - Test: `test/dashboard-server.test.js`
+- Test: `test/dashboard-dsh.test.js`
+- Test: `test/dashboard-client.test.js`
 - Modify: root `package.json` (workspace and dashboard scripts), `README.md`, `docs/ACCEPTANCE.md`
 - Create: `docs/dashboard/usage.md`
 
 **Interfaces:**
 - Consumes: Task 1 reader/demo and Task 2 static assets.
-- Produces: `createDashboardHandler({ home, conversationProvider? })`, `startDashboardServer({ home, port=0, host='127.0.0.1', conversationProvider? })`, optional DSH plugin apply with verified host interfaces. Handler returns only whitelisted API data, supports GET/HEAD, rejects writes and unexpected Host/Origin; server closes on dispose/signals.
+- Produces: `createDashboardHandler({ home, conversationProvider? })`, `startDashboardServer({ home, port=0, host='127.0.0.1', conversationProvider? })`, DSH plugin apply with verified host interfaces. Native webServer delivers only static resources with CORS for opaque module loads and connect-src none CSP; native JSON is provided through authenticated RPC with visible-session + fixed sessionBindings validation. Native Client conversation.view wrapper sends all read calls using its trusted slot inject(sessionId) session and strict sandbox bridge (exact source, opaque origin, nonce); cancel on session change/unmount. Handler returns only whitelisted API data, supports GET/HEAD, rejects writes and unexpected Host/Origin; server closes on dispose/signals.
 - Conversation provider contract: `{ listSessions(): Promise<Array<{id,title}>>, readMessages(sessionId): Promise<Array<{id,role,text,created_at,node_ids?,route_ids?,task_ids?}>> }`; no provider yields unavailable, never fake transcript. Exact-ID matching only to uniquely resolvable IDs in the current snapshot.
 
 - [ ] Write failing server tests for live/demo distinction, write rejection, Host/Origin/path containment, secret non-exposure, source failures, provider absence/failure, message↔node linking and unambiguous session choice. No proxy URL or shell command input from browser.
 - [ ] Run `node --test test/dashboard-server.test.js` and record the missing behavior.
-- [ ] Implement loopback-only Node delivery and mounted handler; build DSH adapter against actual public webServer/sessionController signatures, then test with faithful contract doubles. Do not change/ restart the user's running host.
+- [ ] Implement loopback-only Node delivery and mounted handler; build DSH adapter against actual public webServer/sessionController/connection/Client composition signatures, then test with faithful contract doubles. Include cross-session/engagement rejection, request cancellation, static-only HTTP routes, page event parsing and wrapper bridge scope. Do not change/ restart the user's running host.
 - [ ] Add CLI `node bin/dashboard.mjs --home <dir> --port <port>`; no home must display an empty state without creating a directory. Expose demo as opt-in UI. Configuration/help and fatal errors must return appropriate exits.
 - [ ] Document real-data startup, DSH mount config, conversation limits, demo mode and validation commands; sync ACCEPTANCE without treating local proof as HOST_VERIFIED.
 - [ ] Run relevant tests, full six gates and meaningful Playwright desktop/mobile interactions; retain actual screenshots. Update test-count references with existing script after the final added tests.

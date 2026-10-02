@@ -20,7 +20,13 @@
 
 租约有效不表示出口有效；同一跳板其它 route 的 pass 不适用于当前 route；旧租约/过期 route 的出口记录不显示当前通过。取消请求不显示已停止，历史 proof 与当前 validity 分列，缺失状态保持 unknown。
 
-DSH 原生页面使用已验证的公开 webServer 注册接口，对话通过明确选择的 session 读取。独立入口只在 loopback 服务本地页面和快照；浏览器端不接收宿主 token。所有外部内容按文本呈现。
+DSH 原生接入遵循当前 0.2.0-rc.2 的 Client composition：插件在 `conversation.view` 注册“战图”页签，React wrapper 挂载由宿主交付资源的 sandbox iframe（仅 allow-scripts，无 allow-same-origin）。`webServer.register` 仅交付静态资源；原生页面不开放 HTTP 数据接口。父页面通过现有 `ctx.connection.rpc.call` 发起已认证读取，iframe 只接收白名单 DTO，不接收 token 或宿主上下文。
+
+桥接仅接受 `event.source === iframe.contentWindow`、opaque origin（null）、正确随机 nonce 与白名单消息形状的请求，操作范围限定四个读取端点。父页面通过 slot 的 `inject(sessionId)` 注入当前会话，页面输入不能扩大范围；切换会话、卸载或取消必须中止请求并丢弃旧响应。子页面验证父 origin/source 和 nonce。iframe 的 embedded 模式只使用桥接，连接失败不回退到 HTTP；原生资源 CSP 禁止网络数据连接，仅静态资源开放不带凭据的 CORS。
+
+服务端配置 `sessionBindings: { [sessionId]: engagementId }` 作为固定战役绑定。每个原生 RPC 请求均调用 `sessionController.list({}, signal)` 复验会话可见，绑定决定允许读取的唯一战役；没有绑定或不再可见则拒绝，UI 的 engagement 参数仅用于一致性校验。原生会话列表只返回当前绑定会话。冷读对话使用真实 `inspect`/`page` 契约，只提取用户与助手正文，并屏蔽工具载荷与敏感字串。
+
+独立入口只在 loopback 服务本地页面和快照，按 Host/Origin 限制来源；浏览器端不接收宿主 token。所有外部内容按文本呈现。
 
 ## 快照接口（gungnir-dashboard/1）
 
