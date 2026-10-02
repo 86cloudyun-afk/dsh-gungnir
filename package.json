@@ -12,7 +12,7 @@
     "test": "node --test",
     "test:schema": "node scripts/validate-tool-schemas.mjs",
     "cli": "node bin/warroom.mjs",
-    "ci": "node --test && node scripts/validate-tool-schemas.mjs && node scripts/check-preset.mjs && node scripts/fault-matrix.mjs && node scripts/gen-docs.mjs --check && node scripts/self-review.mjs",
+    "ci": "node scripts/ci.mjs",
     "faults": "node scripts/fault-matrix.mjs",
     "selfreview": "node scripts/self-review.mjs",
     "docs": "node scripts/gen-docs.mjs --write"

@@ -94,12 +94,28 @@ for (const f of files) {
   }
 }
 
-// ⑤ CI 覆盖四闸
+// ⑤ CI 覆盖六闸
 try {
   const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   const ci = pkg.scripts?.ci ?? '';
-  for (const s of ['node --test', 'validate-tool-schemas', 'check-preset', 'fault-matrix']) {
-    if (!ci.includes(s)) problems.push(`[ci] scripts.ci 缺少：${s}`);
+  const GATES = [
+    { probe: 'node --test', script: 'scripts/ci.mjs' },
+    { probe: 'validate-tool-schemas', script: 'scripts/ci.mjs' },
+    { probe: 'check-preset', script: 'scripts/ci.mjs' },
+    { probe: 'fault-matrix', script: 'scripts/fault-matrix.mjs' },
+    { probe: 'gen-docs.mjs', script: 'scripts/ci.mjs' },
+    { probe: 'self-review', script: 'scripts/ci.mjs' },
+  ];
+  const runnerMatch = ci.match(/scripts\/ci\.mjs/);
+  const runnerSource = runnerMatch ? readFileSync(join(repoRoot, 'scripts', 'ci.mjs'), 'utf8') : '';
+  for (const g of GATES) {
+    const covered = ci.includes(g.probe) || runnerSource.includes(g.probe);
+    if (!covered) problems.push(`[ci] 门禁未覆盖：${g.probe}（scripts.ci=${ci || '空'}）`);
+  }
+  // 反向检查：runner 声明了几道闸就要几道，避免"清单漏登记"
+  if (runnerMatch) {
+    const declared = (runnerSource.match(/^\s*\{ name: '/gm) ?? []).length;
+    if (declared !== GATES.length) problems.push(`[ci] ci.mjs 登记 ${declared} 道闸，期望 ${GATES.length} 道`);
   }
 } catch (e) {
   problems.push(`[ci] 无法读取 package.json：${e.message}`);
