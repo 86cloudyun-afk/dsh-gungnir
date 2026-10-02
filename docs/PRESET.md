@@ -40,4 +40,7 @@ GUNGNIR 作为 DSH 插件挂载时，**隔离靠挂载层**（不是提示词）
 | recon | `presets/roles/recon.md` | 攻击面收集与落库（产出"边"） |
 | chain | `presets/roles/chain.md` | 链前会议主持 + 攻击路径合成 + 排序 |
 
+> 运行时：`warroom wave --engagement <id> --meeting <wave.json>` 把「会议纪要 → 依赖派单 →
+> 立即交接 → 事实入库 → 结项」一条命令跑完（框架 §3.5）。
+
 命令行校验：`node scripts/check-preset.mjs`（CI 三闸的一部分）。
