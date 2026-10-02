@@ -1,6 +1,6 @@
 // 故障注入矩阵（框架 §10）：把散落的异常场景收成一个可重复执行的矩阵。
 // 覆盖：丢回包 / 乱序与重复回执 / 事实库写失败 / 进程残留 / 重启恢复 / 撤销跨重启。
-import { mkdtempSync, writeFileSync, copyFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, copyFileSync, rmSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,6 +10,7 @@ import { JumphostManager } from '../jumphosts.js';
 import { rehydrate } from '../rehydrate.js';
 import { backupHome } from '../maintenance.js';
 import { planFenceForEngagement } from '../fence.js';
+import { renderHtml } from '../html.js';
 import { openEngagementDb } from '../db.js';
 import { ERR_SCHEMA_NEWER } from '../migrate.js';
 
@@ -266,6 +267,45 @@ export function runFaultMatrix() {
       code: 'F14-OK', title: '已脱敏 POC', category: 'other', body: '请求 http://TARGET/admin 返回 200',
     });
     assert(ok.code === 'F14-OK', '合规内容应可入库');
+  });
+
+  // ⑮ 交付物边界：客户版文件不得含审计明细；HTML 不得引外部资源
+  check('交付物边界 → 客户版无审计明细、HTML 无外部资源', () => {
+    const c = ctx();
+    const ex = c.broker.execute({ ...c.base, command_id: 'f-15', contract: c.contract() });
+    c.broker.collect(c.eng.engagement_id, ex.task_id, c.adapter.collect(ex.task_id));
+    const full = c.broker.exportReport(c.eng.engagement_id, { format: 'all' });
+    const client = c.broker.exportReport(c.eng.engagement_id, { format: 'html', audience: 'client' });
+
+    const clientHtml = readFileSync(client.paths.html, 'utf8');
+    assert(!clientHtml.includes('审计摘要'), '客户版不得含审计明细');
+    assert(!/<link[^>]+href|<script[^>]+src/.test(clientHtml), 'HTML 不得引外部 link/script');
+
+    const fullHtml = readFileSync(full.paths.html, 'utf8');
+    assert(/^<!doctype html>/.test(fullHtml), 'HTML 应为完整文档');
+    assert(fullHtml.includes('水位'), '全量 HTML 应含水位段');
+  });
+
+  // ⑯ 证据落盘边界：客户版目录与索引都不含明文秘密
+  check('证据落盘边界 → 索引与客户版均无明文', () => {
+    const c = ctx();
+    const plain = 'fault-matrix-plain-2211';
+    const sec = c.broker.secrets.put(plain, { label: 'fm-plain' });
+    const ex = c.broker.execute({
+      ...c.base, command_id: 'f-16',
+      contract: c.contract({
+        fake_members: [{ entity_type: 'credential', source_id: 'c-f16', revision_no: 1, content_hash: 'h16', payload: { password: plain } }],
+      }),
+    });
+    c.broker.collect(c.eng.engagement_id, ex.task_id, c.adapter.collect(ex.task_id));
+    const ev = c.broker.exportEvidence(c.eng.engagement_id, { outDir: join(c.home, 'ev-f16'), audiences: ['client'] });
+    const index = readFileSync(ev.files.index, 'utf8');
+    assert(!index.includes(plain), '索引不得含明文秘密');
+    const clientMd = readFileSync(ev.audience_files[0].markdown, 'utf8');
+    assert(!clientMd.includes(plain), '客户版不得含明文秘密');
+    const fullMd = readFileSync(ev.files.markdown, 'utf8');
+    assert(!fullMd.includes(plain), '内部全量同样脱敏');
+    assert(sec.secret_ref.startsWith('sec_'), '秘密应只以引用存在');
   });
 
   const failed = checks.filter((x) => !x.ok);
