@@ -87,6 +87,10 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 效率四段观测 | 排队/交接/执行/返工分段正确；无数据为 null | `test/efficiency-segments.test.js` | ✅ |
+| 跨会话聚合（只读边界） | 聚合库写入必须失败；聚合不改本框架水位 | `test/aggregate.test.js` | ✅ |
+| 知识库检索加权 | 命中率优先、新鲜度衰减、sort 可切 | `test/knowledge.test.js` | ✅ |
+| 拓扑分组视图 | 子图 + 图例 + 通往控制面的边加粗 | `test/topology.test.js` | ✅ |
 | 执行三桶 | 桶 A 必须有出口；桶 B 禁 socks；桶 C 需跳板且情报不落跳板；预检分层告警 | `test/buckets.test.js` | ✅ |
 | 开工前预检 | 三态结论 + 波次目标逐个核授权范围 + 成环拦截 | `test/preflight.test.js` | ✅ |
 | 活跃 route 生命周期 | 心跳续期；租约释放/长时无心跳 → stale；围栏不再取该出口 | `test/route-liveness.test.js` | ✅ |
@@ -109,8 +113,8 @@
 
 ## 数字快照
 
-- 测试：251 例（`node --test`）
+- 测试：280 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.10`（批次 1–9 已合并）
+- 标签：`v0.1.0-alpha.10`（批次 1–9 已合并；批次 10 合并时升 alpha.11）
