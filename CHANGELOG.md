@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **故障矩阵 11→14 场景**：路由失效→围栏拒绝（`E_FENCE_NO_ROUTE`）、长任务心跳失效→unknown
+  （基准标为 heartbeat）、知识库未脱敏→拒绝入库；`addPoc` 改为**显式拒绝未知字段**
+  （静默丢字段 = 静默丢证据，与配置校验同一哲学）
 - **报告攻击路径拓扑**（`topology.js`）：按事实 payload 的显式引用（`steps`/`path`/`achieved_via`）
   画边、隐式引用（`asset`/`target`/`host`/`via`/`source_ref`/`unlocks`）补边并标注「推断」；
   报告 md 出 mermaid `flowchart LR` 图 + JSON `topology`；**无引用不画边**，

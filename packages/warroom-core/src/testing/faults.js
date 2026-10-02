@@ -9,6 +9,7 @@ import { FakeAdapter } from '../adapters/fake.js';
 import { JumphostManager } from '../jumphosts.js';
 import { rehydrate } from '../rehydrate.js';
 import { backupHome } from '../maintenance.js';
+import { planFenceForEngagement } from '../fence.js';
 import { openEngagementDb } from '../db.js';
 import { ERR_SCHEMA_NEWER } from '../migrate.js';
 
@@ -205,6 +206,66 @@ export function runFaultMatrix() {
     broker2.secrets.grant(put.secret_ref, { engagement_id: c.eng.engagement_id, task_id: 't', purpose: 'p' });
     const val = broker2.secrets.resolve(put.secret_ref, { task_id: 't', purpose: 'p' }).value;
     assert(val === 'after-migration', '迁移后应可正常登记与解析秘密');
+  });
+
+  // ⑫ 路由失效 → 围栏拒绝出计划（出口必须来自活跃 route）
+  check('路由失效 → 围栏拒绝（E_FENCE_NO_ROUTE）', () => {
+    const c = ctx();
+    const self = c;
+    const jm = new JumphostManager({
+      globalDb: c.broker.global,
+      getFactStore: (id) => c.broker._eng(id).store,
+      listEngagements: () => c.broker.listEngagements(),
+    });
+    jm.importHosts([{ id: 'fm-jh', addr_v4: '203.0.113.30' }]);
+    const acq = jm.acquire({ engagement_id: c.eng.engagement_id, target: '10.0.0.5' });
+    const store = c.broker._eng(c.eng.engagement_id).store;
+
+    // 收口后：不再有活跃出口
+    jm.releaseRoute({ route_id: acq.route_id, engagementId: c.eng.engagement_id });
+    let code = null;
+    try { planFenceForEngagement({ store, engagementId: c.eng.engagement_id }); }
+    catch (e) { code = e.code; }
+    assert(code === 'E_FENCE_NO_ROUTE', `应拒绝出计划，实际 ${code}`);
+    void self;
+  });
+
+  // ⑬ 长任务心跳失效 → unknown（基准为心跳，不是派发时刻）
+  check('心跳失效 → unknown（基准 heartbeat）', () => {
+    let t = Date.now();
+    const home = mkdtempSync(join(tmpdir(), 'wr-fault-hb-'));
+    const broker = new Broker({ home, adapter: new FakeAdapter({ faults: { neverFinish: true } }), nowMs: () => t });
+    const eng = broker.createEngagement({ user_message_id: 'um-f13', targets: ['10.0.0.0/24'], overrides: { rhythm: 'open' } });
+    const ex = broker.execute({
+      command_id: 'f-13', engagement_id: eng.engagement_id, auth_version: 1, action_class: 'active',
+      contract: { targets: ['10.0.0.5'], action_class: 'active', resources: [], wire_cost: 0,
+        fake_members: [{ entity_type: 'asset', source_id: 'f13', revision_no: 1, content_hash: 'h', payload: {} }] },
+    });
+    t += 10 * 60 * 1000;
+    broker.heartbeat(eng.engagement_id, ex.task_id);
+    t += 31 * 60 * 1000;   // 心跳后再无进展
+    const swept = broker.sweepTimeouts(eng.engagement_id, { timeoutMs: 30 * 60 * 1000 });
+    assert(swept.swept.length === 1, '超过阈值应被清扫');
+    assert(swept.swept[0].since === 'heartbeat', `基准应为心跳，实际 ${swept.swept[0].since}`);
+    assert(broker.status(eng.engagement_id, ex.task_id).ledger_state === 'unknown', '应转 unknown');
+  });
+
+  // ⑭ 知识库未脱敏 → 拒绝入库（E_KB_UNSANITIZED）
+  check('知识库未脱敏 → 拒绝入库（E_KB_UNSANITIZED）', () => {
+    const c = ctx();
+    let code = null;
+    try {
+      c.broker.knowledge.addPoc({
+        code: 'F14-LEAK', title: '带内网地址的 POC', category: 'other',
+        body: '请求 http://192.168.10.7/admin 返回 200',   // 未脱敏内容必须被拦
+      });
+    } catch (e) { code = e.code; }
+    assert(code === 'E_KB_UNSANITIZED', `应拒绝未脱敏内容，实际 ${code}`);
+    // 合规内容可入库
+    const ok = c.broker.knowledge.addPoc({
+      code: 'F14-OK', title: '已脱敏 POC', category: 'other', body: '请求 http://TARGET/admin 返回 200',
+    });
+    assert(ok.code === 'F14-OK', '合规内容应可入库');
   });
 
   const failed = checks.filter((x) => !x.ok);
