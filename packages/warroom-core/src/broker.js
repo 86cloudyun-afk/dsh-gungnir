@@ -286,11 +286,11 @@ export class Broker {
     return verifyReportAgainstStore(markdown, store);
   }
 
-  exportReport(engagementId, { outDir } = {}) {
+  exportReport(engagementId, { outDir, format = 'md' } = {}) {
     const { row, store } = this._engWithRow(engagementId);
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
     return exportReportFile({
-      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir,
+      store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, outDir: dir, format,
     });
   }
 
