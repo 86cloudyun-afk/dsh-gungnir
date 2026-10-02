@@ -11,8 +11,8 @@
 | ADR-001（权限与执行边界） | 5/5 闭环（含桶 A 真实容器验收，由 CI `fence` job 真跑） |
 | ADR-002（数据与证据契约） | 6/6 闭环 |
 | ADR-003（Adapter 生命周期） | 9/9 闭环 |
-| 本地六闸 | `node scripts/ci.mjs --quiet` → **全部通过**（400 例测试 / 36 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
-| CI 真跑 job | `fence`（真实容器围栏）、`drill`（跨进程执行层演练）、`test` → 三者皆绿 |
+| 本地六闸 | `node scripts/ci.mjs --quiet` → **全部通过**（435 例测试 / 36 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
+| CI 真跑 job | `fence`（真实容器围栏）、`drill`（跨进程执行层演练）、`native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）、`test` → 皆绿 |
 | 端到端演练 | `node scripts/executor-drill.mjs` → 全链路通过（11 步）；`--mode bridge` 亦通过 |
 | 契约自检 | `node scripts/conformance.mjs` → 8/8（且对真实桥接 adapter 亦通过） |
 | 性能 | N=5000：md 报告 73ms / json 167ms / html 73ms / 看板视图×5 35ms / 证据落盘 545ms / RSS 234MB |
