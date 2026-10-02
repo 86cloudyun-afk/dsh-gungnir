@@ -49,6 +49,7 @@
       "warroom_rate_view",
       "warroom_checklist",
       "warroom_deliver",
+      "warroom_weekly",
       "skill"
     ],
     "deny": [

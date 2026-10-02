@@ -20,6 +20,7 @@ import { buildTimeline } from './timeline.js';
 import { buildWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
 import { buildChecklist, renderChecklist } from './checklist.js';
+import { buildWeekly } from './weekly.js';
 import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
@@ -454,6 +455,11 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /** 多战役周报（指挥层视角，只读）。 */
+  weekly({ days = 7, now = null } = {}) {
+    return buildWeekly({ broker: this, days, now: now ?? Date.now() });
   }
 
   /**
