@@ -71,6 +71,17 @@ export const MIGRATIONS = [
     },
   },
   {
+    version: 8,
+    labels: ['global'],
+    up(db) {
+      // v8：长时任务心跳——超时巡检以"最近心跳"而非"派发时刻"为基准
+      const cols = db.prepare('PRAGMA table_info(command_queue)').all().map((c) => c.name);
+      if (!cols.includes('last_heartbeat_at')) {
+        db.exec('ALTER TABLE command_queue ADD COLUMN last_heartbeat_at TEXT');
+      }
+    },
+  },
+  {
     version: 7,
     labels: ['global'],
     up(db) {

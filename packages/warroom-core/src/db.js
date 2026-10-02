@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS op_log (
   detail TEXT, ts TEXT NOT NULL, recovered_at TEXT
 );
 CREATE TABLE IF NOT EXISTS command_queue (
+  last_heartbeat_at TEXT,
   command_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, task_id TEXT,
   contract TEXT NOT NULL, state TEXT NOT NULL, generation TEXT, attempt INTEGER NOT NULL DEFAULT 1,
   ts TEXT NOT NULL
