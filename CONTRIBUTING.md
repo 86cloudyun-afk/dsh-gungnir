@@ -14,8 +14,11 @@ node scripts/gen-docs.mjs --check      # 工具文档未漂移（改了工具就
 node scripts/self-review.mjs           # 秘密/链接/验收引用/代码卫生
 ```
 
-> 一条命令 `npm run ci` 顺序跑完全部。**不许用管道里的 grep 退出码代替 gate 结论**——
-> 必须看到测试汇总的 pass/fail 行（本项目踩过这个坑，见 `docs/MERGE-REVIEW-*.md`）。
+> **一条命令跑完全部**：`npm run ci`（= `node scripts/ci.mjs`）。它顺序跑六道闸，
+> 打印逐闸退出码与汇总结论，任一失败即非零退出。
+> **不许用管道里的 grep 退出码代替 gate 结论**——本项目踩过这个坑（grep 命中失败行仍返回 0，
+> 见 `docs/MERGE-REVIEW-*.md`）。现该坑已由工具封堵：判定只在 `ci.mjs` 里做。
+> 只想跑其中几道：`node scripts/ci.mjs --only test,self-review`；列闸门：`--list`。
 
 ## PR 规范
 
