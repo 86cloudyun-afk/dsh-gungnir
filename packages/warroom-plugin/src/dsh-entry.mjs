@@ -102,7 +102,13 @@ export function apply(ctx, config = {}) {
       try { service.broker.global.close(); } catch { /* 同上 */ }
     });
   }
-  if (typeof ctx?.provide === 'function') ctx.provide('warroom', service);
+  // 预设内服务必须发布在 **isolate realm**，否则泄漏进 root realm：
+  // agent-preset 注册表的 leakedServices 检查会拒挂整条预设
+  // （list() broken="Preset services require isolate realms: warroom"、retain() 抛 agent-preset/invalid）。
+  // cordis 正确写法：ctx.isolate(name) 派生一个把该服务名隔离到私有 realm 的子上下文，再在其上 provide。
+  if (typeof ctx?.isolate === 'function' && typeof ctx?.provide === 'function') {
+    disposers.push(ctx.isolate('warroom').provide('warroom', service));
+  }
 
   return { ...service, registered, restrictStatus };
 }
