@@ -59,6 +59,7 @@ const { values: v } = parseArgs({
     result: { type: 'string' }, role: { type: 'string' },
     'tokens-in': { type: 'string' }, 'tokens-out': { type: 'string' },
     'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
+    format: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -135,7 +136,7 @@ switch (command) {
     out(broker.revoke(need('engagement', v.engagement), v.reason ?? 'cli'));
     break;
   case 'report':
-    out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out }));
+    out(broker.exportReport(need('engagement', v.engagement), { outDir: v.out, format: v.format ?? 'md' }));
     break;
   case 'verify-report': {
     const { readFileSync } = await import('node:fs');
