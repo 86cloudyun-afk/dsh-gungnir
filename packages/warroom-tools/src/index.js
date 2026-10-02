@@ -244,6 +244,46 @@ export const TOOLS = [
       return core.broker.recordMetrics(engagement_id, command_id, rest);
     },
   },
+  {
+    name: 'warroom_poc_search',
+    description: '知识库检索（跨战役复用）：按关键词/归类查 POC，打 Nday 前先查库',
+    input_schema: {
+      type: 'object',
+      // 全部参数可选（纯查询）：用 additionalProperties:true，避免空 required 的非法形态
+      properties: { q: { type: 'string' }, category: { type: 'string' } },
+      additionalProperties: true,
+    },
+    run: (core, args) => core.broker.knowledge.search(args),
+  },
+  {
+    name: 'warroom_poc_add',
+    description: '回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string' }, title: { type: 'string' }, category: { type: 'string' },
+        source: { type: 'string' }, affected_versions: { type: 'string' },
+        evidence_ref: { type: 'string' }, body: { type: 'string' },
+      },
+      required: ['code', 'title', 'category'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.knowledge.addPoc(args),
+  },
+  {
+    name: 'warroom_poc_use',
+    description: '登记 POC 在某战役某资产上的使用（跨战役复用留痕）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string' }, engagement_id: { type: 'string' },
+        asset: { type: 'string' }, result: { type: 'string' },
+      },
+      required: ['code', 'engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.knowledge.use(args.code, args),
+  },
 ];
 
 export { ERR };

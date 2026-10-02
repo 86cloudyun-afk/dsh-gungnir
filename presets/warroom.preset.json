@@ -31,6 +31,9 @@
       "warroom_spray_check",
       "warroom_spray_record",
       "warroom_metrics",
+      "warroom_poc_search",
+      "warroom_poc_add",
+      "warroom_poc_use",
       "skill"
     ],
     "deny": [
