@@ -30,7 +30,7 @@ function usage() {
   audit     审计查询/导出：--engagement <id> [--decision <d>] [--since <iso>] [--export <dir>]
   evidence  证据落盘（报告+水位+三段式 EVIDENCE_INDEX）：--engagement <id> [--out <dir>] [--target <name>]
   sweep     超时治理：--engagement <id> [--timeout-min n]（超时任务转 unknown，不自动重试）
-  wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json>
+  wave      执行一波（会议纪要落库 → 依赖立即交接）：--engagement <id> --meeting <file.json> [--dry-run]
   shell     status|proof|verify：shell 三字段（--proof X / --validity unknown|likely|confirmed_lost）
   spray     check|record：喷洒断点与登记（--credential-ref --service --account [--result r]）
   metrics   效率遥测：--engagement <id> [--command-id <cid> --tokens-in n --tokens-out n --wall-time-ms n --verified-facts n --role r]
@@ -66,6 +66,7 @@ const { values: v } = parseArgs({
     'wall-time-ms': { type: 'string' }, 'verified-facts': { type: 'string' },
     format: { type: 'string' }, meeting: { type: 'string' }, 'timeout-min': { type: 'string' },
     decision: { type: 'string' }, since: { type: 'string' }, limit: { type: 'string' }, export: { type: 'string' },
+    'dry-run': { type: 'boolean', default: false },
   },
   allowPositionals: true,
 });
@@ -171,8 +172,9 @@ switch (command) {
     const file = v.meeting ?? argv[1];   // 支持 --meeting <file> 或位置参数
     if (!file) { console.error('wave 需要会议文件 JSON（{title, notes, tasks:[…]}）：--meeting <file>'); process.exit(2); }
     const plan = JSON.parse(readFileSync(file, 'utf8'));
-    const r = runWave({ broker, engagementId: need('engagement', v.engagement), wave: plan });
-    out({ ...r, meetings: listMeetings({ store: broker._eng(v.engagement).store }).length });
+    const r = runWave({ broker, engagementId: need('engagement', v.engagement), wave: plan, dryRun: !!v['dry-run'] });
+    if (r.dry_run) out(r);
+    else out({ ...r, meetings: listMeetings({ store: broker._eng(v.engagement).store }).length });
     break;
   }
   case 'verify-report': {
