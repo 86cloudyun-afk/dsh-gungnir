@@ -7,14 +7,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { renderChecklist } from './checklist.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
 /**
- * @param {{audiences?:Array<'client'|'blue'>}} opts.audiences 额外导出的受众视图
- *   （默认同时归档 client 与 blue —— "同一份证据，两个视图"是报告的双属性）
+ * @param {{audiences?:Array<'client'|'blue'>, checklist?:boolean}} opts
+ *   audiences —— 额外导出的受众视图（默认同时归档 client 与 blue："同一份证据，两个视图"）
+ *   checklist —— 同时生成交付清单 `DELIVERY_CHECKLIST.md`（默认 true：一个目录就是完整交付包）
  */
-export function exportEvidence({ broker, engagementId, outDir, target = null, audiences = ['client', 'blue'] }) {
+export function exportEvidence({ broker, engagementId, outDir, target = null, audiences = ['client', 'blue'], checklist = true }) {
   if (!outDir) throw new Error('exportEvidence 需要 outDir');
   const dir = target ? join(outDir, target) : outDir;
   mkdirSync(dir, { recursive: true });
@@ -83,6 +85,20 @@ export function exportEvidence({ broker, engagementId, outDir, target = null, au
   index.push('> 本目录内容由 GUNGNIR 生成；**不含任何明文凭据**。敏感值仅以 host 侧加密库中的引用存在。');
   index.push('');
 
+  // 交付清单（默认随包生成）：它是"能不能交付"的自检，理应和证据同目录
+  let checklistFile = null;
+  if (checklist) {
+    try {
+      const c = broker.checklist(engagementId, { reportsDir: join(dir, 'reports'), evidenceDir: dir });
+      checklistFile = join(dir, 'DELIVERY_CHECKLIST.md');
+      writeFileSync(checklistFile, renderChecklist(c) + '\n', 'utf8');
+      index.push('');
+      index.push('## 交付自检');
+      index.push('');
+      index.push(`- 自动判定 **${c.done}/${c.total}** 项通过；人工确认 **${c.manual}** 项 → \`DELIVERY_CHECKLIST.md\``);
+    } catch { checklistFile = null; }
+  }
+
   const indexPath = join(dir, 'EVIDENCE_INDEX.md');
   const watermarkPath = join(dir, 'watermark.json');
   writeFileSync(indexPath, index.join('\n'), 'utf8');
@@ -96,7 +112,10 @@ export function exportEvidence({ broker, engagementId, outDir, target = null, au
 
   return {
     dir,
-    files: { markdown: exported.paths.markdown, json: exported.paths.json, index: indexPath, watermark: watermarkPath },
+    files: {
+      markdown: exported.paths.markdown, json: exported.paths.json, index: indexPath,
+      watermark: watermarkPath, checklist: checklistFile,
+    },
     audience_files: audienceFiles,
     watermark: exported.watermark,
     counts: { confirmed: confirmed.length, credentials: creds.length, facts: members.length },

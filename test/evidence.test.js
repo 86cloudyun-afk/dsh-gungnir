@@ -87,3 +87,28 @@ test('可指定只导出某一受众；空数组则不生成视图目录', () =>
   assert.equal(none.audience_files.length, 0);
   assert.equal(readFileSync(none.files.index, 'utf8').includes('## 交付视图'), false, '无受众视图时不出该节');
 });
+
+test('交付包：证据落盘默认随包生成交付清单并在索引里点名', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'ev-pack', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const r = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-pack') });
+  assert.ok(r.files.checklist, '默认应生成交付清单');
+  assert.match(r.files.checklist, /DELIVERY_CHECKLIST\.md$/);
+  assert.ok(existsSync(r.files.checklist));
+  const checklist = readFileSync(r.files.checklist, 'utf8');
+  assert.match(checklist, /# 交付清单/);
+  assert.match(checklist, /自动判定：\*\*\d+\/\d+\*\* 项通过/);
+
+  const index = readFileSync(r.files.index, 'utf8');
+  assert.match(index, /## 交付自检/);
+  assert.match(index, /DELIVERY_CHECKLIST\.md/);
+});
+
+test('可关闭交付清单（checklist:false）', () => {
+  const h = harness();
+  const r = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-nocheck'), checklist: false });
+  assert.equal(r.files.checklist, null);
+  assert.equal(readFileSync(r.files.index, 'utf8').includes('## 交付自检'), false);
+});

@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **交付门禁语义**：`checklist --strict` 按口径判定退出码——`delivery`（授权/水位/报告可复现/证据/审计/备份
+  必须齐全）与 `progress`（**只盯"已做的东西没有坏"**：没干活不算异常，但报告一旦存在就不得漂移、
+  备份一旦存在就不得过期）；返回值新增 `gate/blocked/deliverable/profile`
+- **交付包标准化**：证据落盘默认**随包生成交付清单**（`DELIVERY_CHECKLIST.md`），并在
+  `EVIDENCE_INDEX.md` 增「交付自检」段点名结果；一个目录 = 报告（含受众视图）+ 水位 + 索引 +
+  交付清单；`checklist:false` 可关闭
+- **交付清单**（验收 12 项的操作化）：`warroom checklist --engagement <id> [--write] [--text]`
+  （工具 `warroom_checklist`，33 个工具）—— 自动项（授权冻结/出口与验证/节奏预算/水位/
+  攻击路径/报告可复现/证据落盘/审计留痕/备份新鲜度/跳板收口）**只依据账本与文件**判定；
+  判定不了的写「人工确认」（控制面当前有效性、IOC 附录逐条核）**绝不打勾充数**；
+  `--write` 落盘为交付附件 `evidence/DELIVERY_CHECKLIST.md`
+- **HTML 报告打印友好**：`@media print`（白底、隐藏交互块、表格/代码块不跨页、链接打印出 URL、
+  页脚署名）+ **封面块**（战役/视图/水位/生成时间，纸面第一页）；零外部资源不变
 - **值班一屏**：`watch` 内置**油表摘要**（wire 用量/上限/剩余、并发上限、本次要求间隔与还需等待、
   喷洒次数与锁定），并新增两条告警（**wire 用尽**、**喷洒锁定**）——值班不必再跑第二条命令
 - **报告修复建议段**（`remediation.js`）：**事实自带修复说明优先**（`payload.remediation|fix|advice`）；

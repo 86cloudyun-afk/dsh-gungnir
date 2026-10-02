@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,10 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  deliver   一键交付：报告(all) + 证据包(含清单) + 备份 + 门禁判定 → 返回交付包路径
+            --engagement <id> [--out <dir>] [--keep n] [--no-backup]
+  checklist 交付清单（验收项自动判定 + 人工确认）：--engagement <id> [--write] [--out <dir>] [--text]
+            [--strict（必过项未全通过即非零退出）] [--profile delivery|progress]
   rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
   timeline  战役时序（只读）：--engagement <id> [--limit n] [--text]
@@ -91,6 +95,9 @@ const { values: v } = parseArgs({
     'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
+    write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
+    profile: { type: 'string' }, backup: { type: 'boolean', default: true },
+    'no-backup': { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -123,6 +130,29 @@ const jumps = new JumphostManager({
 const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); process.exit(2); } return val; };
 
 switch (command) {
+  case 'deliver': {
+    const r = broker.deliver(need('engagement', v.engagement), {
+      outDir: v.out ?? null, keep: v.keep ? Number(v.keep) : 7,
+      backup: v['no-backup'] ? false : v.backup !== false,
+    });
+    out(r);
+    if (!r.gate.deliverable) process.exitCode = 1;   // 一键交付也守门禁
+    break;
+  }
+  case 'checklist': {
+    const { renderChecklist } = await import('../packages/warroom-core/src/checklist.js');
+    const engagementId = need('engagement', v.engagement);
+    if (v.write) out(broker.exportChecklist(engagementId, { outDir: v.out ?? null }));
+    else {
+      const c = broker.checklist(engagementId, { profile: v.strict ? 'delivery' : (v.profile ?? 'delivery') });
+      if (v.text || !v.json) {
+        console.log(renderChecklist(c));
+        if (v.json) out(c);
+      } else out(c);
+      if (v.strict && !c.deliverable) process.exitCode = 1;   // 交付门禁：必过项未全通过即非零
+    }
+    break;
+  }
   case 'rate': {
     const { renderRateView } = await import('../packages/warroom-core/src/rate-view.js');
     const rv = broker.rateView(need('engagement', v.engagement));

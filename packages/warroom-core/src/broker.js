@@ -19,6 +19,8 @@ import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
 import { buildWatch } from './watch.js';
 import { buildRateView } from './rate-view.js';
+import { buildChecklist, renderChecklist } from './checklist.js';
+import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -428,9 +430,9 @@ export class Broker {
   }
 
   /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
-  exportEvidence(engagementId, { outDir, target = null, audiences = ['client', 'blue'] } = {}) {
+  exportEvidence(engagementId, { outDir, target = null, audiences = ['client', 'blue'], checklist = true } = {}) {
     const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
-    return exportEvidence({ broker: this, engagementId, outDir: dir, target, audiences });
+    return exportEvidence({ broker: this, engagementId, outDir: dir, target, audiences, checklist });
   }
 
   /**
@@ -452,6 +454,49 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /**
+   * 一键交付：报告（md+json+html，含受众视图）→ 证据包（含交付清单）→ 备份 → **交付门禁判定**。
+   * 返回一次跑完的产物路径 + 门禁结论；不做任何隐藏动作（每步都是前面已存在的公开接口）。
+   */
+  deliver(engagementId, { outDir = null, keep = 7, backup = true } = {}) {
+    const base = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    const report = this.exportReportVerified(engagementId, { outDir: join(base, 'reports'), format: 'all' });
+    const pack = this.exportEvidence(engagementId, { outDir: base, audiences: ['client', 'blue'], checklist: true });
+    let backupResult = null;
+    if (backup) backupResult = backupHome({ home: this.home, keep });
+    // 清单必须看**交付包实际位置**（自定义 --out 时也要一致）
+    const checklist = this.checklist(engagementId, {
+      profile: 'delivery', reportsDir: join(base, 'reports'), evidenceDir: base,
+    });
+    return {
+      engagement_id: engagementId,
+      package_dir: base,
+      reports: { markdown: report.paths.markdown, json: report.paths.json, html: report.paths.html },
+      verify: report.verify,
+      audience_files: pack.audience_files.map((a) => ({ audience: a.audience, markdown: a.markdown })),
+      index: pack.files.index,
+      checklist_file: pack.files.checklist,
+      watermark: report.watermark,
+      backup: backupResult ? { dest: backupResult.dest, ok: backupResult.ok, total: backupResult.total, pruned: backupResult.pruned } : null,
+      gate: { profile: checklist.profile, deliverable: checklist.deliverable, blocked: checklist.blocked, done: checklist.done, total: checklist.total, manual: checklist.manual },
+    };
+  }
+
+  /** 交付清单（验收项自动判定 + 人工确认项，只读）。 */
+  checklist(engagementId, { profile = 'delivery', reportsDir = null, evidenceDir = null } = {}) {
+    return buildChecklist({ broker: this, engagementId, profile, reportsDir, evidenceDir });
+  }
+
+  /** 交付清单落盘为交付附件（写进证据目录）。 */
+  exportChecklist(engagementId, { outDir = null } = {}) {
+    const c = this.checklist(engagementId);
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'DELIVERY_CHECKLIST.md');
+    writeFileSync(path, renderChecklist(c) + '\n', 'utf8');
+    return { path, done: c.done, total: c.total, manual: c.manual };
   }
 
   /** 速率与预算视图（wire 用量/预算/最小间隔/喷洒台账，只读）。 */
