@@ -3,10 +3,10 @@
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
-本次 #163/#164/#167 防御性整合只完成本机离线初测（619 通过、0 失败、19 跳过；六闸通过），并增加 [重派授权边界回归](../test/redispatch-auth.test.js)、[通知确认竞态回归](../test/host-runner.test.js) 和 [后台观察能力拒绝](../test/host-observation-admission.test.js)。下述既有实机/CI 状态是历史记录；本次真实执行器、资源探针及云/服务器最终验收未运行。本修复不扩大工具目录，模型授权创建边界的独立修复仍见 PR #164。
+本次 #163/#164/#167 防御性整合及 CI 修复只完成本机离线初测（621 通过、0 失败、18 跳过；六闸通过），并增加 [重派授权边界回归](../test/redispatch-auth.test.js)、[通知确认竞态回归](../test/host-runner.test.js) 和 [后台观察能力拒绝](../test/host-observation-admission.test.js)。惰性 Node 诊断夹具已运行；[CI 修复验证](VALIDATION-STANDBY-CI-REPAIR-2026-10-02.md) 记录原远端失败。下述既有实机/CI 状态是历史记录；本次真实目标执行器、资源探针及云/服务器最终验收未运行。本修复不扩大工具目录，模型授权创建边界的独立修复仍见 PR #164。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**638 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**639 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -154,7 +154,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：638 例（`node --test`）
+- 测试：639 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=9（**按 label 计算目标版本**；高版本库拒绝打开）
