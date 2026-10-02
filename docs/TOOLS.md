@@ -27,7 +27,7 @@
 | `warroom_sweep_timeouts` | 超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论） | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
 | `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string }` | ✅ |
 | `warroom_spray_matrix` | 凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子 | `{ engagement_id*:string, credentials*:array, services*:array, accounts:array }` | ✅ |
-| `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, export_dir:string }` | ✅ |
+| `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
 | `warroom_jumps` | 跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约） | `{ engagement_id*:string, action:status|release|sweep, route_id:string }` | ✅ |
 
 ## 约定

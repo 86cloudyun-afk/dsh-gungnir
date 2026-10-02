@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **审计分页与 CSV 导出**：`audit({limit, offset, order})` 返回 `page{matched,has_more}`；
+  `auditExportCsv`（RFC4180 转义、可按 decision/since 过滤）；工具与 CLI 同步暴露
+  （`--limit/--offset/--order/--format csv`）
 - **家目录配置** `$WARROOM_HOME/warroom.json`：默认节奏档 / sweep 超时 / adapter 类型 /
   桥超时 / 围栏镜像 / 波内并发提示；**非法或未知字段明确报错**（不静默忽略，避免"以为生效了"）；
   `warroom config show|init [--force]`；Broker 与插件服务都读取它

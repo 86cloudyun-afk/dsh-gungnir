@@ -334,14 +334,20 @@ export const TOOLS = [
       type: 'object',
       properties: {
         engagement_id: { type: 'string' }, decision: { type: 'string' },
-        since: { type: 'string' }, limit: { type: 'integer' }, export_dir: { type: 'string' },
+        since: { type: 'string' }, limit: { type: 'integer' }, offset: { type: 'integer' },
+        order: { type: 'string', enum: ['asc', 'desc'] },
+        export_dir: { type: 'string' }, export_format: { type: 'string', enum: ['jsonl', 'csv'] },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => {
-      const { engagement_id, export_dir, ...opts } = args;
-      if (export_dir) return core.broker.auditExport(engagement_id, { outDir: export_dir });
+      const { engagement_id, export_dir, export_format, ...opts } = args;
+      if (export_dir) {
+        return export_format === 'csv'
+          ? core.broker.auditExportCsv(engagement_id, { outDir: export_dir, decision: opts.decision, since: opts.since })
+          : core.broker.auditExport(engagement_id, { outDir: export_dir });
+      }
       return core.broker.audit(engagement_id, opts);
     },
   },

@@ -70,3 +70,56 @@ test('CLI audit 子命令：查询与导出两路可用', () => {
     '--home', h.home, '--export', join(h.home, 'cli-audit'), '--json'], { encoding: 'utf8', env }));
   assert.ok(exported.path.endsWith('audit-log.jsonl'));
 });
+
+test('分页：limit/offset/has_more 语义 + 过滤后计数', () => {
+  const h = harness();
+  // 直接写审计行（避免与节奏闸耦合：分页测试只关心审计本身）
+  for (let i = 0; i < 5; i += 1) h.store().appendGateLog({ decision: 'allow', detail: `pg-${i}` });
+  const p1 = h.broker.audit(h.eng.engagement_id, { limit: 2, offset: 0 });
+  assert.equal(p1.rows.length, 2);
+  assert.equal(p1.page.matched, 5);
+  assert.equal(p1.page.has_more, true);
+  const p3 = h.broker.audit(h.eng.engagement_id, { limit: 2, offset: 4 });
+  assert.equal(p3.rows.length, 1);
+  assert.equal(p3.page.has_more, false);
+  assert.equal(p1.rows[0].id > p3.rows[0].id, true, '默认倒序：首页是最新的');
+
+  const asc = h.broker.audit(h.eng.engagement_id, { limit: 2, order: 'asc' });
+  assert.ok(asc.rows[0].id < asc.rows[1].id, 'asc 应为最旧在前');
+
+  // 过滤后的匹配数只算匹配行
+  h.store().appendGateLog({ decision: 'deny', detail: 'not-matched' });
+  const filtered = h.broker.audit(h.eng.engagement_id, { decision: 'allow', limit: 10 });
+  assert.equal(filtered.page.matched, 5);
+  assert.equal(h.broker.audit(h.eng.engagement_id, { decision: 'deny' }).page.matched, 1);
+});
+
+test('CSV 导出：RFC4180 转义 + 行数一致 + 可被解析', () => {
+  const h = harness();
+  h.store().appendGateLog({ decision: 'test-csv', detail: '含逗号,与"引号"' });
+  h.broker.execute({ ...h.base, command_id: 'csv-1', contract: h.contract() });
+
+  const r = h.broker.auditExportCsv(h.eng.engagement_id, { outDir: join(h.home, 'audit-csv') });
+  const text = readFileSync(r.path, 'utf8');
+  const lines = text.trim().split('\n');
+  assert.equal(lines.length, r.lines + 1, '含表头');
+  assert.match(lines[0], /^id,ts,decision,code,detail,recovered_at$/);
+  assert.ok(text.includes('"含逗号,与""引号"""'), 'RFC4180 转义应生效');
+
+  // 过滤导出
+  const only = h.broker.auditExportCsv(h.eng.engagement_id, { outDir: join(h.home, 'audit-csv2'), decision: 'allow' });
+  assert.equal(only.lines, 1);
+});
+
+test('CLI audit 分页与 CSV 导出', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  for (let i = 0; i < 3; i += 1) h.store().appendGateLog({ decision: 'allow', detail: `cli-pg-${i}` });
+  const page = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'audit', '--engagement', h.eng.engagement_id,
+    '--home', h.home, '--limit', '2', '--offset', '0', '--json'], { encoding: 'utf8', env }));
+  assert.equal(page.rows.length, 2);
+  assert.equal(page.page.matched, 3);
+  const csv = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'audit', '--engagement', h.eng.engagement_id,
+    '--home', h.home, '--export', join(h.home, 'cli-csv'), '--format', 'csv', '--json'], { encoding: 'utf8', env }));
+  assert.ok(csv.path.endsWith('.csv'));
+});
