@@ -3,6 +3,7 @@
 // apply(ctx) 按 cordis 约定向宿主注册服务与工具，便于在真实 DSH 中挂载。
 import { join } from 'node:path';
 import { Broker } from '../../warroom-core/src/broker.js';
+import { aggregateView } from '../../warroom-core/src/aggregate.js';
 import { JumphostManager } from '../../warroom-core/src/jumphosts.js';
 import { FakeAdapter } from '../../warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../../warroom-core/src/adapters/redteam-mode.js';
@@ -42,7 +43,9 @@ export function createWarroomService({ home, adapterKind = null, adapter } = {})
   });
   // 启动即再水化：把非终态命令交回 adapter（跨进程/重启恢复执行层视角）
   const recovered = rehydrate(broker);
-  return { broker, jumps, recovered, home };
+  // 聚合视图（只读）：工具与 CLI 共用
+  const aggregateViewOf = ({ sessionsDbPath = null } = {}) => aggregateView({ home, sessionsDbPath });
+  return { broker, jumps, recovered, home, aggregateView: aggregateViewOf };
 }
 
 /** cordis 形态的插件入口：向宿主注册服务（若宿主支持），并返回服务实例。 */

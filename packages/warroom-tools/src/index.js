@@ -258,7 +258,10 @@ export const TOOLS = [
     input_schema: {
       type: 'object',
       // 全部参数可选（纯查询）：用 additionalProperties:true，避免空 required 的非法形态
-      properties: { q: { type: 'string' }, category: { type: 'string' } },
+      properties: {
+        q: { type: 'string' }, category: { type: 'string' }, limit: { type: 'integer' },
+        sort: { type: 'string', enum: ['relevance', 'recent', 'hits'] },
+      },
       additionalProperties: true,
     },
     run: (core, args) => core.broker.knowledge.search(args),
@@ -439,11 +442,33 @@ export const TOOLS = [
     description: '开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' },
+        meeting_tasks: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+          description: '可选：波次任务列表（逐个核对是否在授权范围内）',
+        },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.preflight(args.engagement_id),
+    run: (core, args) => core.broker.preflight(args.engagement_id, {
+      meeting: args.meeting_tasks ? { tasks: args.meeting_tasks } : null,
+    }),
+  },
+  {
+    name: 'warroom_aggregate',
+    description: '跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sessions_db: { type: 'string', description: 'DSH 聚合库路径；留空表示只聚合本框架各战役' },
+      },
+      required: ['sessions_db'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.aggregateView({ sessionsDbPath: args.sessions_db || null }),
   },
 ];
 

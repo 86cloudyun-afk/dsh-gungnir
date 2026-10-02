@@ -3,6 +3,29 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 4 行（四段观测/聚合只读边界/检索加权/拓扑分组）、
+  数字同步（280 例 / 29 工具）、QUICKSTART 增「一图流（从零到报告）」
+- **跨会话聚合视图（只读边界，框架 §7）**：`aggregate.js` —— 各战役库与 DSH 聚合库
+  （`pentest-sessions.db`）**一律 `readOnly` 打开**，合并出战果总表（战役数/事实数/shell 数/分类统计），
+  输出 `gungnir-aggregate/1`；工具 `warroom_aggregate`（29 个工具）、CLI
+  `warroom aggregate [--sessions-db <path>] [--out <file>]`；**回归守着"写入必须失败"**
+- **效率四段观测**（框架 §11：排队 / 交接 / 执行 / 失败与返工）：`metrics().segments` ——
+  排队（立项→首派）、交接（派发→首回执）、执行（首回执→结项）、返工（次数 + 墙钟）；
+  全部由已有时间戳算出（`command_queue.ts` → `gate_log.collect` → `gate_log.settle`），
+  **无数据一律 null**；`broker.collect` 增留痕（accepted/隔离原因）供分段与审计共用
+- **执行三桶一等公民**（框架 §4）：`buckets.js` —— 桶 A（容器+sidecar，**必须有活跃 route**，
+  任务容器只接 `--internal` 且 DNS 不落宿主）、桶 B（本机直连，**不允许经 socks**）、
+  桶 C（跳板侧，需指定跳板，**情报与凭据不落跳板**）；每种桶给出 allowed/forbidden/不变量清单；
+  配置新增 `bucket: A|B|C`（严格校验）；预检按配置校验自洽并**语义分层**
+  （没取出口=提示，桶配置矛盾=阻塞）；补齐缺失错误码 `E_FENCE_NO_ROUTE`
+- **预检带演练计划**（`preflight --meeting wave.json` / 工具 `meeting_tasks`）：
+  把波次里每个任务的目标**逐个对着冻结授权核范围**，越界 → `blocked` 并列出越界目标；
+  同时输出层数与同时在飞上限；计划成环也在预检阶段直接拦下（不等到派单才炸）
+- **报告拓扑分组视图**：按类型分子图（资产/弱点/凭据/攻击路径/控制面）、**通往控制面的边加粗
+  `==>`**、报告附图例与「关键跳清单」；`toMermaid` 保留为平铺版
+- **知识库检索加权**（`poc_search`）：相关度 = 关键词命中（code/title 权重高于 source/versions）
+  + **历史命中率**（打通过的最优先——知识库真正的价值信号）+ 新鲜度半衰期衰减（90 天）；
+  支持 `sort: relevance|recent|hits` 与 `limit`；返回带 `score` 与 `usage{total,hits,hit_rate,last_used}`
 - **开工前预检** `warroom preflight --engagement <id>`（工具 `warroom_preflight`，28 个工具）：
   六个维度（环境/配置/战役时间窗与目标/活跃路由与出口验证/备份新鲜度/密钥权限）合成
   **三态结论 ready|degraded|blocked** + 阻塞项 + 下一步建议；blocked 时 CLI 非零退出
