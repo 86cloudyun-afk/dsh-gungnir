@@ -38,6 +38,7 @@
       "warroom_evidence_export",
       "warroom_spray_matrix",
       "warroom_audit",
+      "warroom_jumps",
       "skill"
     ],
     "deny": [

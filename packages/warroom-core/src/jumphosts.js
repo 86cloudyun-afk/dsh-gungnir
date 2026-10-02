@@ -83,6 +83,40 @@ export class JumphostManager {
     }
   }
 
+  /** 台账：主机 / 租约 / 路由（routes 属战役库，按 engagement 查）。 */
+  status(engagementId = null) {
+    const hosts = this.g.prepare('SELECT * FROM jumphosts ORDER BY id').all();
+    const leases = this.g.prepare('SELECT * FROM leases ORDER BY ts DESC').all();
+    let routes = [];
+    if (engagementId) {
+      try { routes = this.getFactStore(engagementId).db.prepare('SELECT * FROM jump_routes ORDER BY ts').all(); }
+      catch { routes = []; }
+    }
+    return {
+      hosts,
+      leases,
+      routes,
+      summary: {
+        hosts: hosts.length,
+        healthy: hosts.filter((h) => h.status === 'healthy').length,
+        quarantined: hosts.filter((h) => h.status === 'quarantined').length,
+        active_leases: leases.filter((l) => l.state === 'active').length,
+        active_routes: routes.filter((r) => r.state === 'active').length,
+      },
+    };
+  }
+
+  /** 收口：释放租约并把对应路由标记为已拆除（幂等）。 */
+  releaseRoute({ route_id, lease_id = null, engagementId }) {
+    const store = this.getFactStore(engagementId);
+    const route = store.db.prepare('SELECT * FROM jump_routes WHERE route_id = ?').get(route_id);
+    if (!route) throw warroomError(ERR.E_TASK_NOT_FOUND, `route ${route_id} 不存在`);
+    store.db.prepare("UPDATE jump_routes SET state = 'released' WHERE route_id = ?").run(route_id);
+    const lease = lease_id ?? route.lease_id;
+    if (lease) this.release(lease);
+    return { route_id, lease_id: lease, state: 'released' };
+  }
+
   release(lease_id) {
     this.g.prepare("UPDATE leases SET state = 'released', heartbeat_at = ? WHERE lease_id = ?").run(now(), lease_id);
   }
