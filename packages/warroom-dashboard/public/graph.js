@@ -133,6 +133,56 @@ export function findExactNode(snapshot, query) {
   return { node: null, candidates: [], match: null };
 }
 
+export function fitNodeLabel(value, maxWidth, fontSize) {
+  const text = String(value || '');
+  const widthOf = (character) => /[\u2e80-\u9fff\uf900-\ufaff]/u.test(character) ? fontSize : fontSize * 0.58;
+  if ([...text].reduce((sum, character) => sum + widthOf(character), 0) <= maxWidth) return text;
+  const available = Math.max(0, maxWidth - fontSize);
+  let width = 0;
+  let result = '';
+  for (const character of text) {
+    const next = widthOf(character);
+    if (width + next > available) break;
+    result += character;
+    width += next;
+  }
+  return `${result}…`;
+}
+
+export function routeSelection(snapshot, routeId) {
+  const route = (snapshot?.routes || []).find((item) => item.route_id === routeId);
+  if (!route) return { route: null, candidates: [], node_ids: [], edge_ids: [] };
+  return { route, candidates: [route], node_ids: [...(route.node_ids || [])], edge_ids: [...(route.edge_ids || [])] };
+}
+
+export function taskSelection(snapshot, taskId) {
+  const tasks = (snapshot?.tasks || []).filter((item) => item.task_id === taskId || item.id === taskId);
+  if (tasks.length !== 1) return { task: null, candidates: tasks, route_ids: [], node_ids: [], edge_ids: [] };
+  const task = tasks[0];
+  const routeId = task.route_id;
+  const route = routeId ? routeSelection(snapshot, routeId) : null;
+  const nodes = (snapshot?.nodes || []).filter((node) => node.task_ids?.includes(taskId));
+  return { task, candidates: tasks, route_ids: route?.route ? [routeId] : [], node_ids: [...new Set([...nodes.map((node) => node.id), ...(route?.node_ids || [])])], edge_ids: route?.edge_ids || [] };
+}
+
+export function snapshotSummary(snapshot) {
+  const diagnostics = snapshot?.diagnostics || {};
+  const counts = diagnostics.counts || {};
+  const displayed = { nodes: snapshot?.nodes?.length || 0, edges: snapshot?.edges?.length || 0, routes: snapshot?.routes?.length || 0, tasks: snapshot?.tasks?.length || 0 };
+  const totals = Object.fromEntries(Object.keys(displayed).map((key) => [key, Number.isFinite(counts[key]) ? counts[key] : null]));
+  const risks = { failed: 0, pending: 0, expired: 0 };
+  for (const node of snapshot?.nodes || []) {
+    if (node.state === 'failed') risks.failed += 1;
+    if (node.state === 'pending') risks.pending += 1;
+  }
+  for (const route of snapshot?.routes || []) {
+    if (route.egress?.verdict === 'fail' || route.state === 'failed') risks.failed += 1;
+    if (route.egress?.verdict === 'pending' || route.egress?.current === false) risks.pending += 1;
+    if (route.lease?.state === 'expired') risks.expired += 1;
+  }
+  return { partial: diagnostics.truncated === true, displayed, totals, unresolved: Number(diagnostics.unresolved_refs) || 0, ambiguous: Number(diagnostics.ambiguous_refs) || 0, risks };
+}
+
 function routeNotes(snapshot) {
   return (snapshot?.routes || []).map((route) => ({
     route_id: route.route_id, jumphost_id: route.jumphost_id, entry_ip: route.entry_ip || '未知', exit_ip: route.exit_ip || '未知',
@@ -143,10 +193,11 @@ function routeNotes(snapshot) {
 
 function anomalies(snapshot) {
   const items = (snapshot?.routes || []).flatMap((route) => {
-    const state = route.egress?.verdict === 'fail' || route.state === 'failed' ? 'failed'
-      : route.egress?.verdict === 'pending' || route.egress?.current === false ? 'pending'
-        : route.lease?.state === 'expired' ? 'expired' : null;
-    return state ? [{ route_id: route.route_id, state, verdict: route.egress?.verdict || 'unknown' }] : [];
+    const risks = [];
+    if (route.egress?.verdict === 'fail' || route.state === 'failed') risks.push('failed');
+    if (route.egress?.verdict === 'pending' || route.egress?.current === false) risks.push('pending');
+    if (route.lease?.state === 'expired') risks.push('expired');
+    return risks.map((state) => ({ route_id: route.route_id, state, verdict: route.egress?.verdict || 'unknown' }));
   });
   for (const node of snapshot?.nodes || []) if (node.state === 'failed' || node.state === 'pending') items.push({ node_id: node.id, state: node.state });
   return items;

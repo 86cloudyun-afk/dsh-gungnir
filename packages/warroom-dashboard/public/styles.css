@@ -99,7 +99,7 @@ select,input,button {
 button {
   cursor: pointer;
 }
-button: hover,button:focus-visible,input:focus-visible,select:focus-visible {;
+button:hover,button:focus-visible,input:focus-visible,select:focus-visible {
   outline: 1px solid var(--blue);
   outline-offset: 1px;
 }
@@ -323,10 +323,18 @@ h1,h2 {
   stroke: var(--gray);
   stroke-dasharray: 3 3;
 }
-.graph-node.selected rect {
-  stroke: var(--blue);
-  stroke-width: 2.4;
-  filter: drop-shadow(0 0 3px #3979a1);
+.graph-node.selected {
+  filter: drop-shadow(0 0 3px var(--blue));
+}
+.graph-node:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 4px var(--blue));
+}
+.map-count-summary {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 2px 6px;
 }
 .graph-node text {
   fill: var(--text);
