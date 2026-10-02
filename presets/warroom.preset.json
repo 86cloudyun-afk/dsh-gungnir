@@ -43,6 +43,7 @@
       "warroom_egress_check",
       "warroom_heartbeat",
       "warroom_preflight",
+      "warroom_aggregate",
       "skill"
     ],
     "deny": [
