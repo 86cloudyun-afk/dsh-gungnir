@@ -505,21 +505,46 @@ export class Broker {
   /**
    * @param {{decision?:string, since?:string, limit?:number}} opts
    */
-  audit(engagementId, { decision = null, since = null, limit = 200 } = {}) {
+  audit(engagementId, { decision = null, since = null, limit = 200, offset = 0, order = 'desc' } = {}) {
     const store = this._eng(engagementId).store;
     const where = [];
     const args = [];
     if (decision) { where.push('decision = ?'); args.push(decision); }
     if (since) { where.push('ts >= ?'); args.push(since); }
-    const sql = `SELECT id, ts, decision, code, detail, recovered_at FROM gate_log
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
-    const rows = store.db.prepare(sql).all(...args, limit);
-    const byDecision = store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all();
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const dir = order === 'asc' ? 'ASC' : 'DESC';
+    const rows = store.db.prepare(`SELECT id, ts, decision, code, detail, recovered_at FROM gate_log
+      ${whereSql} ORDER BY id ${dir} LIMIT ? OFFSET ?`).all(...args, limit, offset);
+    const matched = store.db.prepare(`SELECT COUNT(*) AS n FROM gate_log ${whereSql}`).get(...args).n;
+    const byDecision = store.db.prepare(`SELECT decision, COUNT(*) AS n FROM gate_log ${whereSql} GROUP BY decision ORDER BY n DESC`).all(...args);
     return {
       rows,
+      page: { limit, offset, matched, has_more: offset + rows.length < matched },
       total: store.db.prepare('SELECT COUNT(*) AS n FROM gate_log').get().n,
       by_decision: byDecision,
     };
+  }
+
+  /** 审计导出 CSV（给不读 JSON 的人）；字段转义按 RFC4180。 */
+  auditExportCsv(engagementId, { outDir, decision = null, since = null } = {}) {
+    const store = this._eng(engagementId).store;
+    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'audit');
+    mkdirSync(dir, { recursive: true });
+    const where = [];
+    const args = [];
+    if (decision) { where.push('decision = ?'); args.push(decision); }
+    if (since) { where.push('ts >= ?'); args.push(since); }
+    const rows = store.db.prepare(`SELECT id, ts, decision, code, detail, recovered_at FROM gate_log
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id`).all(...args);
+    const esc = (v) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = 'id,ts,decision,code,detail,recovered_at';
+    const body = rows.map((r) => [r.id, r.ts, r.decision, r.code, r.detail, r.recovered_at].map(esc).join(','));
+    const path = join(dir, 'audit-log.csv');
+    writeFileSync(path, [header, ...body].join('\n') + '\n', 'utf8');
+    return { path, lines: rows.length, format: 'csv' };
   }
 
   /** 导出审计日志（JSONL）；行数与查询一致，内容已脱敏（写入时即脱敏）。 */
