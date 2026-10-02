@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 8 行（备份保留/波次联动/自校验/事实查询/出口实跑/套件入口）、
+  README 数字同步（229 例 / 26 工具）、QUICKSTART 增「全部子命令索引」
 - **一致性套件独立入口**：`scripts/conformance.mjs [--module <path>]` + CLI `warroom conformance`
   ——外部 adapter 作者可对自己的 adapter 跑同一套 SPI rev2 契约检查（8 项，含幂等与资源清单），
   失败项逐条列出并非零退出。**修掉一个真 bug**：`summarize().failed` 是数组，
