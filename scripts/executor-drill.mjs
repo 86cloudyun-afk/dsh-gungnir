@@ -88,7 +88,13 @@ try {
       fake_members: [{ entity_type: 'asset', source_id: 'drill-asset', revision_no: 1, content_hash: 'h-drill', payload: { note: 'drill' } }],
     },
   });
-  step('派单：账本先持久化后派发', ex.state === 'running', `task=${ex.task_id}`);
+  // 派单成功即可（常驻应答器"先确认后执行"：瞬间完成的任务此处可能已是 done）
+  step('派单：账本先持久化后派发', ['running', 'done'].includes(ex.state), `task=${ex.task_id} state=${ex.state}`);
+
+  // 桥是异步的：等执行层把事实落盘再收（最多 8 秒）
+  const factsPath = join(home, 'dsh-bridge', 'inbox', `${ex.task_id}.facts.json`);
+  const t0 = Date.now();
+  while (!existsSync(factsPath) && Date.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 25));
 
   const receipt = adapter.collect(ex.task_id);
   const ingested = broker.collect(eng.engagement_id, ex.task_id, receipt);

@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { harness } from '../packages/warroom-core/src/testing.js';
+import { harness as baseHarness } from '../packages/warroom-core/src/testing.js';
 import { Broker } from '../packages/warroom-core/src/broker.js';
 import { FileBridgeDriver } from '../packages/warroom-core/src/adapters/dsh-bridge.js';
 import { RedteamModeAdapter } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 
 const parent = { session_id: 'parent-one', created_at: 1000 };
+// These admission/auth fixtures expose an inert observation source; built-in Fake remains synchronous only.
+function harness(options) {
+  const h = baseHarness(options); h.adapter.observe = () => null; return h;
+}
 const queued = (h, command_id = 'host-one', owner = parent) => h.broker.execute(
   { ...h.base, command_id, contract: h.contract({ wire_cost: 0 }) },
   { deferDispatch: true, parent: owner },

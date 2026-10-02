@@ -29,7 +29,7 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
           - id: persona                     # 角色文本在**运行期**从 presets/roles/<role>.md 读入
             name: '@deepseek-ai/dsh-persona'
           - id: agent-instructions
-          - id: warroom-gungnir             # 本仓挂载入口（注册 36 个 warroom_* 工具）
+          - id: warroom-gungnir             # 本仓挂载入口（注册全部 warroom_* 工具，数量以允许清单为准）
             name: /abs/path/packages/warroom-plugin/src/dsh-entry.mjs
           - id: tool-todo
           - id: tool-ask-user
@@ -38,6 +38,15 @@ node scripts/deploy-dsh.mjs --apply     # 备份后写入 profile patch（幂等
 > 角色文本为什么用 `!!js "…readFileSync(…)"` 而不是 YAML 块标量：角色 markdown 有多级缩进，
 > 折叠标量（`>-`）会因此变成非法 YAML（实测报 `bad indentation of a mapping entry`）。
 > 表达式在 loader 作用域求值，`process.getBuiltinModule('node:fs')` 可用。
+
+**开工与授权（ADR-001 D3）**：可信宿主或操作员 CLI 调用 `Broker.createEngagement` / `warroom engage`，
+把操作员确认的范围冻结为结构化授权对象。模型只引用已有 `engagement_id` / `auth_version`，
+不能用自填的 `user_message_id`、targets 或 overrides 创建授权。跳板导入、路由取得和出口实测同样由可信宿主/CLI 完成；
+会话保留台账、收口及已有验证结果的 record/status。缺少前置时停止并报告给操作员。
+宿主自动截获开工指令尚未实现；此修复不新增捕获或来源认证协议。
+
+历史授权记录的 id/version/hash/scope 原样保留。本补丁不因记录含 `user_message_id` 就认定其来源可信，
+也不修改或批量迁移历史数据；部署前由可信操作员核实授权来源，无法确认的记录通过既有撤销流程处理。
 
 **生效**：host 平面变更需重启 `dsh web`——**只能由操作员在自己的终端执行**：
 
@@ -49,8 +58,8 @@ launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery
 > 用 `launchctl submit` 提交"重启 + 自检"脚本后，launchd 按节流间隔（~10s）**反复重跑**该任务，
 > 每次重跑都 `kickstart -k`，导致 **17:15:20–17:34:14 之间 108 次重启**，宿主不停掉线、
 > 会话被打断。agent 侧只做只读诊断与配置准备，重启留给操作员——这条是纪律，不是建议。
-重启后新建会话选预设「红队指挥（GUNGNIR）」，直接发**开工指令**（靶标 + 范围）：
-宿主截获该指令并冻结结构化授权对象（开工指令即授权事件，ADR-001 D3）。
+重启后由操作员完成可信授权与出口前置，再把已有授权引用交给预设「红队指挥（GUNGNIR）」会话。
+会话不得调用 `warroom_engage` 或 `warroom_jumps import/acquire`、`warroom_egress_check probe`；这些动作不在模型工具面。
 
 ## 预设"消失"的两个真机陷阱（都踩过）
 
@@ -71,9 +80,9 @@ console.error(JSON.stringify(value));
 
 | 验证项 | 手段 | 结果 |
 |---|---|---|
-| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验 36 个 `parameters` | ✅ 36/36 通过（`test/dsh-mount.test.js`） |
+| 挂载层硬门槛 | 用**宿主自己的**校验器 `assertSupportedJsonSchema`/`assertObjectJsonSchema` 校验全部 `parameters` | ✅ 全数通过（`test/dsh-mount.test.js`） |
 | 装配（不重启） | `dsh --profile web --dump-config [--patch <overlay>]` | ✅ 预设行与子插件清单出现在装配树里 |
-| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **36 个 `warroom_*` 全部可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
+| 注册（真实进程） | `dsh --profile headless --patch <overlay>` 让模型列出可用工具 | ✅ **全部 `warroom_*` 可见**；关闭内核工具行后 `bash/write/edit/subagent` 均不存在 |
 | 执行（真实进程） | 让会话调用 `warroom_poc_add` → `warroom_poc_search` | ✅ 登记入库、检索返回 `count=1`；库侧用 CLI 复核一致 |
 | 作用域收窄 `restrict` | 在 context 级调用 | ⛔ 宿主拒绝："a context-global restriction would mask every agent"。**主保证=挂载构成**；restrict 仅在 agent 作用域且显式开启时尝试，失败记状态不抛错 |
 

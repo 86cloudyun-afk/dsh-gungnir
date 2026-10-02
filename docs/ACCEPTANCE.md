@@ -3,18 +3,20 @@
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
+本次 #163/#164/#167 防御性整合只完成本机离线初测（619 通过、0 失败、19 跳过；六闸通过），并增加 [重派授权边界回归](../test/redispatch-auth.test.js)、[通知确认竞态回归](../test/host-runner.test.js) 和 [后台观察能力拒绝](../test/host-observation-admission.test.js)。下述既有实机/CI 状态是历史记录；本次真实执行器、资源探针及云/服务器最终验收未运行。本修复不扩大工具目录，模型授权创建边界的独立修复仍见 PR #164。
+
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**394 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**638 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
-CI 另有**两个真跑 job**：`fence`（真实容器围栏）与 `drill`（跨进程执行层演练）。
+CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
 端到端演练：`node scripts/executor-drill.mjs [--mode bridge]`；契约自检：`node scripts/conformance.mjs`。
 
 ## 框架 §8 验收清单（12 项）
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（恰 36 个 `warroom_*`，0 内核工具），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
+| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（`warroom_*` 全数，0 内核工具；数量与允许清单同源，当前 37），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
@@ -148,13 +150,13 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 密钥轮换 | 旧秘密仍可解；归档 600；缺密钥明确报错 | `test/secrets.test.js` | ✅ |
 | 报告体量控制 | md 截断给计数；JSON 全量 | `test/ioc-report.test.js` | ✅ |
 | 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
-| 故障矩阵扩展 | 11 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
+| 故障矩阵扩展 | 21 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
 
 ## 数字快照
 
-- 测试：391 例（`node --test`）
-- CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
-- 工具：24 个（schema 严格校验，DSH 挂载要求）
+- 测试：638 例（`node --test`）
+- CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
+- 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=9（**按 label 计算目标版本**；高版本库拒绝打开）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）
 
@@ -166,10 +168,12 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 完成源代际/游标、重复乱序、丢通知重启、取消/撤销不复活 | `test/host-runner.test.js` | 服务/SQLite 离线边界 |
 | 忙闲父会话、用户消息优先、通知接受后丢确认去重、身份失配 | `test/host-delivery.test.js` | 原生 API 形状的持久日志装置，非模型运行验收 |
 | 跨进程惰性 worker、应答器持久领取、重启不重执行、资源不假停 | `test/host-responder.test.js` | 临时目录与无副作用 executor |
-| CLI wave 与允许集/deny 保持固定安全基线 | `test/wave-cli.test.js`、`test/dsh-toolpolicy.test.js`、`test/dsh-mount.test.js` | 36 工具基线；不覆盖上游新增 engage |
+| CLI wave 与允许集/deny 保持固定安全基线 | `test/wave-cli.test.js`、`test/dsh-toolpolicy.test.js`、`test/dsh-mount.test.js` | 整合后的固定36工具与完整 schema；模型自授权入口已排除 |
 
 Mac 不是最终验收平台；真实 DSH 会话与模型、云/服务器、真实资源停止、部署、发布均未运行。
 上游变基风险见 [兼容记录](UPSTREAM-COMPATIBILITY-2026-10-02.md)。完整本机计数及环境失败以交付测试记录为准，
 本节不把初测或环境跳过标成最终验收通过。
-精确结果见 [本次本机验证记录](VALIDATION-PARENT-STANDBY-2026-10-02.md)：六闸通过，497 通过／0 失败／6 跳过；
-独立复审原 8 项重要问题已定向闭环，真实运行范围仍未验证。
+原 #163 旧候选的历史结果见 [原本机验证记录](VALIDATION-PARENT-STANDBY-2026-10-02.md)：六闸通过，497 通过／0 失败／6 跳过；
+其独立复审原 8 项重要问题已定向闭环，不认证当前整合 tree；真实运行范围仍未验证。
+
+当前整合候选的新离线证据与明确未运行项见 [整合验证](VALIDATION-STANDBY-INTEGRATION-2026-10-02.md)；原 #163 旧基线的503/497与8项关闭记录不能认证新 tree。

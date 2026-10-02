@@ -9,6 +9,7 @@
 //   正例——健康预设在 fail-closed 默认开启下仍干净挂载（无回归）；
 //   负例——注入 allow:[] 的预设在 list() 里 broken 且 retain() 抛（= 开会被拒）。
 import { test } from 'node:test';
+import { TOOLS } from '../packages/warroom-tools/src/index.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,51 +29,54 @@ function fakeTools() {
 const fullAllow = [...TOOL_NAMES, 'skill'];
 
 // ---- 单元：fail-closed 条件 ----
+/** 工具总数（与工具表同源，不再写死数字）。 */
+const TOOLS_LEN = TOOLS.length;
+
 test('fail-closed：声明 toolPolicy 但 allow 为空数组 → apply 抛（拒绝挂载）', () => {
   assert.throws(
-    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: '/tmp/wr-fc-1', toolPolicy: { mode: 'allowlist', allow: [] } }),
+    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), toolPolicy: { mode: 'allowlist', allow: [] } }),
     /allow 非法|非空数组/);
 });
 
 test('fail-closed：声明 toolPolicy 但 allow 缺失/非数组 → apply 抛', () => {
   assert.throws(
-    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: '/tmp/wr-fc-2', toolPolicy: { mode: 'allowlist' } }),
+    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), toolPolicy: { mode: 'allowlist' } }),
     /allow 非法|非空数组/);
 });
 
 test('fail-closed：策略在 force 但 registry 缺失（零工具注册）→ apply 抛（堵住"看似挂上却空目录"）', () => {
   // 旧逻辑用 registered.length>0 守卫会跳过完整性检查 → 静默降级；现在必须抛。
   assert.throws(
-    () => entry.apply({ on() {} }, { home: '/tmp/wr-fc-3', toolPolicy: { mode: 'allowlist', allow: fullAllow } }),
+    () => entry.apply({ on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), toolPolicy: { mode: 'allowlist', allow: fullAllow } }),
     /挂载不完整|fail-closed/);
 });
 
 test('fail-closed 默认开启 + 健康子集 → 不抛，只注册允许集内 warroom 工具（无回归）', () => {
   const f = fakeTools();
   const subset = TOOL_NAMES.slice(0, 5);
-  const svc = entry.apply({ tools: f.tools, on() {} }, { home: '/tmp/wr-fc-4', toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] } });
+  const svc = entry.apply({ tools: f.tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), toolPolicy: { mode: 'allowlist', allow: [...subset, 'skill'] } });
   assert.deepEqual([...f.registered].sort(), [...subset].sort());
   assert.equal(svc.failClosed, true);
 });
 
 test('failClosed:false → 显式关闭 fail-closed：空 allow 不抛（可控降级旁路，仅显式选择时）', () => {
   const f = fakeTools();
-  const svc = entry.apply({ tools: f.tools, on() {} }, { home: '/tmp/wr-fc-5', toolPolicy: { mode: 'allowlist', allow: [] }, failClosed: false });
+  const svc = entry.apply({ tools: f.tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), toolPolicy: { mode: 'allowlist', allow: [] }, failClosed: false });
   assert.equal(svc.failClosed, false);
   assert.equal(f.registered.length, 0);
 });
 
-test('无 toolPolicy（向后兼容）→ 不受 fail-closed 影响，注册全部 36', () => {
+test('无 toolPolicy（向后兼容）→ 不受 fail-closed 影响，注册全部工具', () => {
   const f = fakeTools();
-  const svc = entry.apply({ tools: f.tools, on() {} }, { home: '/tmp/wr-fc-6' });
-  assert.equal(f.registered.length, 36);
+  const svc = entry.apply({ tools: f.tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')) });
+  assert.equal(f.registered.length, TOOLS_LEN);
   assert.equal(svc.failClosed, true);
 });
 
 test('fail-closed：config.preset 指向不存在文件 → apply 抛（堵住路径失效静默无策略）', () => {
   assert.throws(
     () => entry.apply({ tools: fakeTools().tools, on() {} }, {
-      home: '/tmp/wr-fc-7', preset: '/no/such/warroom.preset.json',
+      home: mkdtempSync(join(tmpdir(), 'wr-fc-')), preset: '/no/such/warroom.preset.json',
     }),
     (e) => e && e.code === 'E_PRESET_UNREADABLE' && /不可读/.test(e.message));
 });
@@ -82,18 +86,18 @@ test('fail-closed：config.preset 文件可读但无 toolPolicy 字段 → apply
   const preset = join(dir, 'empty.preset.json');
   writeFileSync(preset, JSON.stringify({ id: 'empty', version: '0.0.0' }));
   assert.throws(
-    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: '/tmp/wr-fc-8', preset }),
+    () => entry.apply({ tools: fakeTools().tools, on() {} }, { home: mkdtempSync(join(tmpdir(), 'wr-fc-')), preset }),
     /未提供 toolPolicy|fail-closed/);
 });
 
 test('failClosed:false → preset 不可读时降级为无策略（显式旁路）', () => {
   const f = fakeTools();
   const svc = entry.apply({ tools: f.tools, on() {} }, {
-    home: '/tmp/wr-fc-9', preset: '/no/such/warroom.preset.json', failClosed: false,
+    home: mkdtempSync(join(tmpdir(), 'wr-fc-')), preset: '/no/such/warroom.preset.json', failClosed: false,
   });
   assert.equal(svc.failClosed, false);
   assert.equal(svc.gateStatus, 'no-policy');
-  assert.equal(f.registered.length, 36);
+  assert.equal(f.registered.length, TOOLS_LEN);
 });
 
 // ---- 验收：本机真实 DSH 挂载 ----
