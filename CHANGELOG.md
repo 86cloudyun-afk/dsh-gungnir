@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **证据落盘带交付视图**：`evidence --audience client|blue`（默认两种都出）—— 客户版与蓝队版
+  各自独立归档（`<dir>/client/`、`<dir>/blue/`），`EVIDENCE_INDEX.md` 增「交付视图」一节并指明
+  内部全量位置；`audiences: []` 可关闭
 - **报告并入效率四段**：md 新增「效率观测（四段）」（客户版只给一行端到端总览；其它视图给完整分解 +
   口径说明），JSON 增 `efficiency`（分段 / 返工 / by_role / by_tier）；无遥测时值为 `—` 不编造
 - **战役时序视图**：`warroom timeline --engagement <id> [--text|--json]`（工具 `warroom_timeline`，30 个工具）
