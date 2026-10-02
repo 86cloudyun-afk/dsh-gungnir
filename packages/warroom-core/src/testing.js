@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { Broker } from './broker.js';
 import { FakeAdapter } from './adapters/fake.js';
 
-export function harness({ authOverrides = {}, faults = {}, nowMs } = {}) {
+export function harness({ authOverrides = {}, faults = {}, nowMs, rng } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'warroom-test-'));
   const adapter = new FakeAdapter({ faults });
-  const broker = new Broker({ home, adapter, nowMs });
+  const broker = new Broker({ home, adapter, nowMs, rng });
   const eng = broker.createEngagement({
     user_message_id: 'um-test-1',
     targets: ['10.0.0.0/24'],

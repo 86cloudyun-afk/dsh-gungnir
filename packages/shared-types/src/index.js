@@ -13,8 +13,15 @@ export const RHYTHM = Object.freeze(['open', 'restricted', 'stealth']);
 export const RHYTHM_CONCURRENCY = Object.freeze({ open: 3, restricted: 2, stealth: 1 });
 /** wire_requests 预算上限（滚动口径：按战役累计，ADR-002 D10）。 */
 export const RHYTHM_WIRE_CAP = Object.freeze({ open: 100000, restricted: 1000, stealth: 100 });
-/** 两次出网动作之间的最小间隔（框架 §4：仅 stealth 档有节奏要求，8~25s 抖动的地板值）。 */
+/** 两次出网动作之间的最小间隔（框架 §4：仅 stealth 档有节奏要求）。 */
 export const RHYTHM_MIN_INTERVAL_MS = Object.freeze({ open: 0, restricted: 0, stealth: 8000 });
+/**
+ * stealth 档节奏抖动区间（框架 §4「8~25s 抖动」）：实际最小间隔在 [floor, jitterMax] 内随机，
+ * 避免固定周期形成流量指纹。
+ */
+export const RHYTHM_JITTER_MS = Object.freeze({ stealth: Object.freeze([8000, 25000]) });
+/** 每小时漂移比例：以小时为种子微调目标间隔（±drift 比例），避免整点对齐形成的长周期指纹。 */
+export const RHYTHM_HOURLY_DRIFT = 0.2;
 
 // ── 任务状态机（ADR-003 D2）─────────────────────────────────────────────────
 export const TASK_STATES = Object.freeze({
