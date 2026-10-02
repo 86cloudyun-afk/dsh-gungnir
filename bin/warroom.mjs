@@ -19,7 +19,7 @@ function usage() {
 
   aggregate 跨会话聚合视图（只读：本框架各战役 + DSH 聚合库）：
             [--sessions-db <path>] [--out <file>]
-  preflight 开工前预检：--engagement <id> [--meeting <wave.json>] → ready|degraded|blocked
+  preflight 开工前预检：--engagement <id> [--meeting <wave.json>] [--record] → ready|degraded|blocked
             （给了会议文件就逐个核对波次目标是否在授权范围内）
   heartbeat  长时任务心跳：--engagement <id> --task <task_id> [--note n]
   conformance  adapter 一致性套件自检：[--module <path>]
@@ -85,7 +85,7 @@ const { values: v } = parseArgs({
     'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
     keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
-    'sessions-db': { type: 'string' },
+    'sessions-db': { type: 'string' }, record: { type: 'boolean', default: false },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
     adapter: { type: 'string' }, jumphost: { type: 'string' }, ip: { type: 'string' },
     verdict: { type: 'string' }, module: { type: 'string' }, task: { type: 'string' }, note: { type: 'string' },
@@ -134,7 +134,7 @@ switch (command) {
       const { readFileSync } = await import('node:fs');
       meeting = JSON.parse(readFileSync(v.meeting, 'utf8'));
     }
-    const r = broker.preflight(need('engagement', v.engagement), { meeting });
+    const r = broker.preflight(need('engagement', v.engagement), { meeting, record: v.record === true });
     out(r);
     if (r.verdict === 'blocked') process.exitCode = 1;
     break;
