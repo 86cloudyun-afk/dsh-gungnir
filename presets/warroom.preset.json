@@ -48,6 +48,7 @@
       "warroom_watch",
       "warroom_rate_view",
       "warroom_checklist",
+      "warroom_deliver",
       "skill"
     ],
     "deny": [
