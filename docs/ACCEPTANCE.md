@@ -87,6 +87,11 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| HTML 目录与锚点 | 中文标题可锚、同名加序号、短报告不出目录 | `test/report-html.test.js` | ✅ |
+| 多战役周报 | 只算窗口内有活动的战役；含交付门禁列 | `test/weekly.test.js` | ✅ |
+| 执行层演练 | fake 与 bridge 两模式全链路；CI job 常跑 | `test/executor-drill.test.js`、CI `drill` job | ✅ |
+| 舰队视图 | 有事在前；单战役失败不影响整屏 | `test/watch.test.js` | ✅ |
+| 人工确认留痕 | 署名/时间/结论入审计；不刷绿门禁；自动项拒绝 | `test/checklist.test.js`、`test/fault-matrix.test.js` | ✅ |
 | 值班一屏 | watch 内置油表摘要 + 用尽/锁定告警 | `test/watch.test.js` | ✅ |
 | HTML 打印友好 | @media print 规则 + 封面块；零外部资源 | `test/report-html.test.js` | ✅ |
 | 交付清单 | 自动项只依据账本与文件；人工项不打勾；可落盘 | `test/checklist.test.js` | ✅ |
@@ -130,8 +135,8 @@
 
 ## 数字快照
 
-- 测试：347 例（`node --test`）
+- 测试：364 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.14`（批次 1–13 已合并）
+- 标签：`v0.1.0-alpha.14`（批次 1–13 已合并；批次 14 合并时升 alpha.15）
