@@ -324,12 +324,14 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' },
         audiences: { type: 'array', items: { type: 'string', enum: ['client', 'blue'] } },
+        checklist: { type: 'boolean', description: 'true=随包生成 DELIVERY_CHECKLIST.md（默认 true）' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => core.broker.exportEvidence(args.engagement_id, {
       outDir: args.out_dir, target: args.target, audiences: args.audiences ?? ['client', 'blue'],
+      checklist: args.checklist !== false,
     }),
   },
   {
@@ -517,6 +519,38 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => core.broker.rateView(args.engagement_id),
+  },
+  {
+    name: 'warroom_checklist',
+    description: '交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, export: { type: 'boolean' }, out_dir: { type: 'string' },
+        profile: { type: 'string', enum: ['delivery', 'progress'] },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => (args.export
+      ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
+      : core.broker.checklist(args.engagement_id, { profile: args.profile ?? 'delivery' })),
+  },
+  {
+    name: 'warroom_deliver',
+    description: '一键交付：报告(all)+证据包(含清单)+备份+交付门禁判定，返回产物路径与结论',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, out_dir: { type: 'string' },
+        keep: { type: 'integer' }, backup: { type: 'boolean' },
+      },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.deliver(args.engagement_id, {
+      outDir: args.out_dir ?? null, keep: args.keep ?? 7, backup: args.backup !== false,
+    }),
   },
 ];
 
