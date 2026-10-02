@@ -284,6 +284,19 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.knowledge.use(args.code, args),
   },
+  {
+    name: 'warroom_sweep_timeouts',
+    description: '超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论）',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, timeout_min: { type: 'integer' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.sweepTimeouts(args.engagement_id, {
+      timeoutMs: (args.timeout_min ?? 30) * 60 * 1000,
+    }),
+  },
 ];
 
 export { ERR };
