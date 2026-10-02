@@ -408,9 +408,25 @@ export class Broker {
     return exportEvidence({ broker: this, engagementId, outDir: dir, target });
   }
 
-  /** 开工前预检（环境/配置/战役/出口/备份/秘密）——结论三态：ready|degraded|blocked。 */
-  preflight(engagementId, { meeting = null } = {}) {
-    return preflight({ broker: this, engagementId, home: this.home, meeting });
+  /**
+   * 开工前预检（环境/配置/战役/出口/备份/秘密）——结论三态：ready|degraded|blocked。
+   * @param {{meeting?:object, record?:boolean}} opts
+   *   record=true 时把本次预检结论**写入审计**（谁在什么时候判定可开工/被阻塞，可追溯）
+   */
+  preflight(engagementId, { meeting = null, record = false } = {}) {
+    const result = preflight({ broker: this, engagementId, home: this.home, meeting });
+    let recorded = null;
+    if (record) {
+      this._gate(engagementId, 'preflight', {
+        verdict: result.verdict,
+        blockers: result.blockers,
+        warnings_count: result.warnings.length,
+        with_plan: !!meeting,
+        bucket: this.config?.bucket ?? null,
+      });
+      recorded = { engagement_id: engagementId, verdict: result.verdict };
+    }
+    return { ...result, recorded };
   }
 
   /** 枚举家目录下的战役 id（用于跨战役巡检；库缺失即跳过）。 */
