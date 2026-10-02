@@ -89,7 +89,7 @@ export function exportEvidence({ broker, engagementId, outDir, target = null, au
   let checklistFile = null;
   if (checklist) {
     try {
-      const c = broker.checklist(engagementId);
+      const c = broker.checklist(engagementId, { reportsDir: join(dir, 'reports'), evidenceDir: dir });
       checklistFile = join(dir, 'DELIVERY_CHECKLIST.md');
       writeFileSync(checklistFile, renderChecklist(c) + '\n', 'utf8');
       index.push('');

@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**33**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**34**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -38,6 +38,7 @@
 | `warroom_watch` | 巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项 | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
 | `warroom_rate_view` | 速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账 | `{ engagement_id*:string }` | ✅ |
 | `warroom_checklist` | 交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件 | `{ engagement_id*:string, export:boolean, out_dir:string, profile:delivery|progress }` | ✅ |
+| `warroom_deliver` | 一键交付：报告(all)+证据包(含清单)+备份+交付门禁判定，返回产物路径与结论 | `{ engagement_id*:string, out_dir:string, keep:integer, backup:boolean }` | ✅ |
 
 ## 约定
 
