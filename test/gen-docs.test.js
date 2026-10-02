@@ -90,3 +90,24 @@ test('看板契约漂移会被 docs 闸检出（改字段后不重跑生成器�
     unlinkSync(bak);
   }
 });
+
+test('故障矩阵文档：21 行且与场景清单一致（漂移即失败）', () => {
+  const md = readFileSync('docs/FAULT-MATRIX.md', 'utf8');
+  assert.match(md, /# 故障矩阵（21 场景）/);
+  const rows = md.split('\n').filter((l) => /^\| \d+ \|/.test(l));
+  assert.equal(rows.length, 21);
+  assert.ok(rows.every((r) => r.split('|').length >= 5), '每行应有 #/场景/期望/契约 四列');
+  assert.match(rows[0], /ADR-002/);
+
+  const bak = 'docs/FAULT-MATRIX.md.bak-test';
+  copyFileSync('docs/FAULT-MATRIX.md', bak);
+  try {
+    writeFileSync('docs/FAULT-MATRIX.md', '# 故障矩阵（1 场景）\n');
+    let failed = false;
+    try { run('--check'); } catch (e) { failed = true; assert.match(String(e.stderr), /FAULT-MATRIX\.md/); }
+    assert.equal(failed, true);
+  } finally {
+    copyFileSync(bak, 'docs/FAULT-MATRIX.md');
+    unlinkSync(bak);
+  }
+});
