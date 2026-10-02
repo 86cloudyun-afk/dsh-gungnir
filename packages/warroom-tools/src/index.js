@@ -518,6 +518,19 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.rateView(args.engagement_id),
   },
+  {
+    name: 'warroom_checklist',
+    description: '交付清单：验收项自动判定（只依据账本与文件）+ 人工确认项；可落盘为交付附件',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' }, export: { type: 'boolean' }, out_dir: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => (args.export
+      ? core.broker.exportChecklist(args.engagement_id, { outDir: args.out_dir ?? null })
+      : core.broker.checklist(args.engagement_id)),
+  },
 ];
 
 export { ERR };
