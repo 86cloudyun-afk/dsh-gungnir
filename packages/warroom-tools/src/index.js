@@ -457,6 +457,19 @@ export const TOOLS = [
       meeting: args.meeting_tasks ? { tasks: args.meeting_tasks } : null,
     }),
   },
+  {
+    name: 'warroom_aggregate',
+    description: '跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sessions_db: { type: 'string', description: 'DSH 聚合库路径；留空表示只聚合本框架各战役' },
+      },
+      required: ['sessions_db'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.aggregateView({ sessionsDbPath: args.sessions_db || null }),
+  },
 ];
 
 export { ERR };
