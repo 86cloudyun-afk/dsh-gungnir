@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**31**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**32**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -36,6 +36,7 @@
 | `warroom_aggregate` | 跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库 | `{ sessions_db*:string }` | ✅ |
 | `warroom_timeline` | 战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线 | `{ engagement_id*:string }` | ✅ |
 | `warroom_watch` | 巡检统一视图（只读）：路由/在飞任务/出口验证/壳状态 + 需要注意的事项 | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
+| `warroom_rate_view` | 速率与预算视图（只读）：wire 用量/上限/剩余、本次要求间隔（含抖动）、喷洒台账 | `{ engagement_id*:string }` | ✅ |
 
 ## 约定
 
