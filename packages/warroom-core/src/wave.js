@@ -29,7 +29,11 @@ export function listMeetings({ store }) {
  * 拓扑排序（不执行）：返回可派发顺序；成环/悬空依赖抛出与执行路径一致的错误。
  * 用于演练（dry-run）与实际派单共用同一依赖判定，避免"演练能过、真跑挂"。
  */
-export function planWave({ wave }) {
+/**
+ * @param {{wave:object, defaultBucket?:'A'|'B'|'C'}} p
+ *   defaultBucket：未在任务上显式声明 bucket 时使用的默认桶（通常来自家目录配置）
+ */
+export function planWave({ wave, defaultBucket = 'A' }) {
   if (!wave?.tasks?.length) throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'wave.tasks 为空');
   const byId = new Map(wave.tasks.map((t) => [t.id, t]));
   for (const t of wave.tasks) {
@@ -66,12 +70,29 @@ export function planWave({ wave }) {
       }
       return layers;
     })(),
-    tasks: wave.tasks.map((t) => ({
-      id: t.id, role: t.role, intent: t.intent ?? t.role,
-      targets: t.targets, depends_on: t.depends_on ?? [],
-      action_class: t.action_class ?? 'readonly',
-      resource_kinds: (t.resources ?? []).map((r) => (typeof r === 'string' ? r : r.kind)),
-    })),
+    tasks: wave.tasks.map((t) => {
+      const bucket = t.bucket ?? defaultBucket;
+      const wire = (t.wire_cost ?? 0) > 0;
+      // 出口需求：需要出网的任务在桶 A/C 下必须有活跃 route；桶 B 是直连桶
+      const needsEgress = wire || (t.action_class ?? 'readonly') !== 'readonly';
+      const egress = !needsEgress ? 'none' : bucket === 'B' ? 'direct' : 'route';
+      return {
+        id: t.id, role: t.role, intent: t.intent ?? t.role,
+        targets: t.targets, depends_on: t.depends_on ?? [],
+        action_class: t.action_class ?? 'readonly',
+        resource_kinds: (t.resources ?? []).map((r) => (typeof r === 'string' ? r : r.kind)),
+        bucket, egress, needs_egress: needsEgress,
+      };
+    }),
+    buckets: (() => {
+      const counts = {};
+      for (const t of wave.tasks) {
+        const b = t.bucket ?? defaultBucket;
+        counts[b] = (counts[b] ?? 0) + 1;
+      }
+      return counts;
+    })(),
+    default_bucket: defaultBucket,
     meeting_preview: { title: wave.title ?? '链前会议', notes: wave.notes ?? '（未填写纪要）', decisions: wave.decisions ?? [] },
   };
 }
@@ -79,10 +100,35 @@ export function planWave({ wave }) {
 export function runWave({ broker, engagementId, wave, dryRun = false }) {
   if (!wave?.tasks?.length) throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'wave.tasks 为空');
   if (dryRun) {
-    // 演练：只出计划（含会议预览与并发层），不落库、不派单、不消耗并发名额
-    return { dry_run: true, plan: planWave({ wave }) };
+    // 演练：只出计划（含会议预览/并发层/每任务的桶与出口需求），不落库、不派单、不占并发名额
+    return {
+      dry_run: true,
+      plan: planWave({ wave, defaultBucket: wave.default_bucket ?? broker.config?.bucket ?? 'A' }),
+    };
   }
   const store = broker._eng(engagementId).store;
+
+  // 桶自洽预检（§4）：需要经 route 出网的任务必须在**开会之前**就有活跃出口，
+  // 否则拒绝开工（不留半条会议纪要）；被拒的尝试记 wave_rejected 审计，仍可追溯。
+  const defaultBucket = wave.default_bucket ?? broker.config?.bucket ?? 'A';
+  const activeRoute = (() => {
+    try {
+      return store.db.prepare("SELECT * FROM jump_routes WHERE state = 'active' ORDER BY ts").all().at(-1) ?? null;
+    } catch { return null; }
+  })();
+  // 整波算一次计划（含依赖校验；不要逐任务单独算——那样会把依赖当成"引用了不存在的任务"）
+  const plannedTasks = planWave({ wave, defaultBucket }).tasks;
+  for (const t of plannedTasks) {
+    if (t.egress === 'route' && !activeRoute) {
+      broker._gate(engagementId, 'wave_rejected', {
+        task_id: t.id, bucket: t.bucket, reason: 'no_active_route',
+      });
+      throw warroomError(ERR.E_FENCE_NO_ROUTE,
+        `任务 ${t.id} 需要经 route 出网（桶 ${t.bucket}），但没有活跃跳板路由；`
+        + '先 jump acquire，或把该任务显式标为 bucket:"B"（本机直连）');
+    }
+  }
+
   const meeting = recordMeeting({
     store, engagementId, title: wave.title ?? '链前会议',
     notes: wave.notes ?? '（未填写纪要）', decisions: wave.decisions ?? [],

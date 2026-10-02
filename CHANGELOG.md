@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **波次计划标注执行桶与出口**：`planWave` 每任务带 `bucket` / `egress`（none|direct|route）/
+  `needs_egress`，并给 `buckets` 分桶计数；`runWave` 在**开会之前**做桶自洽校验——
+  需经 route 的任务若没有活跃出口则拒绝开工（不留半条会议纪要，改记 `wave_rejected` 审计）
 - **预检留痕**：`preflight --record`（工具 `record: true`）把结论写入审计 gate_log
   （verdict / blockers / warnings 数 / 是否带计划 / 当时桶），回答"谁在什么时候判定可开工"
 - 文档收口：ACCEPTANCE 增 4 行（四段观测/聚合只读边界/检索加权/拓扑分组）、
