@@ -25,7 +25,7 @@
 | `warroom_poc_add` | 回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝） | `{ code*:string, title*:string, category*:string, source:string, affected_versions:string, evidence_ref:string, body:string }` | ✅ |
 | `warroom_poc_use` | 登记 POC 在某战役某资产上的使用（跨战役复用留痕） | `{ code*:string, engagement_id*:string, asset:string, result:string }` | ✅ |
 | `warroom_sweep_timeouts` | 超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论） | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
-| `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string, audiences:array }` | ✅ |
+| `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string, audiences:array, checklist:boolean }` | ✅ |
 | `warroom_spray_matrix` | 凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子 | `{ engagement_id*:string, credentials*:array, services*:array, accounts:array }` | ✅ |
 | `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
 | `warroom_jumps` | 跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期） | `{ engagement_id*:string, action:status|release|sweep|sweep_routes|heartbeat, route_id:string }` | ✅ |
