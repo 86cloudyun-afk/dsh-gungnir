@@ -21,7 +21,8 @@ function usage() {
   deliver   一键交付：报告(all) + 证据包(含清单) + 备份 + 门禁判定 → 返回交付包路径
             --engagement <id> [--out <dir>] [--keep n] [--no-backup]
   checklist 交付清单（验收项自动判定 + 人工确认）：--engagement <id> [--write] [--out <dir>] [--text]
-            [--strict（必过项未全通过即非零退出）] [--profile delivery|progress]
+            [--strict] [--profile delivery|progress]
+            --confirm <shell|ioc> --by <署名> --note <结论>   # 人工确认留痕
   rate      速率与预算视图（只读）：--engagement <id> [--text]
   watch     巡检统一视图（只读）：--engagement <id> [--timeout-min n] [--text]
             --all 则指挥层视角：所有战役的巡检汇总
@@ -98,7 +99,8 @@ const { values: v } = parseArgs({
     audience: { type: 'string' }, text: { type: 'boolean', default: false },
     verify: { type: 'boolean', default: false }, csv: { type: 'boolean', default: false },
     write: { type: 'boolean', default: false }, strict: { type: 'boolean', default: false },
-    all: { type: 'boolean', default: false },
+    all: { type: 'boolean', default: false }, confirm: { type: 'string' },
+    by: { type: 'string' }, note: { type: 'string' },
     profile: { type: 'string' }, backup: { type: 'boolean', default: true },
     'no-backup': { type: 'boolean', default: false }, days: { type: 'string' },
     type: { type: 'string' }, source: { type: 'string' }, history: { type: 'boolean', default: false },
@@ -158,6 +160,10 @@ switch (command) {
   case 'checklist': {
     const { renderChecklist } = await import('../packages/warroom-core/src/checklist.js');
     const engagementId = need('engagement', v.engagement);
+    if (v.confirm) {
+      out(broker.confirmChecklistItem(engagementId, { itemId: v.confirm, by: v.by ?? null, note: v.note ?? '' }));
+      break;
+    }
     if (v.write) out(broker.exportChecklist(engagementId, { outDir: v.out ?? null }));
     else {
       const c = broker.checklist(engagementId, { profile: v.strict ? 'delivery' : (v.profile ?? 'delivery') });
