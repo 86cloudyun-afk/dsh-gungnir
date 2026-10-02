@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { KnowledgeBase } from './knowledge.js';
 import { renderHtml } from './html.js';
 import { buildRemediation } from './remediation.js';
+import { buildTimeline } from './timeline.js';
+import { buildGantt, renderGantt } from './gantt.js';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
@@ -59,6 +61,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(snap.rows);
   const remediation = buildRemediation(facts);
+  // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
+  const timeline = buildTimeline({ store, globalDb, engagementId });
+  const gantt = buildGantt(timeline);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -89,6 +94,15 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     kb_usage: kbUsage,
     topology: R(topology),
     remediation: R(remediation),
+    timing: {
+      tasks: gantt.tasks.map((t) => ({
+        task_id: t.task_id, dispatched_at: t.dispatched_at,
+        collected_at: t.collected_at, settled_at: t.settled_at,
+        handoff_ms: t.handoff_ms, exec_ms: t.exec_ms,
+      })),
+      phases: timeline.phases,
+      span_ms: timeline.span_ms,
+    },
     efficiency: metrics ? {
       queue_ms: metrics.segments?.queue_ms ?? null,
       handoff_ms: metrics.segments?.handoff_ms ?? null,
@@ -237,6 +251,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(snap.rows);
   const remediation = buildRemediation(facts);
+  // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
+  const timeline = buildTimeline({ store, globalDb, engagementId });
+  const gantt = buildGantt(timeline);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -252,6 +269,13 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
+  if (gantt.tasks.length > 0) {
+    lines.push('## 时序与分段');
+    lines.push('');
+    lines.push(renderGantt(gantt));
+    lines.push('');
+  }
+
   if (remediation.items.length > 0) {
     lines.push('## 修复建议');
     lines.push('');
