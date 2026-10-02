@@ -15,7 +15,7 @@ function runCommand(cmdline, job, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = cmdline.split(' ').filter(Boolean);
     const child = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(`executor 执行失败：${err.message}; stderr=${stderr?.slice(0, 500)}`));
+      if (err) return reject(new Error(`executor 执行失败（exit=${err.code ?? 'unknown'}, killed=${Boolean(err.killed)}, signal=${err.signal ?? 'none'}）：${err.message}; stderr=${stderr?.slice(0, 500)}`));
       try {
         resolve(JSON.parse(stdout));
       } catch (e) {

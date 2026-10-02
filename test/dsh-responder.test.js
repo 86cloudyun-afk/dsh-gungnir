@@ -17,15 +17,6 @@ function startResponder(root, extra = []) {
   return child;
 }
 
-const waitFor = async (fn, timeoutMs = 3000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (fn()) return true;
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  return false;
-};
-
 /** 常驻模式下事实是异步落盘的：collect 前先等 facts 文件出现（最多 5 秒）。 */
 async function waitFacts(root, externalId, timeoutMs = 5000) {
   const p = join(root, 'inbox', `${externalId}.facts.json`);
@@ -41,11 +32,16 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
   const home = mkdtempSync(join(tmpdir(), 'wr-responder-'));
   const root = join(home, 'dsh-bridge');
   mkdirSync(root, { recursive: true });
-  const child = startResponder(root);
+  const once = () => {
+    const result = spawnSync(process.execPath, ['scripts/dsh-bridge-responder.mjs', '--root', root, '--once'], {
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+  };
 
   try {
     const adapter = new RedteamModeAdapter({
-      driver: new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25 }),
+      driver: new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25, onJob: once }),
     });
     const broker = new Broker({ home, adapter });
     const eng = broker.createEngagement({ user_message_id: 'um-resp', targets: ['10.0.0.0/24'] });
@@ -57,8 +53,9 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
         fake_members: [{ entity_type: 'asset', source_id: 'resp-a1', revision_no: 1, content_hash: 'h-resp', payload: { ip: '10.0.0.5' } }],
       },
     });
-    // 常驻应答器：立刻回 running；若任务瞬间完成（echo 执行器），此处已是 done——两者都算回执及时
-    assert.ok(['running', 'done'].includes(ex.state), `应答器应在超时前回执（实得 ${ex.state}）`);
+    // legacy --once 等待事实落盘并保留 running，让本用例确定性验证真正的停止路径。
+    assert.equal(ex.state, 'running');
+    assert.equal(broker._findCommand(ex.task_id).state, 'running');
 
     await waitFacts(root, ex.task_id);
     const col = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
@@ -67,12 +64,58 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
 
     // cancel 先请求，再等待 echo 所有模拟资源的实际停止回执。
     const c1 = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.ok(['unresolved', 'confirmed_stopped', 'done'].includes(c1.state));
-    assert.equal(await waitFor(() => (adapter.manifestOf(ex.task_id) ?? []).every((p) => p.check() === true)), true);
+    assert.equal(c1.state, 'unresolved');
+    assert.ok(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)));
+    once();
+    const stopped = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(stopped.length, 2, 'session/container 两项必须都有源证据');
+    assert.equal(stopped.every((p) => p.check() === true), true);
     const c2 = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.ok(['confirmed_stopped', 'done'].includes(c2.state), `已完成任务的 cancel 实得 ${c2.state}`);
+    assert.equal(c2.state, 'confirmed_stopped');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('daemon 初始 done：collect 不改终态，cancel 不发停止请求或伪造资源证据', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-responder-done-'));
+  const root = join(home, 'dsh-bridge');
+  mkdirSync(root, { recursive: true });
+  const child = startResponder(root);
+  try {
+    const driver = new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25, onJob(job) {
+      // 只等待真实子进程的最终 source publication，不写状态或停止证据。
+      const statusPath = join(root, 'inbox', `${job.external_id}.status.json`);
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        let source;
+        try { source = JSON.parse(readFileSync(statusPath, 'utf8')); } catch {}
+        if (source?.state === 'done') return;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+      throw new Error('daemon 未在期限内发布真实 done');
+    } });
+    const adapter = new RedteamModeAdapter({ driver });
+    const broker = new Broker({ home, adapter });
+    const eng = broker.createEngagement({ user_message_id: 'um-done', targets: ['10.0.0.0/24'] });
+    const ex = broker.execute({ command_id: 'done-1', engagement_id: eng.engagement_id, auth_version: 1,
+      contract: { targets: ['10.0.0.5'], action_class: 'active', resources: ['container'], wire_cost: 0, intent: 'recon',
+        fake_members: [{ entity_type: 'asset', source_id: 'done-a1', revision_no: 1, content_hash: 'h-done', payload: { ip: '10.0.0.5' } }] } });
+    assert.equal(ex.state, 'done');
+    assert.equal(broker._findCommand(ex.task_id).state, 'done');
+    assert.equal(broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id)).accepted, true);
+    assert.equal(broker._findCommand(ex.task_id).state, 'done', 'collect 不触发终态转换');
+    const result = broker.cancel(eng.engagement_id, ex.task_id, 'test');
+    assert.equal(result.state, 'done');
+    assert.equal(result.terminal, true);
+    assert.equal(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)), false, 'ADR-003：终态取消仅返回当前终态');
+    const probes = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(probes.length, 2);
+    assert.equal(probes.every((p) => p.check() === false), true, 'done 不是 stopped 证明');
   } finally {
     child.kill('SIGTERM');
+    await new Promise((resolve) => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
+    rmSync(home, { recursive: true, force: true });
   }
 });
 

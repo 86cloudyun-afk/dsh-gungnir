@@ -8,12 +8,12 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 
 ## 状态
 
-本次 #163/#164/#167 防御性整合的本机验收为离线初测：619 通过、0 失败、19 跳过，六闸通过；真实执行器、资源探针及云/服务器最终验收未运行。下表实机闭环描述来自既有 v0.1 历史记录，不能代替本次运行验收。新增边界回归见 [redispatch-auth.test.js](test/redispatch-auth.test.js) 和 [后台观察能力拒绝](test/host-observation-admission.test.js)。
+本次 #163/#164/#167 防御性整合及 CI 修复的本机验收为离线初测：621 通过、0 失败、18 跳过，六闸通过；惰性 Node 诊断夹具已运行，真实目标执行器、资源探针及云/服务器最终验收未运行。下表实机闭环描述来自既有 v0.1 历史记录，不能代替本次运行验收。新增边界回归见 [redispatch-auth.test.js](test/redispatch-auth.test.js) 和 [后台观察能力拒绝](test/host-observation-admission.test.js)；两项远端失败及本机修复见 [验证记录](docs/VALIDATION-STANDBY-CI-REPAIR-2026-10-02.md)。
 
 | 项 | 现状 |
 |---|---|
 | 版本 | **`v0.1.0`**（v0.1 冻结闭环达成：16 批次 / 134 PR；最终审计见 [FINAL-AUDIT.md](docs/FINAL-AUDIT.md)） |
-| 测试 | 638 例目录；本次离线 619 通过、19 跳过，六闸通过 |
+| 测试 | 639 例目录；本次离线 621 通过、18 跳过，六闸通过 |
 | CI 闸 | 六道本地闸（验收套件 / 工具 schema / 预设允许清单 / 故障矩阵 / 工具文档与看板契约同步 / 自审闸）+ **三个真跑 CI job**：围栏真实容器（`fence`）、执行层跨进程演练（`drill`）、真实 DSH 挂载验收（`native-host` → HOST_VERIFIED） |
 | 故障矩阵 | 21 场景（丢回包/乱序/写失败/残留/重启/撤销/备份恢复/密钥/配置/版本/迁移/路由/心跳/知识库/交付边界/门禁/确认边界/归档幂等/门禁同源） |
 | 工具 | **36** 个 `warroom_*`（schema 严格校验；以 `presets/warroom.preset.json` 允许清单为准） |
@@ -77,7 +77,7 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 ## 测试与四闸
 
 ```sh
-npm run ci                           # 六道闸一次跑完（推荐；验收套件 638 例）
+npm run ci                           # 六道闸一次跑完（推荐；验收套件 639 例）
 node scripts/executor-drill.mjs      # 执行层落地演练（fake / --mode bridge）
 node scripts/ci.mjs --quiet          # 只看汇总（别用 | tail，管道会吞退出码）
 node --test                          # 只跑验收套件
