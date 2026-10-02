@@ -124,12 +124,14 @@ export const TOOLS = [
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
         format: { type: 'string', enum: ['md', 'json', 'both'] },
         max_facts_per_type: { type: 'integer' },
+        audience: { type: 'string', enum: ['client', 'blue', 'full'] },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
     run: (core, args) => core.broker.exportReport(args.engagement_id, {
-      outDir: args.out_dir, format: args.format ?? 'md', maxFactsPerType: args.max_facts_per_type ?? 50,
+      outDir: args.out_dir, format: args.format ?? 'md',
+      maxFactsPerType: args.max_facts_per_type ?? 50, audience: args.audience ?? 'full',
     }),
   },
   {
@@ -313,11 +315,16 @@ export const TOOLS = [
     description: '证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' },
+        audiences: { type: 'array', items: { type: 'string', enum: ['client', 'blue'] } },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
+    run: (core, args) => core.broker.exportEvidence(args.engagement_id, {
+      outDir: args.out_dir, target: args.target, audiences: args.audiences ?? ['client', 'blue'],
+    }),
   },
   {
     name: 'warroom_spray_matrix',
@@ -471,6 +478,17 @@ export const TOOLS = [
       additionalProperties: false,
     },
     run: (core, args) => core.aggregateView({ sessionsDbPath: args.sessions_db || null }),
+  },
+  {
+    name: 'warroom_timeline',
+    description: '战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.timeline(args.engagement_id),
   },
 ];
 

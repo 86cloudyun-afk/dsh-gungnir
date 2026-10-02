@@ -40,3 +40,34 @@ test('CLI doctor 可用（文本模式）', () => {
   assert.match(out, /warroom doctor/);
   assert.match(out, /结论/);
 });
+
+test('报告可复现性检查：库变化后旧报告被标为漂移（warn）', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'doc-rep-1', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  h.broker.exportReport(h.eng.engagement_id, { format: 'md' });
+
+  // 首次检查：一致
+  let doc = JSON.parse(execFileSync('node', ['scripts/doctor.mjs', '--home', h.home, '--json'],
+    { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' } }));
+  let check = doc.checks.find((c) => c.name === '报告可复现性');
+  assert.ok(check, 'doctor 应有报告可复现性检查');
+  assert.equal(check.status, 'ok', JSON.stringify(check));
+
+  // 库继续变化 → 旧报告应被标记为漂移
+  const ex2 = h.broker.execute({ ...h.base, command_id: 'doc-rep-2', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex2.task_id, h.adapter.collect(ex2.task_id));
+  doc = JSON.parse(execFileSync('node', ['scripts/doctor.mjs', '--home', h.home, '--json'],
+    { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' } }));
+  check = doc.checks.find((c) => c.name === '报告可复现性');
+  assert.equal(check.status, 'warn');
+  assert.match(check.detail, /重出报告/);
+});
+
+test('无报告时：检查为 ok 并说明"尚无报告"', () => {
+  const h = harness();
+  const doc = JSON.parse(execFileSync('node', ['scripts/doctor.mjs', '--home', h.home, '--json'],
+    { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' } }));
+  const check = doc.checks.find((c) => c.name === '报告可复现性');
+  assert.equal(check.status, 'ok');
+});

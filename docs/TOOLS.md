@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**29**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**30**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -12,7 +12,7 @@
 | `warroom_secret_put` | 登记秘密（host 加密 at-rest 存储）；返回 secret_ref，agent 永不见明文 | `{ plaintext*:string, label:string }` | ✅ |
 | `warroom_secret_grant` | 为（secret × 任务 × 用途）签发限时解析授权；解析本身只能由 host 执行 | `{ secret_ref*:string, engagement_id:string, task_id*:string, purpose*:string, ttl_seconds:integer }` | ✅ |
 | `warroom_secret_status` | 秘密与授权的元数据视图（仅 ref/label/TTL，绝不含明文） | `{ engagement_id*:string }` | ✅ |
-| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|both, max_facts_per_type:integer }` | ✅ |
+| `warroom_report_export` | 导出战役报告（水位绑定 + IOC/清理附录初稿，全出口脱敏） | `{ engagement_id*:string, out_dir:string, format:md|json|both, max_facts_per_type:integer, audience:client|blue|full }` | ✅ |
 | `warroom_status` | 任务全景：账本态 / 运行态 / 资源清单探针 / 尝试次数 | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_reconcile` | 对账 unknown/unresolved 任务（探针定论，绝不默认失败重做） | `{ engagement_id*:string, task_id*:string }` | ✅ |
 | `warroom_redispatch` | 重派 failed/unresolved 任务（attempt+1、换 generation，旧代回执隔离） | `{ engagement_id*:string, task_id*:string, reason:string }` | ✅ |
@@ -25,7 +25,7 @@
 | `warroom_poc_add` | 回填 POC 到知识库（默认强制脱敏：内网地址/自有痕迹一律拒绝） | `{ code*:string, title*:string, category*:string, source:string, affected_versions:string, evidence_ref:string, body:string }` | ✅ |
 | `warroom_poc_use` | 登记 POC 在某战役某资产上的使用（跨战役复用留痕） | `{ code*:string, engagement_id*:string, asset:string, result:string }` | ✅ |
 | `warroom_sweep_timeouts` | 超时治理：运行超阈值的任务转 unknown（绝不自动重试，交由 reconcile 定论） | `{ engagement_id*:string, timeout_min:integer }` | ✅ |
-| `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string }` | ✅ |
+| `warroom_evidence_export` | 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文） | `{ engagement_id*:string, out_dir:string, target:string, audiences:array }` | ✅ |
 | `warroom_spray_matrix` | 凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子 | `{ engagement_id*:string, credentials*:array, services*:array, accounts:array }` | ✅ |
 | `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
 | `warroom_jumps` | 跳板台账：主机/租约/路由总览；动作 release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期） | `{ engagement_id*:string, action:status|release|sweep|sweep_routes|heartbeat, route_id:string }` | ✅ |
@@ -34,6 +34,7 @@
 | `warroom_heartbeat` | 长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判） | `{ engagement_id*:string, task_id*:string, note:string }` | ✅ |
 | `warroom_preflight` | 开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked | `{ engagement_id*:string, meeting_tasks:array, record:boolean }` | ✅ |
 | `warroom_aggregate` | 跨会话聚合视图（只读）：本框架各战役事实 + DSH 聚合库战果，永不写入对方库 | `{ sessions_db*:string }` | ✅ |
+| `warroom_timeline` | 战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线 | `{ engagement_id*:string }` | ✅ |
 
 ## 约定
 

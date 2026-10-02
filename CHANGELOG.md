@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 6 行（时序/受众/交付视图/预检留痕/波次桶标注/体检复现性）、
+  数字同步（299 例 / 30 工具）
+- **体检增报告可复现性检查**：对每个战役最近一份报告复用 `report.js` 的同一判定
+  （水位 + 证据摘要），漂移 → warn 并提示重出；无报告时 ok
+- **证据落盘带交付视图**：`evidence --audience client|blue`（默认两种都出）—— 客户版与蓝队版
+  各自独立归档（`<dir>/client/`、`<dir>/blue/`），`EVIDENCE_INDEX.md` 增「交付视图」一节并指明
+  内部全量位置；`audiences: []` 可关闭
+- **报告并入效率四段**：md 新增「效率观测（四段）」（客户版只给一行端到端总览；其它视图给完整分解 +
+  口径说明），JSON 增 `efficiency`（分段 / 返工 / by_role / by_tier）；无遥测时值为 `—` 不编造
+- **战役时序视图**：`warroom timeline --engagement <id> [--text|--json]`（工具 `warroom_timeline`，30 个工具）
+  —— 立项→派发→回执→结项→控制面→交付 的事件时间线，按账本真实事件排序；缺失阶段如实为 null、
+  无时间戳的账本态事件单列（不脑补时间）
+- **报告受众差异化**：`report --audience client|blue|full` —— 客户版（攻击路径 + 影响 + 修复建议；
+  不铺逐条事实/审计明细/知识库记账/跳板台账，并显式说明细则在内部版）、
+  蓝队版（IOC 优先口径 + 审计摘要 + 知识库复用 + 跳板台账）、全量（默认）；
+  **三种受众都保留水位/证据摘要/自校验**（可复现性不因受众改变）
+- **波次计划标注执行桶与出口**：`planWave` 每任务带 `bucket` / `egress`（none|direct|route）/
+  `needs_egress`，并给 `buckets` 分桶计数；`runWave` 在**开会之前**做桶自洽校验——
+  需经 route 的任务若没有活跃出口则拒绝开工（不留半条会议纪要，改记 `wave_rejected` 审计）
 - **预检留痕**：`preflight --record`（工具 `record: true`）把结论写入审计 gate_log
   （verdict / blockers / warnings 数 / 是否带计划 / 当时桶），回答"谁在什么时候判定可开工"
 - 文档收口：ACCEPTANCE 增 4 行（四段观测/聚合只读边界/检索加权/拓扑分组）、
