@@ -175,7 +175,7 @@ function projectRoutes(factDb, factTables, globalDb, globalTables, engagementId,
     const checkCurrent = Boolean(check && leaseActive && route.state === 'active'
       && check.jumphost_id === route.jumphost_id && check.recovered_at == null
       && Number.isFinite(checkTime) && Number.isFinite(leaseTime)
-      && checkTime >= leaseTime && checkTime >= Date.parse(route.ts) && checkTime <= Date.parse(now)
+      && checkTime >= leaseTime && checkTime <= Date.parse(now)
       && Number.isFinite(config.maxAgeMs) && ageMs <= config.maxAgeMs);
     const state = route.state ?? 'unknown';
     return {
