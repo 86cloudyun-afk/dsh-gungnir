@@ -17,6 +17,7 @@ import { KnowledgeBase } from './knowledge.js';
 import { loadConfig } from './config.js';
 import { preflight } from './preflight.js';
 import { buildTimeline } from './timeline.js';
+import { buildWatch } from './watch.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
@@ -429,6 +430,11 @@ export class Broker {
       recorded = { engagement_id: engagementId, verdict: result.verdict };
     }
     return { ...result, recorded };
+  }
+
+  /** 巡检统一视图（路由/任务/出口/壳/告警，只读）。 */
+  watch(engagementId, { timeoutMin = null } = {}) {
+    return buildWatch({ broker: this, engagementId, timeoutMin });
   }
 
   /** 战役时序（账本事件的只读视图）。 */
