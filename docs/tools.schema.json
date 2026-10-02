@@ -927,6 +927,16 @@
               "delivery",
               "progress"
             ]
+          },
+          "confirm": {
+            "type": "string",
+            "description": "人工项 id（shell|ioc）：记录确认留痕"
+          },
+          "by": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
           }
         },
         "required": [

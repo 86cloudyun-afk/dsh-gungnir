@@ -117,6 +117,28 @@ export function buildChecklist({ broker, engagementId, profile = 'delivery', rep
   add('ioc', 'IOC 附录逐条人工确认', false,
     `附录为半自动初稿（草稿事件 ${ioc} 条）：需人工确认后才可用于蓝队排查`, true);
 
+  // 人工项的确认记录（谁/何时/结论）——机器不替人打勾，但**确认本身要留痕**
+  const confirmations = (() => {
+    try {
+      return store.db.prepare("SELECT ts, detail FROM gate_log WHERE decision = 'checklist_confirm' ORDER BY id").all()
+        .map((r) => {
+          let d = {};
+          try { d = JSON.parse(r.detail ?? '{}'); } catch { d = {}; }
+          return { ts: r.ts, ...d };
+        });
+    } catch { return []; }
+  })();
+  for (const item of items.filter((i) => i.manual)) {
+    const hit = [...confirmations].reverse().find((c) => c.item_id === item.id);
+    if (hit) {
+      item.status = OK;                       // 人确认后仍未"机器自动通过"，但状态反映事实
+      item.confirmed = { at: hit.ts, by: hit.by ?? '（未署名）', note: hit.note ?? '' };
+      item.detail = `${item.detail}｜已确认：${hit.by ?? '（未署名）'} @ ${hit.ts}${hit.note ? `（${hit.note}）` : ''}`;
+    } else {
+      item.pending_confirmation = true;
+    }
+  }
+
   const done = items.filter((i) => i.status === OK).length;
   const manual = items.filter((i) => i.manual).length;
 
@@ -144,6 +166,24 @@ export function buildChecklist({ broker, engagementId, profile = 'delivery', rep
 }
 
 /** 渲染成可勾选 markdown（交付附件）。 */
+/**
+ * 记录一次人工确认（谁/何时/结论）——只写审计，不改任何自动判定。
+ * @param {{store:object, itemId:string, by:string, note:string, now?:string}} p
+ */
+export function recordConfirmation({ store, itemId, by = null, note = '', now = null }) {
+  const allowed = ['shell', 'ioc'];
+  if (!allowed.includes(itemId)) {
+    throw new Error(`人工确认只适用于人工项（${allowed.join('/')}），收到：${itemId}`);
+  }
+  const ts = now ?? new Date().toISOString();
+  store.appendGateLog({
+    decision: 'checklist_confirm',
+    detail: JSON.stringify({ item_id: itemId, by, note }),
+    recovered_at: ts,
+  });
+  return { item_id: itemId, by, note, at: ts };
+}
+
 export function renderChecklist(c) {
   const lines = [];
   lines.push(`# 交付清单 · ${c.engagement_id}`);
@@ -153,7 +193,16 @@ export function renderChecklist(c) {
   lines.push(`- 生成时间：${new Date().toISOString()}`);
   lines.push('');
   for (const item of c.items) {
-    lines.push(`- ${item.status} **${item.title}** — ${item.detail}`);
+    const tag = item.manual ? '（人工）' : '';
+    lines.push(`- ${item.status} **${item.title}**${tag} — ${item.detail}`);
+  }
+  const pending = c.items.filter((i) => i.manual && i.pending_confirmation);
+  if (pending.length > 0) {
+    lines.push('');
+    lines.push('**待人工确认**：');
+    for (const p of pending) lines.push(`- \`${p.id}\` ${p.title}`);
+    lines.push('');
+    lines.push('确认方式：`warroom checklist --engagement <id> --confirm <id> --by <你> --note "<结论>"`');
   }
   lines.push('');
   lines.push('');
