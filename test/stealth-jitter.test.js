@@ -34,7 +34,8 @@ test('抖动：rng=1 → 取区间上界（25s）；rng=0 → 取地板（8s）'
 
 test('漂移：同一小时内稳定，跨小时变化', () => {
   const c = ctx({ rng: () => 0.5 });
-  const t0 = Date.now();
+  // 对齐到「整点 + 1 分钟」：否则测试结果会依赖运行时刻（临近整点时 30 分钟就跨小时了）
+  const t0 = Math.floor(Date.now() / 3_600_000) * 3_600_000 + 60_000;
   c.setNow(t0);
   const a = c.broker._requiredGap('stealth');
   c.advance(30 * 60 * 1000);            // 仍在同一小时
