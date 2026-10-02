@@ -12,7 +12,7 @@
 //   node scripts/deploy-dsh.mjs --verify [--patch f]   # 用 dsh --dump-config 验证装配（**不需要重启**）
 //
 // 生效条件：host 平面变更需重启 `dsh web`（请在操作员自己的终端执行；agent 不重启宿主的 web 进程）
-import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdtempSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -101,6 +101,43 @@ export function mergeOverlay(current, snippet) {
   return `${head}${body}\n`;
 }
 
+/**
+ * 宿主是否还没重启（纯函数，便于回归）：
+ * patch 层是 `patchReload: startup` —— 写了文件但宿主进程启动早于文件修改时间时，
+ * 预设**不会**出现在 UI 里。这就是"明明写了却没有"的根因，必须由脚本自己报出来。
+ * @param {number|null} processStartMs 宿主进程启动时刻（拿不到传 null）
+ * @param {number|null} patchMtimeMs patch 文件修改时刻
+ */
+export function hostStaleness(processStartMs, patchMtimeMs) {
+  if (processStartMs === null || patchMtimeMs === null) return { stale: null, reason: 'unknown' };
+  if (processStartMs < patchMtimeMs) return { stale: true, reason: 'host-started-before-patch' };
+  return { stale: false, reason: 'host-loaded-patch' };
+}
+
+/** 找出宿主进程启动时刻（拿不到返回 null）：先按端口找监听者，再退回 pgrep。 */
+function hostProcessStartMs(profile, port = Number(process.env.DSH_PORT ?? 3080)) {
+  const pids = [];
+  const lsof = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+  if (lsof.status === 0) pids.push(...(lsof.stdout ?? '').trim().split('\n').filter(Boolean));
+  if (pids.length === 0) {
+    for (const pattern of [`bin.js --profile ${profile}`, `--profile ${profile} --host`]) {
+      const r = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf8' });
+      pids.push(...(r.stdout ?? '').trim().split('\n').filter(Boolean));
+    }
+  }
+  for (const pid of pids) {
+    const ps = spawnSync('ps', ['-o', 'lstart=', '-p', pid], { encoding: 'utf8' });
+    const text = (ps.stdout ?? '').trim();
+    if (!text) continue;
+    // 确认是本 profile 的 dsh 宿主，避免抓到无关占用端口的进程
+    const cmd = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout ?? '';
+    if (!cmd.includes('bin.js') || !cmd.includes(`--profile ${profile}`)) continue;
+    const ms = Date.parse(text);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return null;
+}
+
 function dshBin() {
   const candidates = [process.env.DSH_BIN, 'dsh'].filter(Boolean);
   for (const bin of candidates) {
@@ -164,6 +201,23 @@ if (v.apply) {
     writeFileSync(patchPath, mergeOverlay(cur, snippet), 'utf8');
     findings.push(`✓ 已写入 patch 层（备份：${existsSync(backup) ? backup : '无原文件'}）`);
     findings.push('· 生效需重启 dsh web（host 平面变更）——请在**你的终端**执行，勿从 agent 工具调用发起');
+  }
+}
+
+// 宿主新鲜度：patch 写了但宿主没重启 → 预设不会出现在 UI（这是最常见的"没有啊"）
+if (patchPath && existsSync(patchPath) && already) {
+  const stat = statSync(patchPath);
+  const started = hostProcessStartMs(profileName);
+  const st = hostStaleness(started, stat.mtimeMs);
+  if (st.stale === true) {
+    findings.push('· 宿主未重启：预设行已在 patch 层，但当前 dsh web 进程启动早于该文件修改 → '
+      + 'UI 里不会出现该预设');
+    findings.push(`· 重启命令（在**你的终端**执行）：launchctl kickstart -k gui/$(id -u)/com.appleshu.dsh-recovery`
+      + `（或你惯用的 dsh web 重启方式；端口 ${process.env.DSH_PORT ?? 3080}）`);
+  } else if (st.stale === false) {
+    findings.push('✓ 宿主已在本预设写入之后启动（预设应已加载）');
+  } else {
+    findings.push('· 无法判定宿主是否重启（取不到进程启动时刻）');
   }
 }
 
