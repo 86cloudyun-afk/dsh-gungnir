@@ -10,12 +10,22 @@ import { createHash } from 'node:crypto';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
-export function exportEvidence({ broker, engagementId, outDir, target = null }) {
+/**
+ * @param {{audiences?:Array<'client'|'blue'>}} opts.audiences 额外导出的受众视图
+ *   （默认同时归档 client 与 blue —— "同一份证据，两个视图"是报告的双属性）
+ */
+export function exportEvidence({ broker, engagementId, outDir, target = null, audiences = ['client', 'blue'] }) {
   if (!outDir) throw new Error('exportEvidence 需要 outDir');
   const dir = target ? join(outDir, target) : outDir;
   mkdirSync(dir, { recursive: true });
 
   const exported = broker.exportReport(engagementId, { outDir: dir, format: 'both' });
+  // 受众视图单独归档：客户版与蓝队版各有独立文件，便于按人发放
+  const audienceFiles = [];
+  for (const audience of audiences ?? []) {
+    const a = broker.exportReport(engagementId, { outDir: join(dir, audience), format: 'both', audience });
+    audienceFiles.push({ audience, markdown: a.paths.markdown, json: a.paths.json ?? null });
+  }
   const store = broker._eng(engagementId).store;
   const members = store.db.prepare('SELECT * FROM fact_members WHERE active = 1 ORDER BY entity_type, source_id').all();
   const R = (s) => broker.secrets.redact(String(s ?? ''));
@@ -39,6 +49,16 @@ export function exportEvidence({ broker, engagementId, outDir, target = null }) 
   index.push(`- 水位：seq=\`${exported.watermark.seq}\` snapshot=\`${exported.watermark.snapshot_id.slice(0, 16)}…\` @ ${exported.watermark.exported_at}`);
   index.push(`- 证据摘要（fact_members）：\`${exported.evidence_digests?.fact_members?.slice(0, 16) ?? sha(JSON.stringify(members)).slice(0, 16)}…\``);
   index.push('- 复现：`node scripts/verify-report.mjs report-<seq>.md --home <home> --engagement <id>`');
+  if (audienceFiles.length > 0) {
+    index.push('');
+    index.push('## 交付视图');
+    index.push('');
+    for (const a of audienceFiles) {
+      index.push(`- ${a.audience === 'client' ? '客户版（路径/影响/修复建议）' : '蓝队版（IOC 排查口径）'}：`
+        + `\`${a.markdown.split('/').slice(-2).join('/')}\``);
+    }
+    index.push('- 内部全量：本目录根下的 `report-<seq>.md|json`（含审计明细与逐条证据）');
+  }
   index.push('');
   index.push('## Confirmed');
   index.push('');
@@ -77,6 +97,7 @@ export function exportEvidence({ broker, engagementId, outDir, target = null }) 
   return {
     dir,
     files: { markdown: exported.paths.markdown, json: exported.paths.json, index: indexPath, watermark: watermarkPath },
+    audience_files: audienceFiles,
     watermark: exported.watermark,
     counts: { confirmed: confirmed.length, credentials: creds.length, facts: members.length },
   };

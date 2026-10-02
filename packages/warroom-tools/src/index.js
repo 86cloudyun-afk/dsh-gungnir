@@ -315,11 +315,16 @@ export const TOOLS = [
     description: '证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（凭据仅引用，无明文）',
     input_schema: {
       type: 'object',
-      properties: { engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' } },
+      properties: {
+        engagement_id: { type: 'string' }, out_dir: { type: 'string' }, target: { type: 'string' },
+        audiences: { type: 'array', items: { type: 'string', enum: ['client', 'blue'] } },
+      },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
+    run: (core, args) => core.broker.exportEvidence(args.engagement_id, {
+      outDir: args.out_dir, target: args.target, audiences: args.audiences ?? ['client', 'blue'],
+    }),
   },
   {
     name: 'warroom_spray_matrix',

@@ -582,6 +582,16 @@
           },
           "target": {
             "type": "string"
+          },
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "client",
+                "blue"
+              ]
+            }
           }
         },
         "required": [
