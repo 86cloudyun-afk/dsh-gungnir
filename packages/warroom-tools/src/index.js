@@ -434,6 +434,17 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.heartbeat(args.engagement_id, args.task_id, { note: args.note ?? null }),
   },
+  {
+    name: 'warroom_preflight',
+    description: '开工前预检：环境/配置/战役/出口/备份/秘密 → ready|degraded|blocked',
+    input_schema: {
+      type: 'object',
+      properties: { engagement_id: { type: 'string' } },
+      required: ['engagement_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.preflight(args.engagement_id),
+  },
 ];
 
 export { ERR };
