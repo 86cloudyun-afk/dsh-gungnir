@@ -3,6 +3,26 @@
 // 结论三态：ready / degraded（可开工但有提示）/ blocked（有必须先解决的问题）。
 import { existsSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { RHYTHM_CONCURRENCY } from '../../shared-types/src/index.js';
+import { inScopeEntry } from './gates.js';
+import { planWave } from './wave.js';
+import { planBucket as planBucketImpl } from './buckets.js';
+
+
+const require_wave = () => ({ planWave });
+
+/** 授权目标：库里以 JSON 数组存储，兼容逗号分隔的写法。 */
+function parseScope(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr)) return arr.map((t) => String(t).trim()).filter(Boolean);
+    } catch { /* 退化为逗号分隔解析 */ }
+  }
+  return text.split(',').map((t) => t.trim()).filter(Boolean);
+}
 
 const OK = 'ok';
 const WARN = 'warn';
@@ -12,7 +32,7 @@ const FAIL = 'fail';
  * @param {{broker:object, engagementId:string, home?:string}} p
  * @returns {{verdict:'ready'|'degraded'|'blocked', checks:Array, blockers:string[], warnings:string[]}}
  */
-export function preflight({ broker, engagementId, home = null }) {
+export function preflight({ broker, engagementId, home = null, meeting = null }) {
   const checks = [];
   const add = (dim, name, status, detail = '') => checks.push({ dim, name, status, detail });
   const root = home ?? broker.home;
@@ -96,12 +116,52 @@ export function preflight({ broker, engagementId, home = null }) {
     add('secret', '密钥文件', OK, '尚未启用秘密库');
   }
 
+  // 7) 执行桶自洽性（框架 §4）：桶 A 要有活跃出口；桶 B 不得挂 socks
+  try {
+    const bucket = broker.config?.bucket ?? 'A';
+    const route = activeRoutes.at(-1) ? { socks: activeRoutes.at(-1).socks, route_id: activeRoutes.at(-1).route_id, jumphost_id: activeRoutes.at(-1).jumphost_id } : null;
+    const plan = planBucketImpl({ bucket, route, engagementId });
+    add('bucket', `执行桶 ${bucket} 自洽`, OK, plan.plan.kind);
+  } catch (e) {
+    // 语义分层：缺出口/缺跳板只是"还没取出口"（提示）；桶配置本身矛盾才阻塞
+    const notYet = e.code === 'E_FENCE_NO_ROUTE' || e.code === 'E_NO_JUMPHOST';
+    add('bucket', `执行桶 ${broker.config?.bucket ?? 'A'} 自洽`, notYet ? WARN : FAIL, e.message);
+  }
+
+  // 8) 演练计划 × 授权范围（给了会议文件才检查）：每个目标逐个核范围，越界即阻塞
+  let wavePlan = null;
+  if (meeting?.tasks?.length) {
+    try {
+      const { planWave } = require_wave();
+      wavePlan = planWave({ wave: meeting });
+      const scope = parseScope(row?.target_scope);
+      const outOfScope = [];
+      for (const t of wavePlan.tasks) {
+        for (const target of t.targets ?? []) {
+          const ok = scope.some((entry) => inScopeEntry(target, entry));
+          if (!ok) outOfScope.push(`${t.id}:${target}`);
+        }
+      }
+      if (outOfScope.length > 0) {
+        add('plan', '波次目标 ⊆ 授权范围', FAIL, `越界目标：${outOfScope.join(', ')}（授权：${scope.join(', ') || '空'}）`);
+      } else {
+        add('plan', '波次目标 ⊆ 授权范围', OK, `${wavePlan.tasks.length} 个任务的目标全部在范围内`);
+      }
+      const conc = RHYTHM_CONCURRENCY[row?.rhythm] ?? 1;
+      add('plan', '并发与层数', wavePlan.layers.length <= 1 ? OK : OK,
+        `${wavePlan.layers.length} 层 · 同时在飞上限 ${conc}（节奏档 ${row?.rhythm}）`);
+    } catch (e) {
+      add('plan', '波次计划可生成', FAIL, e.message);
+    }
+  }
+
   const blockers = checks.filter((c) => c.status === FAIL).map((c) => `${c.dim}/${c.name}：${c.detail}`);
   const warnings = checks.filter((c) => c.status === WARN).map((c) => `${c.dim}/${c.name}：${c.detail}`);
   const verdict = blockers.length > 0 ? 'blocked' : (warnings.length > 0 ? 'degraded' : 'ready');
   const next = verdict === 'blocked'
     ? ['先解决阻塞项（见 blockers），再开工']
     : [
+      wavePlan ? `按计划开工：${wavePlan.order.join(' → ')}` : null,
       activeRoutes.length === 0 ? '取出口：node bin/warroom.mjs jump acquire --engagement <id> --target <资产>' : null,
       broker.config.requireEgressCheck ? '记录出口验证：node scripts/egress-check.mjs --home <home> --engagement <id>' : null,
       '先演练：node bin/warroom.mjs wave --dry-run --engagement <id> --meeting wave.json',
