@@ -4,6 +4,9 @@
 以下输出为真实运行记录（2026-10-02，临时 home `/tmp/wr-demo`）。
 
 ```sh
+# 0) 一步起好（可选）：建 home、写配置、导入跳板示例、建首个战役
+node bin/warroom.mjs init --home /tmp/wr-demo --target 10.0.0.0/24 --rhythm open --with-jumphost-sample
+
 export WARROOM_HOME=/tmp/wr-demo
 ENG=$(node bin/warroom.mjs engage --target 10.0.0.0/24 --rhythm restricted --json | jq -r .engagement_id)
 ```
@@ -101,6 +104,7 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
 ```
 
 - **会不开，波不发**：纪要落库（`meetings` 表），并随报告一起交付（md「链前会议纪要」段 / json `meetings`）
+- **先演练**：`--dry-run` 只出计划（依赖序 + 同层并行分组 + 会议预览），不派单不落库
 - **波内无屏障**：独立任务立即并行；依赖满足即刻交接下游（实测顺序 `recon-A → chain-B`）
 - 任务报终态后自动**结项**；成环/悬空依赖如实报错
 
@@ -120,6 +124,16 @@ node bin/warroom.mjs secret put|grant|status …
 ```
 
 全部子命令都支持 `--json`；CLI 与工具/API 共用同一套门闸与事实库。
+
+## 7.9 家目录配置（可选）
+
+```sh
+node bin/warroom.mjs config init            # 生成 $WARROOM_HOME/warroom.json（示例默认值）
+node bin/warroom.mjs config show            # 查看当前生效配置
+```
+
+默认值覆盖：`rhythm`（新战役默认节奏档）、`timeoutMin`（sweep 超时）、`adapterKind`、
+`bridgeTimeoutMs`、`fenceImage`、`waveConcurrency`。**拼错字段会报错**，不会被静默忽略。
 
 ## 8. 下一步
 
