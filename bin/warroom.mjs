@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'maintain', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,7 +17,8 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
-  backup    备份家目录全部库（一致性快照 + 完整性校验）：[--out <dir>]
+  backup    备份家目录全部库（一致性快照 + 完整性校验）：[--out <dir>] [--keep N]
+  restore   恢复演练/落地：[--from <backup dir>] [--apply]（默认 dry-run，只给计划）
   maintain  维护动作：WAL 检查点 + 完整性自检
   init      首启向导：建 home、写示例配置、导入跳板示例、建首个战役，打印下一步
   engage    创建战役（开工指令即授权）：--target <t[,t2]> [--rhythm r] [--window-hours n] [--user-msg id]
@@ -74,6 +75,7 @@ const { values: v } = parseArgs({
     'dry-run': { type: 'boolean', default: false }, offset: { type: 'string' }, order: { type: 'string' },
     'with-jumphost-sample': { type: 'boolean', default: false }, force: { type: 'boolean', default: false },
     confirm: { type: 'boolean', default: false }, 'max-facts': { type: 'string' },
+    keep: { type: 'string' }, from: { type: 'string' }, apply: { type: 'boolean', default: false },
   },
   allowPositionals: true,
 });
@@ -105,9 +107,17 @@ const need = (name, val) => { if (!val) { console.error(`缺少 --${name}`); pro
 switch (command) {
   case 'backup': {
     const { backupHome, latestBackup } = await import('../packages/warroom-core/src/maintenance.js');
-    const r = backupHome({ home, dest: v.out ?? null });
+    const r = backupHome({ home, dest: v.out ?? null, keep: v.keep ? Number(v.keep) : null });
     out({ ...r, latest: latestBackup({ home })?.name ?? null });
     if (r.ok !== r.total) process.exitCode = 1;
+    break;
+  }
+  case 'restore': {
+    const { restoreHome } = await import('../packages/warroom-core/src/maintenance.js');
+    if (!v.from) { console.error('restore 需要 --from <backup dir>'); process.exit(2); }
+    const r = restoreHome({ home, from: v.from, dryRun: !v.apply, broker });
+    out(r);
+    if (r.warnings.some((w) => w.includes('完整性异常') || w.includes('没有可恢复'))) process.exitCode = 1;
     break;
   }
   case 'maintain': {
