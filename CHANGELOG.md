@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **备份保留与恢复演练**：`backup --keep N`（只轮转自动备份，手工 dest 不动）；
+  `restore --from <dir>` 默认 **dry-run**（计划 + 完整性校验，不改数据），`--apply` 前**先做恢复前快照**
+  并提示重启宿主进程；损坏备份被识别（非零退出）
 - **性能门再扩展**：证据落盘（4000ms）与全库备份（6000ms）纳入矩阵；
   实测 N=5000：证据落盘 153ms、备份 9.9ms、RSS 176MB
 - **围栏 ↔ 跳板联动**：`planFenceForEngagement` 从战役库读**活跃 route** 作为围栏唯一上游
