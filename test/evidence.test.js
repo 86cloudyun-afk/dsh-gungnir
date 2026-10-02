@@ -52,3 +52,38 @@ test('CLI evidence 子命令可用', () => {
   const parsed = JSON.parse(out);
   assert.ok(existsSync(parsed.files.index));
 });
+
+test('证据落盘带交付视图：客户版与蓝队版各自归档，索引注明', () => {
+  const h = harness();
+  const ex = h.broker.execute({ ...h.base, command_id: 'ev-aud', contract: h.contract() });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const r = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-aud') });
+  assert.equal(r.audience_files.length, 2);
+  const client = r.audience_files.find((a) => a.audience === 'client');
+  const blue = r.audience_files.find((a) => a.audience === 'blue');
+  assert.ok(existsSync(client.markdown) && existsSync(blue.markdown));
+  assert.match(client.markdown, /client/);
+  assert.match(blue.markdown, /blue/);
+
+  const index = readFileSync(r.files.index, 'utf8');
+  assert.match(index, /## 交付视图/);
+  assert.match(index, /客户版（路径\/影响\/修复建议）/);
+  assert.match(index, /蓝队版（IOC 排查口径）/);
+  assert.match(index, /内部全量/);
+
+  const cmd = readFileSync(client.markdown, 'utf8');
+  assert.match(cmd, /视图：\*\*客户版/);
+  assert.equal(cmd.includes('## 审计摘要'), false, '客户版文件本身也不含审计明细');
+});
+
+test('可指定只导出某一受众；空数组则不生成视图目录', () => {
+  const h = harness();
+  const only = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-only'), audiences: ['blue'] });
+  assert.equal(only.audience_files.length, 1);
+  assert.equal(only.audience_files[0].audience, 'blue');
+
+  const none = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-none'), audiences: [] });
+  assert.equal(none.audience_files.length, 0);
+  assert.equal(readFileSync(none.files.index, 'utf8').includes('## 交付视图'), false, '无受众视图时不出该节');
+});

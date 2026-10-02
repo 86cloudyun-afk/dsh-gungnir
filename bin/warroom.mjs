@@ -334,7 +334,10 @@ switch (command) {
     break;
   }
   case 'evidence':
-    out(broker.exportEvidence(need('engagement', v.engagement), { outDir: v.out, target: v.target }));
+    out(broker.exportEvidence(need('engagement', v.engagement), {
+      outDir: v.out, target: v.target,
+      audiences: v.audience ? [v.audience] : ['client', 'blue'],
+    }));
     break;
   case 'sweep':
     out(broker.sweepTimeouts(need('engagement', v.engagement), {
