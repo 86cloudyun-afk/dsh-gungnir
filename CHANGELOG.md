@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **预检留痕**：`preflight --record`（工具 `record: true`）把结论写入审计 gate_log
+  （verdict / blockers / warnings 数 / 是否带计划 / 当时桶），回答"谁在什么时候判定可开工"
 - 文档收口：ACCEPTANCE 增 4 行（四段观测/聚合只读边界/检索加权/拓扑分组）、
   数字同步（280 例 / 29 工具）、QUICKSTART 增「一图流（从零到报告）」
 - **跨会话聚合视图（只读边界，框架 §7）**：`aggregate.js` —— 各战役库与 DSH 聚合库

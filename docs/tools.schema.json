@@ -793,6 +793,10 @@
               "additionalProperties": true
             },
             "description": "可选：波次任务列表（逐个核对是否在授权范围内）"
+          },
+          "record": {
+            "type": "boolean",
+            "description": "true = 把预检结论写入审计（开工留痕）"
           }
         },
         "required": [

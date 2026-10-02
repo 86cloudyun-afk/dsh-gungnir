@@ -113,3 +113,38 @@ test('CLI preflight --meeting 可用（越界即非零退出）', () => {
   assert.equal(code, 1, '越界目标应让预检非零退出');
   assert.equal(JSON.parse(out).verdict, 'blocked');
 });
+
+test('预检留痕：--record 把结论写入审计，可查可导出', () => {
+  const h = harness();
+  const plain = h.broker.preflight(h.eng.engagement_id);
+  assert.equal(plain.recorded, null, '默认不留痕');
+  assert.equal(h.store().db.prepare("SELECT COUNT(*) c FROM gate_log WHERE decision='preflight'").get().c, 0);
+
+  const rec = h.broker.preflight(h.eng.engagement_id, { record: true });
+  assert.equal(rec.recorded.verdict, rec.verdict);
+  const rows = h.broker.audit(h.eng.engagement_id, { decision: 'preflight' });
+  assert.equal(rows.rows.length, 1);
+  const detail = JSON.parse(rows.rows[0].detail);
+  assert.equal(detail.verdict, rec.verdict);
+  assert.ok('blockers' in detail && 'bucket' in detail);
+});
+
+test('预检留痕内容随结论变化（blocked 时带阻塞项）', () => {
+  const h = harness();
+  h.broker.secrets.put('pf-lock', { label: 'x' });
+  chmodSync(join(h.home, 'secrets', 'key.bin'), 0o644);
+  const rec = h.broker.preflight(h.eng.engagement_id, { record: true });
+  assert.equal(rec.verdict, 'blocked');
+  const detail = JSON.parse(h.broker.audit(h.eng.engagement_id, { decision: 'preflight' }).rows[0].detail);
+  assert.equal(detail.verdict, 'blocked');
+  assert.ok(detail.blockers.some((b) => b.includes('密钥权限')));
+});
+
+test('CLI preflight --record 留痕（json 里带 recorded）', () => {
+  const h = harness();
+  const env = { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' };
+  const out = JSON.parse(execFileSync('node', ['bin/warroom.mjs', 'preflight', '--engagement', h.eng.engagement_id,
+    '--record', '--home', h.home, '--json'], { encoding: 'utf8', env }));
+  assert.equal(out.recorded.engagement_id, h.eng.engagement_id);
+  assert.equal(h.store().db.prepare("SELECT COUNT(*) c FROM gate_log WHERE decision='preflight'").get().c, 1);
+});
