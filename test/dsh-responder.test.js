@@ -1,7 +1,7 @@
 // 跨进程端到端：GUNGNIR（本测试进程）↔ 应答器（子进程），仅经 spool 文件通信。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -101,4 +101,24 @@ test('fixture 模式：应答器按预置回执响应（可编排异常场景）
 
   const facts = JSON.parse((await import('node:fs')).readFileSync(join(root, 'inbox', 'fx-1.facts.json'), 'utf8'));
   assert.equal(facts.members[0].source_id, 'v-fx');
+});
+
+
+test('fixture 模式缺夹具 → 不写假回执（fail-closed），错误留痕', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wr-bridge-fix-'));
+  const out = spawnSync('node', [
+    'scripts/dsh-bridge-responder.mjs', '--root', root, '--mode', 'fixture', '--once',
+  ], { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' } });
+  // 先造一个 job（无对应夹具）
+  mkdirSync(join(root, 'outbox'), { recursive: true });
+  writeFileSync(join(root, 'outbox', 'fx-1.job.json'), JSON.stringify({
+    protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'recon', contract: { resources: ['container'], fake_members: [] },
+  }));
+  const r = spawnSync('node', [
+    'scripts/dsh-bridge-responder.mjs', '--root', root, '--mode', 'fixture', '--once',
+  ], { encoding: 'utf8', env: { ...process.env, DSH_PROFILE_DIR: '', DSH_HOME: '' } });
+  assert.equal(r.status, 0, '单次模式错误不致命，但要留痕');
+  assert.match(`${r.stdout}${r.stderr}`, /job-error|缺少夹具文件/);
+  assert.equal(existsSync(join(root, 'inbox', 'fx-1.probes.json')), false, '不得写"零资源"的假回执');
+  void out;
 });
