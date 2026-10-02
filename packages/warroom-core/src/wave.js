@@ -2,7 +2,7 @@
 //   链前会议（纪要落库）→ 按依赖派单 → 独立任务立即并行 → 依赖满足即刻交接下游（无批次屏障）
 //   → 回执入库（成员级幂等）→ 未决项如实留在 unresolved/unknown。
 import { randomUUID } from 'node:crypto';
-import { ERR, warroomError } from '../../shared-types/src/index.js';
+import { ERR, RHYTHM_CONCURRENCY, warroomError } from '../../shared-types/src/index.js';
 
 /** 会议纪要：会不开，波不发。 */
 export function recordMeeting({ store, engagementId, title, notes, decisions = [] }) {
@@ -88,9 +88,33 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
     notes: wave.notes ?? '（未填写纪要）', decisions: wave.decisions ?? [],
   });
 
+  // 节奏档并发上限：波内同时在飞任务不得超过它（否则会撞门闸，报错而非静默排队）
+  const rhythm = broker._auth(engagementId).row.rhythm;
+  const maxInFlight = wave.max_in_flight ?? RHYTHM_CONCURRENCY[rhythm] ?? 1;
+
   const results = new Map();   // task.id → {task_id, state, facts}
   const dispatched = new Set();
+  const inFlight = [];         // 已派发但尚未结项的任务
   const budget = wave.tasks.length * 4 + 8; // 防死循环（依赖成环时如实报错）
+
+  /** 收执并结项，释放并发名额（无副作用：已完成的任务直接返回）。 */
+  const drain = () => {
+    for (let i = inFlight.length - 1; i >= 0; i -= 1) {
+      const item = inFlight[i];
+      try {
+        const receipt = broker.adapter.collect(item.task_id);
+        const ingested = broker.collect(engagementId, item.task_id, receipt);
+        item.facts = ingested.accepted
+          ? (ingested.results ?? []).filter((x) => x.action === 'inserted' || x.action === 'superseded').length
+          : 0;
+        const settled = broker.settle(engagementId, item.task_id).settled;
+        if (settled) {
+          item.settled = true;
+          inFlight.splice(i, 1);
+        }
+      } catch { /* 回执未就绪：保留在飞状态，交由 reconcile */ }
+    }
+  };
 
   const ready = (t) => (t.depends_on ?? []).every((dep) => results.has(dep));
   let guard = 0;
@@ -99,7 +123,11 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
     let progressed = false;
     for (const t of wave.tasks) {
       if (dispatched.has(t.id) || !ready(t)) continue;
-      // 立即派发（不等待同波其它任务）——波内无屏障
+      if (inFlight.length >= maxInFlight) {
+        drain();                       // 先尝试释放名额（放不下就等下一轮）
+        if (inFlight.length >= maxInFlight) continue;
+      }
+      // 立即派发（不等待同波其它任务）——波内无屏障，但受节奏档并发约束
       const r = broker.execute({
         command_id: `wave-${meeting.meeting_id}-${t.id}`,
         engagement_id: engagementId,
@@ -118,30 +146,43 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
       });
       dispatched.add(t.id);
       progressed = true;
+      const item = { id: t.id, role: t.role, task_id: r.task_id, state: r.state, facts: 0, settled: false };
+      inFlight.push(item);
 
       // 回执 → 入库（成员级幂等）→ 结项（执行器报告终态后账本跟进）
-      let facts = 0;
-      let settled = false;
-      try {
-        const receipt = broker.adapter.collect(r.task_id);
-        const ingested = broker.collect(engagementId, r.task_id, receipt);
-        facts = ingested.accepted ? (ingested.results ?? []).filter((x) => x.action === 'inserted' || x.action === 'superseded').length : 0;
-        settled = broker.settle(engagementId, r.task_id).settled;
-      } catch { /* 回执未就绪：任务保留在账本中，交由 reconcile */ }
-      if (!settled) {
-        // 未结项意味着它仍占并发名额：诚实报错，交由调用方降节奏/换 adapter，而不是死等
-        throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
-          `任务 ${t.id} 未结项（执行器未报告终态），仍占用并发名额；请降低波内并发或检查执行器`);
+      drain();
+      if (!item.settled) {
+        // 未结项意味着它仍占并发名额：下一轮会继续尝试 drain；若波结束仍未结项则如实报错
+        progress_guard: { /* 见循环末尾的收口检查 */ }
       }
-      results.set(t.id, { id: t.id, role: t.role, task_id: r.task_id, state: r.state, facts });
+      results.set(t.id, item);
     }
-    if (!progressed) throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：成环或引用了不存在的任务');
+    if (!progressed) {
+      // 没有任何任务可推进：要么依赖成环，要么并发槽被未结项任务占满
+      drain();
+      if (inFlight.length >= maxInFlight) {
+        throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
+          `并发名额被 ${inFlight.length} 个未结项任务占满（上限 ${maxInFlight}，节奏档 ${rhythm}）；`
+          + '请检查执行器是否报告终态，或用 reconcile 定论后再继续');
+      }
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：成环或引用了不存在的任务');
+    }
+  }
+
+  // 收口：所有任务都必须结项，否则如实报告（不允许"看起来跑完"）
+  const unsettled = [...results.values()].filter((r) => !r.settled);
+  if (unsettled.length > 0) {
+    throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
+      `波结束后仍有 ${unsettled.length} 个任务未结项：${unsettled.map((u) => u.id).join(',')}`
+      + '（执行器未报告终态；请 reconcile 或检查执行器）');
   }
 
   return {
     meeting,
     tasks: [...results.values()],
     order: [...results.keys()],
-    facts_inserted: [...results.values()].reduce((a, r) => a + r.facts, 0),
+    facts_inserted: [...results.values()].reduce((a, r) => a + (r.facts ?? 0), 0),
+    max_in_flight: maxInFlight,
+    rhythm,
   };
 }
