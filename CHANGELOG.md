@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **自审闸**（CI 第五闸，`scripts/self-review.mjs`）：秘密扫描（合成示例需显式标记）、
+  文档相对链接可达、验收表引用路径存在、代码卫生（src 无 console.log / 测试无 skip·only /
+  未标注来源的 TODO）、CI 四闸覆盖自检；闸门自身有齿（注入真凭据形态与死链必须失败）
 - **DSH 桥应答器参考实现**（`scripts/dsh-bridge-responder.mjs`）：消费 `gungnir-bridge/1` 协议，
   echo/fixture 两种模式、幂等（同 external_id 只处理一次）、原子写；
   **跨进程端到端测试**（GUNGNIR 与应答器分属不同进程，仅经 spool 通信）
