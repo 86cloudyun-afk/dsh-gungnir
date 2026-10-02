@@ -125,6 +125,19 @@ node bin/warroom.mjs secret put|grant|status …
 
 全部子命令都支持 `--json`；CLI 与工具/API 共用同一套门闸与事实库。
 
+## 7.85 维护与安全动作
+
+```sh
+node bin/warroom.mjs backup                 # 备份全部库（一致性快照 + 完整性校验）
+node bin/warroom.mjs maintain               # WAL 检查点 + 完整性自检
+node bin/warroom.mjs secret rotate --confirm # 轮换秘密库密钥（旧密钥归档，旧秘密仍可解）
+node bin/warroom.mjs doctor                 # 体检（含最近备份新鲜度）
+```
+
+- 备份不随密钥走：`backups/` 与 `secrets/` 需**分别**保管（见 [BACKUP.md](BACKUP.md)）
+- 轮换前先备份整个 `secrets/`：历史密钥丢失 = 对应历史密文不可恢复
+- stealth 档出网间隔在 **8~25s 抖动**并按小时漂移（不形成固定周期指纹）
+
 ## 7.9 家目录配置（可选）
 
 ```sh

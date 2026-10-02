@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 文档收口：QUICKSTART 增「维护与安全动作」（backup/maintain/rotate/doctor + 抖动说明）、
+  ACCEPTANCE 增 4 行能力映射与数字刷新、README 同步
 - **故障矩阵扩展 6→11 场景**：新增持久层韧性——**备份恢复往返**（篡改后回归备份时点 + 完整性）、
   密钥缺失明确报错、非法配置构造即失败、高版本库拒绝打开、老库迁移自动补齐后继续作业
 - **备份/维护内建**：`maintenance.js`（`backupHome` / `latestBackup` / `checkpointHome`）由
