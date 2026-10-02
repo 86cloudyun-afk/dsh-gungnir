@@ -1,7 +1,7 @@
 # 工具清单（自动生成，勿手改）
 
 > 由 `node scripts/gen-docs.mjs --write` 生成；CI 用 `--check` 校验同步（防文档漂移）。
-> 工具数：**25**；全部在预设允许清单中：**是**；角色：commander / recon / chain
+> 工具数：**26**；全部在预设允许清单中：**是**；角色：commander / recon / chain
 
 | 工具 | 说明 | 参数（* = 必填） | 在允许清单 |
 |---|---|---|---|
@@ -30,6 +30,7 @@
 | `warroom_audit` | 审计查询/导出：门闸每次判定（allow/deny/meeting/settle/timeout…）可查可交 | `{ engagement_id*:string, decision:string, since:string, limit:integer, offset:integer, order:asc|desc, export_dir:string, export_format:jsonl|csv }` | ✅ |
 | `warroom_jumps` | 跳板台账：主机/租约/路由总览，或收口动作（release route / sweep 到期租约） | `{ engagement_id*:string, action:status|release|sweep, route_id:string }` | ✅ |
 | `warroom_secret_rotate` | 轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解 | `{ confirm*:boolean }` | ✅ |
+| `warroom_egress_check` | 出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸） | `{ engagement_id*:string, action:status|record, jumphost_id:string, exit_ip:string, route_id:string, verdict:pass|fail }` | ✅ |
 
 ## 约定
 

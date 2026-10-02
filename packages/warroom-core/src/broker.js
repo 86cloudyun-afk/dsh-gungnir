@@ -421,6 +421,8 @@ export class Broker {
     }
     const wireCost = contract.wire_cost ?? 0;
     if (wireCost > 0) {
+      // 出口验证门闸（框架 §11）：默认关闭；开启后出网前必须有有效期内的通过记录
+      this.assertEgressVerified(engagementId);
       const used = store.rateTotal('wire');
       const budget = RHYTHM_WIRE_CAP[rhythm] ?? 0;
       if (used + wireCost > budget) {
@@ -526,6 +528,48 @@ export class Broker {
       swept.push({ task_id: r.task_id, previous: r.state, age_ms: age });
     }
     return { swept, timeout_ms: timeoutMs, scanned: rows.length };
+  }
+
+  // ── 出口验证（框架 §11「出口验证」门闸）────────────────────────────────────
+  /**
+   * 记录一次出口验证结果（跳板出口或操作节点自身出口），并留痕 gate_log。
+   * verdict: 'pass' | 'fail'。fail 会被后续强制门闸拒绝。
+   */
+  recordEgressCheck(engagementId, { jumphost_id, exit_ip, route_id = null, verdict = 'pass', observed_at = null }) {
+    const store = this._eng(engagementId).store;
+    store.recordEgressCheck({ jumphost_id, exit_ip, route_id, verdict });
+    this._gate(engagementId, 'egress_check', {
+      jumphost_id, exit_ip, route_id, verdict, observed_at: observed_at ?? new Date(this._nowMs()).toISOString(),
+    });
+    return { jumphost_id, exit_ip, route_id, verdict, checked_at: new Date(this._nowMs()).toISOString() };
+  }
+
+  /** 出口验证状态：最近一次结果 + 是否在有效期内。 */
+  egressStatus(engagementId, { maxAgeMin = null } = {}) {
+    const store = this._eng(engagementId).store;
+    const maxAge = maxAgeMin ?? this.config.egressMaxAgeMin ?? 60;
+    const last = store.db.prepare('SELECT * FROM egress_checks ORDER BY ts DESC LIMIT 1').get() ?? null;
+    const ageMs = last ? this._nowMs() - Date.parse(last.ts) : null;
+    return {
+      last,
+      age_min: ageMs === null ? null : Math.round(ageMs / 60000),
+      max_age_min: maxAge,
+      valid: !!last && last.verdict === 'pass' && ageMs <= maxAge * 60000,
+      require_check: !!this.config.requireEgressCheck,
+    };
+  }
+
+  /** 强制出口验证门闸：开启 requireEgressCheck 且无有效通过记录时拒绝。 */
+  assertEgressVerified(engagementId) {
+    if (!this.config.requireEgressCheck) return { enforced: false };
+    const st = this.egressStatus(engagementId);
+    if (!st.valid) {
+      throw warroomError(ERR.E_GATE_EGRESS_UNVERIFIED,
+        st.last
+          ? `出口验证已失效：上次结果 ${st.last.verdict}（${st.age_min} 分钟前，上限 ${st.max_age_min} 分钟）`
+          : '尚未做过出口验证（requireEgressCheck=true）：请先 warroom egress record');
+    }
+    return { enforced: true, last: st.last };
   }
 
   // ── 审计（一切动作可追溯：门闸每次判定都留痕，这里给出查询与导出）────────────
