@@ -3,6 +3,28 @@
 ## Unreleased
 
 ### Added
+- 文档收口：ACCEPTANCE 增 8 行（备份保留/波次联动/自校验/事实查询/出口实跑/套件入口）、
+  README 数字同步（229 例 / 26 工具）、QUICKSTART 增「全部子命令索引」
+- **一致性套件独立入口**：`scripts/conformance.mjs [--module <path>]` + CLI `warroom conformance`
+  ——外部 adapter 作者可对自己的 adapter 跑同一套 SPI rev2 契约检查（8 项，含幂等与资源清单），
+  失败项逐条列出并非零退出。**修掉一个真 bug**：`summarize().failed` 是数组，
+  原脚本用 `> 0` 判断导致坏 adapter 也返回 0
+- **出口验证实跑脚本** `scripts/egress-check.mjs`：经 route 的 SOCKS 出口回显端点比对登记地址，
+  或 `--self`（操作节点自身出口，**检测到代理环境变量即拒绝**）；结果自动入账；
+  退出码语义化（0 通过 / 1 不匹配 / 2 前置缺失 / 3 SKIP——环境不可用即如实 SKIP，不伪造通过）；
+  支持 `--observed` 离线补录。`doctor` 新增「出口验证门闸」检查（强制中但无有效 pass → warn）
+- **出口验证门闸**（框架 §11）：`recordEgressCheck` / `egressStatus` / `assertEgressVerified`
+  ——验证结果入 `egress_checks` 并留痕 gate_log；配置 `requireEgressCheck=true`（+ `egressMaxAgeMin`）
+  时，**出网动作必须有有效期内的 pass**，否则 `E_GATE_EGRESS_UNVERIFIED`（默认关闭，不阻塞既有用法）；
+  工具 `warroom_egress_check`（26 个工具）、CLI `warroom egress status|record`
+- **事实查询下沉并补齐 CLI**：`store.queryFacts({entityType, sourceId, since, includeHistory, adapterInstance, limit})`
+  成为工具与 CLI 的唯一实现；`warroom fact --type/--source/--history/--adapter/--limit`
+  （默认只看有效事实，`--history` 可看被取代修订与取代总数）；工具 schema 同步扩展
+- **报告自校验**：导出瞬间对照当前库复核水位与证据摘要，把结论写进 md（「自校验（导出时即时复核）」段）
+  与 JSON（`self_check` 字段）——交付物自带"可否复现"的结论与复核命令
+- **波次与节奏档联动**：波内同时在飞任务不超过档位上限（open=3 / restricted=2 / **stealth=1**），
+  名额占满时先收执结项释放（依赖驱动不变）；波结束仍有未结项任务 → **如实报错**，
+  杜绝"看起来跑完"；演练计划同步给出 `max_in_flight` 与节奏档
 - **备份保留与恢复演练**：`backup --keep N`（只轮转自动备份，手工 dest 不动）；
   `restore --from <dir>` 默认 **dry-run**（计划 + 完整性校验，不改数据），`--apply` 前**先做恢复前快照**
   并提示重启宿主进程；损坏备份被识别（非零退出）

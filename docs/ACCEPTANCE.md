@@ -87,6 +87,13 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 备份保留与恢复演练 | `--keep` 只轮转自动备份；restore 默认 dry-run，apply 前先做恢复前快照 | `test/restore.test.js` | ✅ |
+| 波次与节奏档联动 | 同时在飞 ≤ 档位上限；波末未结项如实报错 | `test/wave.test.js` | ✅ |
+| 报告自校验 | 导出即复核；漂移如实标记 | `test/report-selfcheck.test.js` | ✅ |
+| 事实查询（工具+CLI） | 过滤/历史修订/统计一致 | `test/fact-query.test.js` | ✅ |
+| 出口验证门闸 | 记录/状态；开启后无有效 pass 即拒绝出网；wire_cost=0 不受影响 | `test/egress-gate.test.js` | ✅ |
+| 出口验证实跑 | route/self 两模式；代理变量拒绝；退出码 0/1/2/3 语义化 | `test/egress-script.test.js` | ✅ |
+| 一致性套件独立入口 | 坏 adapter 被逐条指出并非零退出 | `test/conformance-cli.test.js` | ✅ |
 | 密钥轮换 | 旧秘密仍可解；归档 600；缺密钥明确报错 | `test/secrets.test.js` | ✅ |
 | 报告体量控制 | md 截断给计数；JSON 全量 | `test/ioc-report.test.js` | ✅ |
 | 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
@@ -94,8 +101,8 @@
 
 ## 数字快照
 
-- 测试：203 例（`node --test`）
+- 测试：229 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=7（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.8`（批次 1–7 已合并）
+- 标签：`v0.1.0-alpha.8`（批次 1–7 已合并；批次 8 合并时升 alpha.9）
