@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -76,4 +76,30 @@ test('deploy 脚本 --apply 幂等且先备份', async () => {
   const { readdirSync } = await import('node:fs');
   const backups = readdirSync(profile).filter((f) => f.startsWith('cordis.patch.yml.bak-warroom-'));
   assert.equal(backups.length, 1, '首次 apply 应留一份备份，第二次（幂等）不留新备份');
+});
+
+test('deploy 脚本 --apply 把插件 link 进 profile 的 node_modules（真实挂载闭环③）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-link-'));
+  const profile = join(home, 'profiles', 'web');
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(profile)},{recursive:true})`]);
+
+  // --check：尚未 link，应如实报告「未链接」。
+  const check = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  assert.match(check, /插件未链接/);
+
+  // --apply：link 进 node_modules。
+  execFileSync('node', ['scripts/deploy-dsh.mjs', '--apply', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  const linked = join(profile, 'node_modules', 'dsh-warroom');
+  assert.ok(existsSync(linked), 'node_modules/dsh-warroom 必须存在');
+  assert.ok(lstatSync(linked).isSymbolicLink(), '应为 symlink（优先 link 而非复制）');
+
+  // 核心断言：dsh 以 patch 行 name 从 profile 的 node_modules 解析，等价于此处 require.resolve 不再 MODULE_NOT_FOUND。
+  const resolved = execFileSync('node', ['-e', "process.stdout.write(require.resolve('dsh-warroom'))"],
+    { encoding: 'utf8', cwd: profile, env: nodeEnv() });
+  assert.match(resolved, /warroom-plugin[/\\]src[/\\]index\.js$/);
+
+  // 幂等：重跑不报错、不重复、仍为同一 link。
+  const second = execFileSync('node', ['scripts/deploy-dsh.mjs', '--apply', '--home', home], { encoding: 'utf8', env: nodeEnv() });
+  assert.match(second, /幂等：插件链接已存在/);
+  assert.ok(lstatSync(linked).isSymbolicLink());
 });

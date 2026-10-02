@@ -5,7 +5,7 @@
 //   node scripts/deploy-dsh.mjs --print          # 打印应写入 patch 层的 YAML 片段
 //   node scripts/deploy-dsh.mjs --apply          # 备份后写入 patch 层（幂等，已存在则跳过）
 // 设计约束（框架 §11）：patch 层是全局单文件，多方维护冲突高发 → 只允许脚本改，禁止手编。
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync, symlinkSync, lstatSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -33,6 +33,39 @@ const yamlSnippet = `- insert:
         home: !!js dshHomePath('warroom')
 `;
 
+// 插件包（host 平面）：dsh 按 patch 行的 name 从 <profileDir>/node_modules/<name> 解析
+// （app-boot：未安装则提示 `dsh plugin --profile <p> install`）。本脚本把本仓插件 link 进去，
+// 否则挂载时 require.resolve 报 MODULE_NOT_FOUND / failed to import。
+const pluginDir = join(root, 'packages', 'warroom-plugin');
+const pluginName = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8')).name;
+
+/** 读取 <profileDir>/node_modules/<pluginName> 的链接现状（不改动）。 */
+function linkStatus(dir) {
+  const nm = join(dir, 'node_modules');
+  const target = join(nm, pluginName);
+  let present = false, isLink = false, correct = false;
+  try {
+    const st = lstatSync(target);
+    present = true;
+    isLink = st.isSymbolicLink();
+    if (isLink) { try { correct = realpathSync(target) === realpathSync(pluginDir); } catch { correct = false; } }
+  } catch { /* 不存在 */ }
+  return { nm, target, present, isLink, correct };
+}
+
+/** 幂等地把本仓插件 symlink 进 profile 的 node_modules（已正确链接则跳过；外部占用则不覆盖）。 */
+function linkPluginIntoProfile(dir) {
+  const st = linkStatus(dir);
+  if (st.present) {
+    if (st.isLink && st.correct) return { status: 'already', target: st.target };
+    return { status: 'conflict', target: st.target };
+  }
+  mkdirSync(st.nm, { recursive: true });
+  // 相对的跨包导入（../../warroom-core 等）按真实路径解析，故只需链接本包、无需处理工作区依赖
+  symlinkSync(realpathSync(pluginDir), st.target, 'dir');
+  return { status: 'linked', target: st.target };
+}
+
 function report(lines) { console.log(lines.join('\n')); }
 
 if (v.print) {
@@ -57,6 +90,15 @@ if (patchPath && existsSync(patchPath)) {
   findings.push(`· patch 文件不存在：${patchPath}`);
 }
 
+if (profileDir && !v.apply) {
+  const st = linkStatus(profileDir);
+  findings.push(
+    st.present && st.isLink && st.correct ? `✓ 插件已链接：node_modules/${pluginName}`
+    : st.present ? `✗ node_modules/${pluginName} 已存在且非本包链接（--apply 不会覆盖）`
+    : `· 插件未链接（--apply 将 symlink ${pluginName} → node_modules）`
+  );
+}
+
 if (v.apply) {
   if (!patchPath) { console.error('✗ 未指定 profile（设置 DSH_PROFILE_DIR 或用 --home）'); process.exit(2); }
   if (already) { findings.push('✓ 幂等：已存在，未改动（避免重复挂载）'); }
@@ -68,6 +110,11 @@ if (v.apply) {
     findings.push(`✓ 已写入 patch 层（备份：${existsSync(patchPath) ? backup : '无原文件'}）`);
     findings.push('· 生效需重启 dsh web（host 平面变更；请在**你的终端**执行，勿从 agent 工具调用发起）');
   }
+  // 插件 install/link（幂等）：让 dsh 能从 profile 的 node_modules 解析 patch 行的 name
+  const lk = linkPluginIntoProfile(profileDir);
+  if (lk.status === 'linked') findings.push(`✓ 已链接插件：node_modules/${pluginName} → ${pluginDir}`);
+  else if (lk.status === 'already') findings.push('✓ 幂等：插件链接已存在，未改动');
+  else findings.push(`✗ ${lk.target} 已存在且非本包链接，未覆盖（请手动处理后重试）`);
 }
 
 report(findings);
