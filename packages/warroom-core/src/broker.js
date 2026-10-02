@@ -9,6 +9,7 @@ import {
 } from '../../shared-types/src/index.js';
 import { checkAgainstAuth, buildAuthObject } from './gates.js';
 import { join } from 'node:path';
+import { assertSafeSegment, resolveUnder } from './paths.js';
 import { openEngagementDb, openGlobalDb } from './db.js';
 import { FactStore } from './store.js';
 import { FakeAdapter } from './adapters/fake.js';
@@ -50,8 +51,8 @@ export class Broker {
   createEngagement({ user_message_id, targets, overrides, engagement_id } = {}) {
     const mergedOverrides = { rhythm: this.config.rhythm, ...(overrides ?? {}) };
     const { auth_object, auth_hash } = buildAuthObject({ user_message_id, targets, overrides: mergedOverrides });
-    const id = engagement_id ?? `eng_${randomUUID()}`;
-    const dir = `${this.home}/engagements/${id}`;
+    const id = assertSafeSegment(engagement_id ?? `eng_${randomUUID()}`, 'engagement_id');
+    const dir = resolveUnder(this.home, 'engagements', id);
     const db = openEngagementDb(dir);
     db.prepare(`INSERT INTO engagements
       (id, target_scope, window_start, window_end, allowed_means, action_class_limit, rhythm,
@@ -67,11 +68,12 @@ export class Broker {
   }
 
   _eng(engagementId) {
-    if (!this.engagements.has(engagementId)) {
-      const db = openEngagementDb(`${this.home}/engagements/${engagementId}`);
-      this.engagements.set(engagementId, { db, store: new FactStore(db, engagementId) });
+    const id = assertSafeSegment(engagementId, 'engagement_id');
+    if (!this.engagements.has(id)) {
+      const db = openEngagementDb(resolveUnder(this.home, 'engagements', id));
+      this.engagements.set(id, { db, store: new FactStore(db, id) });
     }
-    return this.engagements.get(engagementId);
+    return this.engagements.get(id);
   }
 
   _auth(engagementId) {
@@ -402,7 +404,7 @@ export class Broker {
 
   exportReport(engagementId, { outDir, format = 'md', maxFactsPerType = 50, audience = 'full' } = {}) {
     const { row, store } = this._engWithRow(engagementId);
-    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'reports');
+    const dir = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'reports');
     return exportReportFile({
       store, engagementId, engagementRow: row, vault: this.secrets, globalDb: this.global, home: this.home,
       outDir: dir, format, maxFactsPerType, audience, metrics: this.metrics(engagementId),
@@ -432,7 +434,7 @@ export class Broker {
 
   /** 证据落盘：报告 + 水位 + 三段式 EVIDENCE_INDEX（明文秘密永不落盘）。 */
   exportEvidence(engagementId, { outDir, target = null, audiences = ['client', 'blue'], checklist = true } = {}) {
-    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    const dir = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'evidence');
     return exportEvidence({ broker: this, engagementId, outDir: dir, target, audiences, checklist });
   }
 
@@ -472,7 +474,7 @@ export class Broker {
    * 返回一次跑完的产物路径 + 门禁结论；不做任何隐藏动作（每步都是前面已存在的公开接口）。
    */
   deliver(engagementId, { outDir = null, keep = 7, backup = true } = {}) {
-    const base = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    const base = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'evidence');
     const report = this.exportReportVerified(engagementId, { outDir: join(base, 'reports'), format: 'all' });
     const pack = this.exportEvidence(engagementId, { outDir: base, audiences: ['client', 'blue'], checklist: true });
     let backupResult = null;
@@ -510,7 +512,7 @@ export class Broker {
   /** 交付清单落盘为交付附件（写进证据目录）。 */
   exportChecklist(engagementId, { outDir = null } = {}) {
     const c = this.checklist(engagementId);
-    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'evidence');
+    const dir = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'evidence');
     mkdirSync(dir, { recursive: true });
     const path = join(dir, 'DELIVERY_CHECKLIST.md');
     writeFileSync(path, renderChecklist(c) + '\n', 'utf8');
@@ -820,7 +822,7 @@ export class Broker {
   /** 审计导出 CSV（给不读 JSON 的人）；字段转义按 RFC4180。 */
   auditExportCsv(engagementId, { outDir, decision = null, since = null } = {}) {
     const store = this._eng(engagementId).store;
-    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'audit');
+    const dir = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'audit');
     mkdirSync(dir, { recursive: true });
     const where = [];
     const args = [];
@@ -842,7 +844,7 @@ export class Broker {
   /** 导出审计日志（JSONL）；行数与查询一致，内容已脱敏（写入时即脱敏）。 */
   auditExport(engagementId, { outDir } = {}) {
     const store = this._eng(engagementId).store;
-    const dir = outDir ?? join(this.home, 'engagements', engagementId, 'audit');
+    const dir = outDir ?? resolveUnder(this.home, 'engagements', engagementId, 'audit');
     mkdirSync(dir, { recursive: true });
     const rows = store.db.prepare('SELECT id, ts, decision, code, detail, request_json, recovered_at FROM gate_log ORDER BY id').all();
     const path = join(dir, `audit-log.jsonl`);
