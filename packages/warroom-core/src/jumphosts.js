@@ -3,17 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { ERR, warroomError } from '../../shared-types/src/index.js';
 
 const now = () => new Date().toISOString();
+const nowMs = () => Date.now();
 
 export class JumphostManager {
   /**
    * @param {{globalDb:object, getFactStore:(engagementId:string)=>object, egressProbe?:(host:object)=>{ok:boolean, exit_ip:string|null}, runtimeProbe?:(lease:object)=>boolean, ttlMinutes?:number}} opts
    */
-  constructor({ globalDb, getFactStore, egressProbe, runtimeProbe, ttlMinutes = 30 }) {
+  constructor({ globalDb, getFactStore, egressProbe, runtimeProbe, ttlMinutes = 30,
+                quotaPerDay = 3, listEngagements = null } = {}) {
     this.g = globalDb;
     this.getFactStore = getFactStore;
     this.egressProbe = egressProbe ?? ((h) => ({ ok: true, exit_ip: h.addr_v4 }));
     this.runtimeProbe = runtimeProbe ?? (() => false); // 默认：资源未在运行
     this.ttlMinutes = ttlMinutes;
+    this.quotaPerDay = quotaPerDay;
+    this.listEngagements = listEngagements;   // 宿主注入：跨战役巡检需要战役清单
     this.teardowns = []; // 补偿动作记录（测试可断言）
   }
 
@@ -81,6 +85,72 @@ export class JumphostManager {
       this.g.prepare("UPDATE op_log SET state = 'released', recovered_at = ? WHERE op_id = ?").run(now(), op_id);
       throw warroomError(ERR.E_COMPENSATED, `acquire compensated: ${e.code ?? e.message}`, { lease_id });
     }
+  }
+
+  /**
+   * 活跃 route 巡检（框架 §3.3 / 宪法 §12）：
+   *   · 租约已到期/隔离 → 对应 route 转 `stale`（不再被围栏当作出口）
+   *   · 路由长时间无心跳（默认 3×TTL）→ `stale` 并留痕，提示重新取出口
+   * 只改状态、不删记录：证据链保留，收口仍需显式 releaseRoute。
+   * @returns {{stale:Array<{route_id:string, reason:string, age_min:number}>, scanned:number}}
+   */
+  sweepRoutes({ ttlMinutes = this.ttlMinutes, staleFactor = 3 } = {}) {
+    const leases = this.g.prepare('SELECT lease_id, state, expires_at, heartbeat_at FROM leases').all();
+    const leaseById = new Map(leases.map((l) => [l.lease_id, l]));
+    const maxIdleMs = ttlMinutes * staleFactor * 60_000;
+    const stale = [];
+    let scanned = 0;
+    const routes = this._routesByEngagement();
+    for (const { engagementId, routes: rows } of routes) {
+      const store = this.getFactStore(engagementId);
+      for (const r of rows) {
+        if (r.state !== 'active') continue;
+        scanned += 1;
+        const lease = leaseById.get(r.lease_id);
+        const ageMs = nowMs() - Date.parse(r.ts);
+        let reason = null;
+        if (lease && lease.state !== 'active') reason = `租约已${lease.state === 'released' ? '释放' : '隔离'}`;
+        else if (lease && Date.parse(lease.expires_at) <= nowMs()) reason = '租约已到期';
+        else if (ageMs > maxIdleMs) reason = `路由无心跳超过 ${staleFactor}×TTL（${Math.round(ageMs / 60000)} 分钟）`;
+        if (!reason) continue;
+        store.db.prepare("UPDATE jump_routes SET state = 'stale' WHERE route_id = ?").run(r.route_id);
+        store.appendGateLog({ decision: 'route_stale', detail: `${r.route_id}: ${reason}`, request: r.socks });
+        stale.push({ route_id: r.route_id, engagement_id: engagementId, reason, age_min: Math.round(ageMs / 60000) });
+      }
+    }
+    return { stale, scanned };
+  }
+
+  /**
+   * 遍历所有战役库的路由表（只读，表不存在即跳过）。
+   * 战役清单由宿主注入（`listEngagements`）：路由属战役库，global 里没有它们的索引。
+   */
+  _routesByEngagement() {
+    const out = [];
+    const ids = typeof this.listEngagements === 'function' ? this.listEngagements() : [];
+    for (const id of ids) {
+      try {
+        const store = this.getFactStore(id);
+        out.push({ engagementId: id, routes: store.db.prepare('SELECT * FROM jump_routes ORDER BY ts').all() });
+      } catch { /* 库缺失或表不存在：跳过 */ }
+    }
+    return out;
+  }
+
+  /** 路由心跳：续期租约并刷新路由 ts（活跃证明）。 */
+  heartbeatRoute({ route_id, engagementId, lease_id = null }) {
+    const store = this.getFactStore(engagementId);
+    const route = store.db.prepare('SELECT * FROM jump_routes WHERE route_id = ?').get(route_id);
+    if (!route) throw warroomError(ERR.E_TASK_NOT_FOUND, `route ${route_id} 不存在`);
+    if (route.state !== 'active') throw warroomError(ERR.E_TASK_NOT_FOUND, `route 状态为 ${route.state}，无法续期`);
+    store.db.prepare('UPDATE jump_routes SET ts = ? WHERE route_id = ?').run(now(), route_id);
+    store.appendGateLog({ decision: 'route_heartbeat', detail: route_id, request: route.socks });
+    const lease = lease_id ?? route.lease_id;
+    if (lease) {
+      this.g.prepare('UPDATE leases SET heartbeat_at = ?, expires_at = ? WHERE lease_id = ?').run(
+        now(), new Date(nowMs() + this.ttlMinutes * 60_000).toISOString(), lease);
+    }
+    return { route_id, lease_id: lease, heartbeat_at: now(), ttl_minutes: this.ttlMinutes };
   }
 
   /** 台账：主机 / 租约 / 路由（routes 属战役库，按 engagement 查）。 */

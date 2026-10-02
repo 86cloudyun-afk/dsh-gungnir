@@ -38,6 +38,7 @@ export function createWarroomService({ home, adapterKind = null, adapter } = {})
   const jumps = new JumphostManager({
     globalDb: broker.global,
     getFactStore: (id) => broker._eng(id).store,
+    listEngagements: () => broker.listEngagements(),   // 路由巡检需要跨战役清单
   });
   // 启动即再水化：把非终态命令交回 adapter（跨进程/重启恢复执行层视角）
   const recovered = rehydrate(broker);
