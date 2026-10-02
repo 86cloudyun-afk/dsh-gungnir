@@ -18,7 +18,7 @@
 | 6 | 成员幂等：{A}→{A,B} 不重复记账；乱序修订不覆盖；重复回执无效 | `test/store.test.js`、故障矩阵② | ✅ |
 | 7 | 旧代结果不覆盖新版本（代际隔离） | `test/store.test.js`、`test/reconcile.test.js` | ✅ |
 | 8 | 日志 / 报告 / 错误输出无秘密明文 | `test/secrets.test.js`、`test/report.test.js`、CLI 冒烟 | ✅ |
-| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | —— | ⛔ **未实现**（容器围栏属 v0.2；协议与验收口径已在 ADR-001 记录） |
+| 9 | 桶 A 隔离实测：无 sidecar 出网失败；DNS 不落宿主 | `packages/warroom-core/src/fence.js`、`test/fence.test.js`、`scripts/fence-verify.mjs` | ⚠️ **拓扑与静态不变量就绪**（9 类破坏逐条 fail-closed）；真实容器验收已脚本化：daemon 可用即真测，不可用如实 SKIP（本机当前 daemon 未运行） |
 | 10 | 报告水位双校验（seq + snapshot + 证据摘要） | `test/report.test.js` | ✅ |
 | 11 | 非所有者写连接被只读模式拒绝 | `test/store.test.js` | ✅ |
 | 12 | fact.db 停写注入：op_log 补偿 + 恢复补审计 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③ | ✅ |
@@ -31,7 +31,7 @@
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
-| 桶 A 隔离实测 | —— | ⛔ v0.2 |
+| 桶 A 隔离实测 | fence.js + fence-verify.mjs | ⚠️ 静态就绪；真实验收待 daemon/CI runner |
 
 ## ADR-002（数据与证据契约 rev2）
 
@@ -61,15 +61,15 @@
 
 | 缺口 | 影响 | 计划 |
 |---|---|---|
-| 桶 A 容器隔离（§8-9 / ADR-001-5） | 出网物理围栏未落地，目前靠门闸与流程约束 | v0.2 集成波次：sidecar + DNS 接管 + 断网负样本 |
+| 桶 A 容器隔离的真实运行验收（§8-9 / ADR-001-5） | 拓扑、静态不变量、docker 命令序列与「出网必须失败」负样本均已实现并可一键复跑；缺的只是运行环境（本机 docker daemon 未启动） | 在带 daemon 的机器/CI runner 上跑 `node scripts/fence-verify.mjs --engagement <id> --socks <跳板 route>` |
 | 允许清单在真实 DSH 挂载层生效 | 预设文件与校验器就绪，未在真实会话验证 | v0.2 集成波次（随 DSH 插件挂载一起验收） |
 | 进程级取消证实 | 目前为会话/清单级探针 | v0.2（需执行层提供进程级探针） |
 | 真实执行层应答器 | 桥协议与驱动就绪，DSH 侧应答器未实现 | v0.2（`docs/DSH-BRIDGE-PROTOCOL.md` 待办） |
 
 ## 数字快照
 
-- 测试：72 例（`node --test`）
+- 测试：104 例（`node --test`）
 - CI 闸：4（测试 / 工具 schema / 预设允许清单 / 故障注入矩阵）
-- 工具：11 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：4（迁移按版本号排序、高版本拒绝打开）
-- 标签：`v0.1.0-alpha.2`（批次 1 合并 + 批次 2 进行中）
+- 工具：16 个（schema 严格校验，DSH 挂载要求）
+- schema 版本：5（迁移按版本号排序、高版本拒绝打开）
+- 标签：`v0.1.0-alpha.3`（批次 1/2 已合并；批次 3 进行中）

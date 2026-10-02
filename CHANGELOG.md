@@ -3,6 +3,26 @@
 ## Unreleased
 
 ### Added
+- **工具文档自动生成与同步校验**（`scripts/gen-docs.mjs`，CI 第六闸）：`docs/TOOLS.md` 由代码生成，
+  `--check` 检出漂移（含"新增工具必须进允许清单"的约定说明）
+- **规模冒烟与性能门**（`scripts/bench.mjs`）：事实入库 / 快照 / 报告 / 复现校验的耗时阈值；
+  实测 N=5000 时入库 17ms、快照 11ms、报告 90ms、校验 11ms（阈值 3000/1000/3000/1000ms）
+- **ADR-004**：v0.2 冻结边界（围栏运行验收 / 进程级取消证实 / 知识库 / 真实应答器接入），
+  明确不做项（UI→v0.3、marketplace→v0.3、PentAGI 不做）
+- **QUICKSTART**：CLI 全链路真实演练（含捕获输出与两阶段停止语义说明）
+- **IOC 自动聚合**（v0.2 项提前落地）：结构化条目（kind/ref/source/evidence_ref/confidence/
+  manual_confirm），去重（kind+ref）与清单摘要哈希；凭据只出引用、明文不进报告
+- **报告 JSON 双格式**（`gungnir-report/1`）：与 markdown 同水位同摘要（同一份证据两个视图），
+  JSON 同样过 redactor；`report --format md|json|both`（CLI/工具/API 三入口）
+- **自审闸**（CI 第五闸，`scripts/self-review.mjs`）：秘密扫描（合成示例需显式标记）、
+  文档相对链接可达、验收表引用路径存在、代码卫生（src 无 console.log / 测试无 skip·only /
+  未标注来源的 TODO）、CI 四闸覆盖自检；闸门自身有齿（注入真凭据形态与死链必须失败）
+- **DSH 桥应答器参考实现**（`scripts/dsh-bridge-responder.mjs`）：消费 `gungnir-bridge/1` 协议，
+  echo/fixture 两种模式、幂等（同 external_id 只处理一次）、原子写；
+  **跨进程端到端测试**（GUNGNIR 与应答器分属不同进程，仅经 spool 通信）
+- **桶 A 容器围栏**（ADR-001 验收 5）：拓扑计划 + 9 类静态不变量 fail-closed 校验 +
+  docker 命令序列 + 运行时验收（daemon 不可用如实 SKIP，**绝不假装通过**）；
+  一键复跑：`node scripts/fence-verify.mjs --engagement <id> --socks <route>`
 - **DSH 插件包骨架** `packages/warroom-plugin`：host 服务工厂（三种 adapter：fake/local/bridge）、
   `apply(ctx)` cordis 契约（注册 `ctx.warroom` + dispose 收尾）、DSH 工具包装
   （16 个工具 → `execute` 绑定 host 服务，包装层做四元组预检）、启动即再水化

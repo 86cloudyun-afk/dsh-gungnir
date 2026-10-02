@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
+import { aggregateIoc } from './ioc.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -19,34 +20,39 @@ function groupBy(rows, keyFn) {
   return out;
 }
 
-/** 从事实与运行记录推导 IOC / 清理候选（半自动：人工确认后进报告）。 */
+/** IOC / 清理候选（自动聚合，见 ioc.js）：带置信度与证据引用，人工确认后交付。 */
 export function buildIocDraft({ store, engagementId, globalDb }) {
-  const items = [];
-  const members = store.db.prepare('SELECT * FROM fact_members WHERE active = 1').all();
-  for (const m of members) {
-    if (m.entity_type === 'credential') {
-      items.push({ kind: 'credential', ref: `fact#${m.id}`, note: `凭据引用（明文在秘密库，不在报告）`, manual: true });
-    }
-    if (m.entity_type === 'session') {
-      items.push({ kind: 'session', ref: `fact#${m.id}`, note: '会话/立足点，需确认是否已清理', manual: true });
-    }
-  }
-  const routes = store.db.prepare('SELECT * FROM jump_routes').all();
-  for (const r of routes) {
-    items.push({ kind: 'tunnel', ref: r.route_id, note: `隧道 ${r.socks}（跳板 ${r.jumphost_id}）→ 收口时拆除`, manual: false });
-  }
-  const cmds = globalDb.prepare('SELECT command_id, task_id, state FROM command_queue WHERE engagement_id = ?')
-    .all(engagementId);
-  for (const c of cmds) {
-    if (['unresolved', 'unknown', 'failed'].includes(c.state)) {
-      items.push({ kind: 'unfinished', ref: c.task_id, note: `任务终态 ${c.state} → 确认资源已停/未留残留`, manual: true });
-    }
-  }
-  const pending = globalDb.prepare("SELECT ref_id, detail FROM op_log WHERE state = 'quarantined'").all();
-  for (const p of pending) {
-    items.push({ kind: 'quarantined', ref: p.ref_id ?? '-', note: `隔离态资源需人工处置：${p.detail ?? ''}`, manual: true });
-  }
-  return items;
+  return aggregateIoc({ store, globalDb, engagementId });
+}
+
+/** 结构化报告（机器可读）：与 markdown 报告同水位、同证据摘要。 */
+export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb }) {
+  const snap = store.exportSnapshot();
+  const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
+  const facts = snap.rows.map((r) => {
+    const { payload, ...rest } = r;
+    let parsed = {};
+    try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
+    return { ...rest, payload: R(parsed) };
+  });
+  const ioc = buildIocDraft({ store, engagementId, globalDb });
+  const digest = sha(JSON.stringify(snap.rows));
+  return {
+    schema: 'gungnir-report/1',
+    engagement: {
+      id: engagementId,
+      auth_version: engagementRow?.auth_version ?? null,
+      auth_hash: engagementRow?.auth_hash ?? null,
+      rhythm: engagementRow?.rhythm ?? null,
+      window: { start: engagementRow?.window_start ?? null, end: engagementRow?.window_end ?? null },
+    },
+    watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
+    evidence_digests: { fact_members: digest },
+    shell: store.shellState() ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
+    facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
+    ioc: ioc.items,
+    ioc_summary: ioc.summary,
+  };
 }
 
 /** 生成报告 markdown（含水位）；所有文本过 redactor。 */
@@ -124,11 +130,14 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   }
 
   const ioc = buildIocDraft({ store, engagementId, globalDb });
-  lines.push('## IOC / 清理附录（半自动初稿，人工确认后交付）');
+  lines.push(`## IOC / 清理附录（自动聚合 ${ioc.summary.total} 项，人工确认后交付）`);
   lines.push('');
-  if (ioc.length === 0) lines.push('- （无候选）');
-  for (const i of ioc) {
-    lines.push(`- [${i.manual ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\` — ${R(i.note)}`);
+  lines.push(`- 摘要：\`${JSON.stringify(ioc.summary.by_kind)}\`，需人工确认 ${ioc.summary.manual_confirm_required} 项`);
+  lines.push(`- 清单摘要：\`${ioc.summary.digest.slice(0, 16)}\``);
+  lines.push('');
+  if (ioc.items.length === 0) lines.push('- （无候选）');
+  for (const i of ioc.items) {
+    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
   lines.push('## 声明');
@@ -145,13 +154,29 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   };
 }
 
-/** 导出到文件；返回 {path, watermark, evidence_digests}。 */
-export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir }) {
-  const { markdown, watermark, evidence_digests } = buildReport({ store, engagementId, engagementRow, vault, globalDb });
-  const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, markdown, 'utf8');
-  return { path, watermark, evidence_digests };
+/**
+ * 导出到文件；format: 'md' | 'json' | 'both'。
+ * 返回 {path|paths, watermark, evidence_digests}。
+ */
+export function exportReport({ store, engagementId, engagementRow, vault, globalDb, outDir, format = 'md' }) {
+  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb });
+  const { watermark, evidence_digests } = built;
+  mkdirSync(outDir, { recursive: true });
+  const out = { paths: {}, watermark, evidence_digests };
+  if (format === 'md' || format === 'both') {
+    const path = join(outDir, `${engagementId}-report-${watermark.seq}.md`);
+    writeFileSync(path, built.markdown, 'utf8');
+    out.paths.markdown = path;
+  }
+  if (format === 'json' || format === 'both') {
+    const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
+    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb });
+    writeFileSync(path, JSON.stringify(json, null, 2), 'utf8');
+    out.paths.json = path;
+    out.ioc_summary = json.ioc_summary;
+  }
+  out.path = out.paths.markdown ?? out.paths.json;
+  return out;
 }
 
 /** 从报告正文解析水位与证据摘要（供复现校验器使用）。 */
