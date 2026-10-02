@@ -201,6 +201,9 @@
               "json",
               "both"
             ]
+          },
+          "max_facts_per_type": {
+            "type": "integer"
           }
         },
         "required": [
@@ -660,6 +663,23 @@
         },
         "required": [
           "engagement_id"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_secret_rotate",
+      "description": "轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
         ],
         "additionalProperties": false
       },

@@ -3,6 +3,24 @@
 ## Unreleased
 
 ### Added
+- **性能门再扩展**：证据落盘（4000ms）与全库备份（6000ms）纳入矩阵；
+  实测 N=5000：证据落盘 153ms、备份 9.9ms、RSS 176MB
+- **围栏 ↔ 跳板联动**：`planFenceForEngagement` 从战役库读**活跃 route** 作为围栏唯一上游
+  （无活跃 route 即 `E_FENCE_NO_ROUTE`，fail-closed）；静态校验新增"上游与 route 记录一致"不变量；
+  `fence-verify --from-home/--route` 支持真实联动（缺 route 时非零退出并给取出口命令）
+- 文档收口：QUICKSTART 增「维护与安全动作」（backup/maintain/rotate/doctor + 抖动说明）、
+  ACCEPTANCE 增 4 行能力映射与数字刷新、README 同步
+- **故障矩阵扩展 6→11 场景**：新增持久层韧性——**备份恢复往返**（篡改后回归备份时点 + 完整性）、
+  密钥缺失明确报错、非法配置构造即失败、高版本库拒绝打开、老库迁移自动补齐后继续作业
+- **备份/维护内建**：`maintenance.js`（`backupHome` / `latestBackup` / `checkpointHome`）由
+  脚本、CLI（`warroom backup` / `maintain`）、`doctor` 共用；`doctor` 新增**备份新鲜度**检查
+  （>7 天或从未备份给 warn）；`scripts/backup.mjs` 改为复用 API（行为不变）
+- **报告体量控制**：md 报告每类事实默认最多列 50 条（`--max-facts` / `max_facts_per_type` 可调），
+  超出只给计数与提示（**全量仍在 JSON 视图**）；返回 `size{md_bytes,facts}`
+- **密钥轮换**（高级秘密管理）：`rotateKey()` 归档旧密钥（`keys/<key_id>.bin`，600）→ 换新密钥 →
+  **单事务重加密全部秘密**并更新 `key_id`（schema v7）；旧秘密轮换后照常可解（历史密钥参与解密），
+  缺少历史密钥时**明确报错**而不是静默失败；工具 `warroom_secret_rotate`（需 `confirm=true`）、
+  CLI `secret rotate --confirm`
 - **stealth 档抖动与漂移**（框架 §4 完整落地）：实际最小间隔在 [8s, 25s] 内随机抖动，
   再按小时做 ±20% 漂移（同一小时内稳定、跨小时变化）——**不让固定周期成为流量指纹**；
   `rng` 可注入（测试确定性）；漂移永不低于基础地板

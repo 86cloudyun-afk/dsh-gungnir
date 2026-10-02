@@ -118,11 +118,14 @@ export const TOOLS = [
       properties: {
         engagement_id: { type: 'string' }, out_dir: { type: 'string' },
         format: { type: 'string', enum: ['md', 'json', 'both'] },
+        max_facts_per_type: { type: 'integer' },
       },
       required: ['engagement_id'],
       additionalProperties: false,
     },
-    run: (core, args) => core.broker.exportReport(args.engagement_id, { outDir: args.out_dir, format: args.format ?? 'md' }),
+    run: (core, args) => core.broker.exportReport(args.engagement_id, {
+      outDir: args.out_dir, format: args.format ?? 'md', maxFactsPerType: args.max_facts_per_type ?? 50,
+    }),
   },
   {
     name: 'warroom_status',
@@ -369,6 +372,22 @@ export const TOOLS = [
       if (action === 'release') return core.jumps.releaseRoute({ route_id: args.route_id, engagementId: args.engagement_id });
       if (action === 'sweep') return { swept: core.jumps.sweepExpired() };
       return core.jumps.status(args.engagement_id);
+    },
+  },
+  {
+    name: 'warroom_secret_rotate',
+    description: '轮换秘密库密钥：旧密钥归档（600）并重加密全部秘密；旧秘密仍可解',
+    input_schema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean' } },
+      required: ['confirm'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      if (args.confirm !== true) {
+        throw Object.assign(new Error('轮换属于高风险动作：需 confirm=true'), { code: 'E_GATE_MISSING_TUPLE' });
+      }
+      return core.broker.secrets.rotateKey();
     },
   },
 ];

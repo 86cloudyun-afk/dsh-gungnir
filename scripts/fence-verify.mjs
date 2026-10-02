@@ -4,13 +4,15 @@
 //      不提供 --socks 时使用占位 route（仅验证拓扑，不做真实代理）
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { buildFencePlan, verifyFencePlan, runFenceVerification } from '../packages/warroom-core/src/fence.js';
+import { buildFencePlan, planFenceForEngagement, verifyFencePlan, runFenceVerification } from '../packages/warroom-core/src/fence.js';
+import { Broker } from '../packages/warroom-core/src/broker.js';
 
 const { values: v } = parseArgs({
   args: process.argv.slice(2),
   options: {
     engagement: { type: 'string' }, home: { type: 'string' },
     socks: { type: 'string' }, image: { type: 'string' }, json: { type: 'boolean', default: false },
+    'from-home': { type: 'string' }, route: { type: 'string' },
     // CI 用：daemon 不可用时把 SKIP 视为失败（防止"静默通过"）
     'require-daemon': { type: 'boolean', default: false },
   },
@@ -22,11 +24,28 @@ if (!engagementId) {
   process.exit(2);
 }
 
-const plan = buildFencePlan({
-  engagementId,
-  route: { socks: v.socks ?? 'socks5://127.0.0.1:1080', route_id: 'manual' },
-  image: v.image ?? 'alpine:latest',
-});
+let plan;
+try {
+  if (v['from-home']) {
+    // 真实联动：出口必须来自门闸下发的活跃 route（无 route 即失败，不编造出口）
+    const broker = new Broker({ home: v['from-home'] });
+    const store = broker._eng(engagementId).store;
+    plan = planFenceForEngagement({ store, engagementId, routeId: v.route ?? null, image: v.image ?? 'alpine:latest' });
+  } else {
+    plan = buildFencePlan({
+      engagementId,
+      route: { socks: v.socks ?? 'socks5://127.0.0.1:1080', route_id: 'manual' },
+      image: v.image ?? 'alpine:latest',
+    });
+  }
+} catch (e) {
+  if (e.code === 'E_FENCE_NO_ROUTE') {
+    console.error(`[✗] ${e.message}`);
+    console.error('    → 先取出口：node bin/warroom.mjs jump acquire --engagement <id> --target <资产>');
+    process.exit(2);
+  }
+  throw e;
+}
 
 const stat = verifyFencePlan(plan);
 if (!stat.ok) {
@@ -48,6 +67,7 @@ const r = runFenceVerification({ plan, run });
 if (v.json) console.log(JSON.stringify({ plan: { network: plan.network, sidecar: plan.sidecar, task: plan.task }, result: r }, null, 2));
 else {
   console.log(`围栏网络：${plan.network.name}（internal）  上游：${plan.sidecar.upstream}`);
+  if (plan.upstream_source) console.log(`上游来源：route ${plan.upstream_source.route_id}（跳板 ${plan.upstream_source.jumphost_id}，状态 ${plan.upstream_source.state}）`);
   console.log('静态保证：');
   for (const g of stat.guarantees) console.log(`  ✓ ${g}`);
   console.log(`\n运行时验收：${r.status}${r.reason ? `（${r.reason}）` : ''}`);
