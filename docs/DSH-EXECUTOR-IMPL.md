@@ -26,6 +26,39 @@ node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge" \
 node scripts/executor-drill.mjs --mode bridge    # 用内置示例执行器，验证桥本身
 ```
 
+## 二·补｜真执行器：`executors/tool-runner.mjs`（已在仓库里）
+
+不想自己写执行器时，用这个：它把桥的 job 变成**真工具调用**（走操作员既有工具链）。
+
+```sh
+# 1) 起应答器（把 job 交给执行器；执行器由 GUNGNIR_EXECUTOR_CMD 指定）
+cd /Users/appleshu/dsh/warroom
+GUNGNIR_EXECUTOR_CMD="node executors/tool-runner.mjs" \
+GUNGNIR_TOOLS_ENV=/Users/appleshu/dsh/tools/env.sh \
+GUNGNIR_EXIT_SOCKS=socks5h://127.0.0.1:21084 \
+node scripts/dsh-bridge-responder.mjs --root <WARROOM_HOME>/dsh-bridge \
+  --executor executors/dsh-redteam-executor.mjs
+
+# 2) 让预设用桥（写家目录配置，**下次宿主启动生效**）
+echo '{"adapterKind":"bridge"}' > <WARROOM_HOME>/config.json
+```
+
+角色 → 工具（可在 `tools/TOOLBOX.md` 查到同款模板）：
+
+| 角色 | 命令 | 产出事实 |
+|---|---|---|
+| `recon` | `subfinder -d <域名> -silent` → `httpx -silent -td -title -sc -rl 20` | `domain` / `asset` |
+| `assess` | `nuclei -silent -jsonl -severity critical,high,medium -rl 5 -retry 1` | `vuln` |
+| `vuln` / `exploit` / `internal` / `chain` | **未实装** | 明确非零退出（fail-closed，不猜不造） |
+
+**出口纪律**：目标是外部地址时必须给 `GUNGNIR_EXIT_SOCKS`（跳板出口），否则**拒绝执行**；
+本地/实验室目标需显式 `GUNGNIR_ALLOW_DIRECT=1`。原始输出落盘到 `GUNGNIR_ARTIFACT_DIR`
+（默认 `<cwd>/artifacts/<external_id>/`）供人工复核；工具失败即非零退出 → 主控记 `unknown`。
+
+> 性能坑（已修）：执行器用 **非登录** shell（`bash -c`）跑工具。`bash -lc` 会加载交互式 profile，
+> 实测一条命令要 ~30 秒（并把执行层耦合到你的 shell 环境）。需要工具链环境就显式给
+> `GUNGNIR_TOOLS_ENV=/path/to/tools/env.sh`。
+
 ## 三、角色映射（指挥层意图 → 你的角色）
 
 | contract.intent | 建议落到 | 说明 |
