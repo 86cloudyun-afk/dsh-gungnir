@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **报告收录知识库复用**：`KnowledgeBase.usageByEngagement`（按战役查 POC 使用记录，含标题/分类/
+  资产/结果）→ 报告 md 新增「知识库复用（POC 使用记录）」段 + JSON `kb_usage`；未使用则不出现该段
 - **长时任务心跳**（schema v8）：`broker.heartbeat(engagementId, taskId, {note})` / 工具
   `warroom_heartbeat`（27 个工具）/ CLI `warroom heartbeat`；`sweepTimeouts` 改以**最近心跳**
   为基准（并在结果里标明 `since: heartbeat|dispatch`）——正常跑很久的任务不再被误判超时；
