@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **波次编排**（框架 §3.5 运行时语义）：`warroom wave --engagement <id> --meeting <file>` ——
+  会议纪要落库（会不开波不发）→ 按依赖派单 → 独立任务立即并行、依赖满足即刻交接（波内无屏障）
+  → 回执按成员级幂等入库 → 执行器报终态后**结项**（`broker.settle`）；成环/悬空依赖如实报错
+- **迁移框架按 label 计算目标版本**（真 bug 修复）：v6 是 fact 专属迁移，此前会把 global 库
+  也盖成 6；现在每个库有自己的目标版本（fact=6、global=5），高版本库仍拒绝打开
 - **围栏真实验收进 CI**（ADR-004 范围项 1）：新增 `fence` job（GitHub runner 自带 docker daemon），
   `--require-daemon` 让 daemon 不可用时**失败而非静默通过**；本地无 daemon 时默认 SKIP（退出 0）
 - **进程级取消证实**（ADR-004 范围项 2）：真实探针 `probes.js`（PID 存活 / TCP 端口监听 /

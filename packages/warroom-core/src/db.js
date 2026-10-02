@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS spray_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, credential_ref TEXT,
   service TEXT, account TEXT, result TEXT
 );
+CREATE TABLE IF NOT EXISTS meetings (
+  meeting_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, title TEXT NOT NULL,
+  notes TEXT NOT NULL, decisions TEXT, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS rate_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, engagement_id TEXT NOT NULL,
   target TEXT, kind TEXT NOT NULL CHECK (kind IN ('wire', 'tool')), amount INTEGER NOT NULL DEFAULT 1

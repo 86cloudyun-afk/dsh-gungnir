@@ -153,6 +153,8 @@ export class FakeAdapter {
       members: opts.members ?? t.members,
     };
     t.receipts.push(receipt);
+    // 收执即"执行器报告完成"：任务转入终态（neverFinish 故障下保持 running，用于验证并发闸）
+    if (!this.faults.neverFinish && t.state === 'running') t.state = 'done';
     return receipt;
   }
 
