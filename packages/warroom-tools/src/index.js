@@ -421,6 +421,19 @@ export const TOOLS = [
       return core.broker.egressStatus(args.engagement_id);
     },
   },
+  {
+    name: 'warroom_heartbeat',
+    description: '长时任务心跳：上报进度，超时巡检改以最近心跳为基准（避免长任务被误判）',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' }, task_id: { type: 'string' }, note: { type: 'string' },
+      },
+      required: ['engagement_id', 'task_id'],
+      additionalProperties: false,
+    },
+    run: (core, args) => core.broker.heartbeat(args.engagement_id, args.task_id, { note: args.note ?? null }),
+  },
 ];
 
 export { ERR };

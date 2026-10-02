@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **长时任务心跳**（schema v8）：`broker.heartbeat(engagementId, taskId, {note})` / 工具
+  `warroom_heartbeat`（27 个工具）/ CLI `warroom heartbeat`；`sweepTimeouts` 改以**最近心跳**
+  为基准（并在结果里标明 `since: heartbeat|dispatch`）——正常跑很久的任务不再被误判超时；
+  终态任务拒绝心跳
 - **活跃 route 生命周期**：`heartbeatRoute`（续期租约 + 刷新路由时间 + 留痕）、
   `sweepRoutes`（租约释放/到期或长时无心跳 → 路由转 `stale`，围栏不再取该出口，
   只改状态不删记录）；工具 `warroom_jumps` 增 `sweep_routes` / `heartbeat`，CLI `jump sweep-routes|heartbeat`；

@@ -521,19 +521,42 @@ export class Broker {
    * **绝不自动重试**（重做渗透动作的代价是重复告警/账号锁死）；由 reconcile 依证据定论。
    * @param {{timeoutMs?:number}} opts 默认 30 分钟（框架 config taskTimeoutMin）
    */
+  /**
+   * 长时任务心跳：执行器仍在干活（长跑扫描/爆破/下载）时上报进度，
+   * 使 `sweepTimeouts` 以**最近心跳**而非派发时刻为基准——正常的长任务不再被误判超时。
+   */
+  heartbeat(engagementId, taskIdOrCommandId, { note = null } = {}) {
+    const cmd = this._findCommand(taskIdOrCommandId);
+    if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    if (isTerminal(cmd.state)) {
+      throw warroomError(ERR.E_INVALID_TRANSITION,
+        `任务已处于终态 ${cmd.state}，无需心跳`);
+    }
+    const at = new Date(this._nowMs()).toISOString();
+    this.global.prepare('UPDATE command_queue SET last_heartbeat_at = ? WHERE command_id = ?').run(at, cmd.command_id);
+    this._gate(engagementId, 'heartbeat', { task_id: cmd.task_id, note, at });
+    return { task_id: cmd.task_id, ledger_state: cmd.state, heartbeat_at: at };
+  }
+
   sweepTimeouts(engagementId, { timeoutMs = null } = {}) {
     timeoutMs = timeoutMs ?? (this.config.timeoutMin ?? 30) * 60 * 1000;
     const nowMs = this._nowMs();
     const rows = this.global.prepare(
-      "SELECT command_id, task_id, state, ts FROM command_queue WHERE engagement_id = ? AND state IN ('queued','running','cancel_requested')"
+      `SELECT command_id, task_id, state, ts, last_heartbeat_at FROM command_queue
+       WHERE engagement_id = ? AND state IN ('queued','running','cancel_requested')`
     ).all(engagementId);
     const swept = [];
     for (const r of rows) {
-      const age = nowMs - Date.parse(r.ts);
+      // 基准 = 最近心跳（有则用），否则派发时刻
+      const baseline = Date.parse(r.last_heartbeat_at ?? r.ts);
+      const age = nowMs - baseline;
       if (age <= timeoutMs) continue;
       this._setCommandState(r.command_id, 'unknown');
-      this._gate(engagementId, 'timeout_to_unknown', { task_id: r.task_id, age_ms: age, timeout_ms: timeoutMs });
-      swept.push({ task_id: r.task_id, previous: r.state, age_ms: age });
+      this._gate(engagementId, 'timeout_to_unknown', {
+        task_id: r.task_id, age_ms: age, timeout_ms: timeoutMs,
+        since: r.last_heartbeat_at ? 'heartbeat' : 'dispatch',
+      });
+      swept.push({ task_id: r.task_id, previous: r.state, age_ms: age, since: r.last_heartbeat_at ? 'heartbeat' : 'dispatch' });
     }
     return { swept, timeout_ms: timeoutMs, scanned: rows.length };
   }
