@@ -7,7 +7,7 @@ import { harness } from '../packages/warroom-core/src/testing.js';
 import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 
 function makeJm(h, opts = {}) {
-  return new JumphostManager({ globalDb: h.broker.global, getFactStore: (id) => h.broker._eng(id).store, ...opts });
+  return new JumphostManager({ globalDb: h.broker.global, getFactStore: (id) => h.broker._eng(id).store, egressProbe: (host) => ({ ok: true, exit_ip: host.addr_v4 }), ...opts });
 }
 
 test('台账总览：主机/租约/路由计数正确', () => {
@@ -73,18 +73,18 @@ test('工具 warroom_jumps：status/release/sweep 三动作', () => {
 
 test('出口端点以操作员为准：ssh_host 是 socks URL 时直接采用；否则标注占位', () => {
   const h = harness();
-  // 操作员提供了真实端点
+  // synthetic-example：纯 fixture，egressProbe 已注入，无网络请求
   const jm = makeJm(h);
-  jm.importHosts([{ id: 'jh-real', ssh_host: 'socks5h://127.0.0.1:21071', addr_v4: '89.127.232.37' }]);
+  jm.importHosts([{ id: 'jh-real', ssh_host: 'socks5h://proxy.example.test:1080', addr_v4: '203.0.113.9' }]);
   const r = jm.acquire({ engagement_id: h.eng.engagement_id, target: 't.example' });
-  assert.equal(r.socks, 'socks5h://127.0.0.1:21071', '必须采用操作员端点，不得编随机端口');
+  assert.equal(r.socks, 'socks5h://proxy.example.test:1080', '必须采用操作员端点，不得编随机端口');
   assert.equal(r.socks_source, 'operator');
-  assert.equal(r.exit_ip, '89.127.232.37', '出口 IP 应来自实测探针');
+  assert.equal(r.exit_ip, '203.0.113.9', '出口 IP 应来自实测探针');
 
   // 选择策略：有真实出口端点的优先于"台账里但没有出口"的
   const h3 = harness();
   const jm3 = makeJm(h3);
-  jm3.importHosts([{ id: 'A-no-endpoint', addr_v4: '203.0.113.1' }, { id: 'Z-with-endpoint', ssh_host: 'socks5h://127.0.0.1:21071', addr_v4: '89.127.232.37' }]);
+  jm3.importHosts([{ id: 'A-no-endpoint', addr_v4: '203.0.113.1' }, { id: 'Z-with-endpoint', ssh_host: 'socks5h://proxy.example.test:1080', addr_v4: '203.0.113.9' }]);
   const r3 = jm3.acquire({ engagement_id: h3.eng.engagement_id, target: 't.example' });
   assert.equal(r3.jumphost_id, 'Z-with-endpoint', '必须优先挑有出口端点的机器（不按 id 字母序）');
   assert.equal(r3.socks_source, 'operator');
@@ -92,11 +92,11 @@ test('出口端点以操作员为准：ssh_host 是 socks URL 时直接采用；
   // 显式指定出口（操作员按轮换策略挑）
   const h4 = harness();
   const jm4 = makeJm(h4);
-  jm4.importHosts([{ id: 'jh-a', ssh_host: 'socks5h://127.0.0.1:21071', addr_v4: '89.127.232.37' },
-    { id: 'jh-b', ssh_host: 'socks5h://127.0.0.1:21072', addr_v4: '178.83.203.134' }]);
+  jm4.importHosts([{ id: 'jh-a', ssh_host: 'socks5h://proxy.example.test:1080', addr_v4: '203.0.113.9' },
+    { id: 'jh-b', ssh_host: 'socks5h://proxy.example.test:1081', addr_v4: '198.51.100.10' }]);
   const r4 = jm4.acquire({ engagement_id: h4.eng.engagement_id, target: 't.example', jumphost_id: 'jh-b' });
   assert.equal(r4.jumphost_id, 'jh-b');
-  assert.equal(r4.socks, 'socks5h://127.0.0.1:21072');
+  assert.equal(r4.socks, 'socks5h://proxy.example.test:1081');
   assert.throws(() => jm4.acquire({ engagement_id: h4.eng.engagement_id, target: 't.example', jumphost_id: 'nope' }),
     /指定的跳板不可用/);
 

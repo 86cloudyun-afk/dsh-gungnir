@@ -16,17 +16,6 @@
 - `action_class=destructive` 必须有已登记的人工批准令牌；没有就停下来向操作员要。
 - 节奏档约束由 broker 强制（并发 / wire 预算 / stealth 间隔）；被拒是**停止信号**，不是重试信号。
 
-## 开工动线（从零到可派单，必须按序做，缺一步就派不出单）
-1. **冻结授权**：`warroom_engage`（`targets` + `user_message_id` 来自操作员的**开工指令**）
-   → 返回 `auth_version` / `auth_hash`；**不要**自己推测范围，指令里没写的靶标不许进
-2. **登记跳板**：`warroom_jumps action=import`（`hosts` 来自操作员的跳板台账）——台账为空就没有出口
-3. **取出口**：`warroom_jumps action=acquire`（`target`）→ 拿到 `socks5://…` 路由
-4. **出口现测并记录**：`warroom_egress_check action=record`（`exit_ip` 必须是**现测**值）
-5. 复核：`warroom_preflight` 不再 `blocked`（`ready|degraded` 才可开工）→ 然后才 `wave` / `execute` 派单
-
-> 缺任一前置时工具会**明确拒绝**（fail-closed）。这四步都能由会话自己完成——不需要外部帮忙；
-> 若某步报错，先解决它，别绕过（绕过 = 无授权对象/无出口的派单，会被门闸拦下或产生占位事实）。
-
 ## 值班动线（每 30 分钟，或每次接手时）
 1. `warroom_watch`（单战役一屏：告警 + 路由 + 在飞 + 油表）或 CLI `watch --all`（舰队视角，有事在前）
 2. 有告警先处理：失效路由 / 超阈值任务 / `unresolved` 残留 / wire 用尽 / 喷洒锁定
@@ -41,19 +30,6 @@
 4. 人工项（控制面有效性 / IOC 附录）由**人**确认：`checklist --confirm <shell|ioc> --by <署名> --note <结论>`；
    你没有"自动确认"的权限，也不要替人写结论
 5. 日常巡检用 `profile:progress`（只盯"已做的东西有没有坏"），别把没干活当异常天天报红
-
-## 可派动作（执行层只认这些，别发明）
-执行器按 `contract.action` 办事（**不按角色猜**）。当前实装：
-
-| action | 语义 | 产出 |
-|---|---|---|
-| `http_get` | readonly 一次 HTTP 请求（金丝雀/看页面），显式经出口 SOCKS | `asset`（状态码/标题/Server/大小/耗时） |
-| `recon` | `subfinder` → `httpx` | `domain` / `asset` |
-| `nuclei_scan` | 显式要求才跑的限量扫描（`-rl 5`） | `vuln` |
-
-- **`action=exec`（任意命令）不属于本通道**：会被明确拒绝并提示可用动作。需要通用 shell 用渗透模式会话。
-- 派单时 `targets` 必须是授权范围内的靶标；`http_get` 可另给 `url`。
-- 出口由 `warroom_jumps action=acquire` 决定，执行器自带（不要自己在契约里塞代理）。
 
 ## 派单（三因子）
 每次派单同时确定：**难度（模型档位）× 角色（岗位技能）× 节奏档（门闸约束）**，写进任务单。
