@@ -3,7 +3,7 @@
 // 供脱敏器形态测试使用，绝非真实凭据。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, unlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { harness } from '../packages/warroom-core/src/testing.js';
@@ -88,6 +88,47 @@ test('形态脱敏：token/私钥/kv 口令被掩码（未注册明文也能挡�
   assert.ok(PATTERNS.length >= 5);
   const deep = redactDeep({ a: ['sk-abcdefghijklmnopqrstuvwxyz012345'], b: { c: 'ghp_ABCDEFGHIJKLMNOPQRSTUVWX' } });
   assert.equal(JSON.stringify(deep).includes('sk-abcdefghijklmnopqrstuvwxyz012345'), false);
+});
+
+test('密钥轮换：旧秘密仍可解、新登记用新密钥、历史密钥归档 600', () => {
+  const h = harness();
+  const a = h.broker.secrets.put(SECRET, { label: 'old-pw' });
+  const before = h.broker.secrets.resolve; // 仅占位避免 lint 误判
+  void before;
+  h.broker.secrets.grant(a.secret_ref, { engagement_id: h.eng.engagement_id, task_id: 't', purpose: 'p' });
+  assert.equal(h.broker.secrets.resolve(a.secret_ref, { task_id: 't', purpose: 'p' }).value, SECRET);
+
+  const rot = h.broker.secrets.rotateKey();
+  assert.notEqual(rot.old_key_id, rot.new_key_id);
+  assert.equal(rot.reencrypted, 1);
+  // 轮换后旧秘密照常可解
+  assert.equal(h.broker.secrets.resolve(a.secret_ref, { task_id: 't', purpose: 'p' }).value, SECRET);
+  // 历史密钥归档且 600
+  const archived = join(h.home, 'secrets', 'keys', `${rot.old_key_id}.bin`);
+  assert.ok(existsSync(archived));
+  assert.equal(statSync(archived).mode & 0o777, 0o600);
+  // 新登记使用新密钥
+  const b = h.broker.secrets.put('second-secret', { label: 'new-pw' });
+  const row = h.broker.global.prepare('SELECT key_id FROM secret_store WHERE secret_ref = ?').get(b.secret_ref);
+  assert.equal(row.key_id, rot.new_key_id);
+  // 全部明文仍可读（redactor 注册表）
+  const values = h.broker.secrets.values().map((v) => v.value);
+  assert.ok(values.includes(SECRET) && values.includes('second-secret'));
+});
+
+test('缺少历史密钥时明确报错（不静默返回空）', () => {
+  const h = harness();
+  const a = h.broker.secrets.put(SECRET, { label: 'x' });
+  h.broker.secrets.grant(a.secret_ref, { engagement_id: h.eng.engagement_id, task_id: 't', purpose: 'p' });
+  const rot = h.broker.secrets.rotateKey();
+  const archived = join(h.home, 'secrets', 'keys', `${rot.old_key_id}.bin`);
+  unlinkSync(archived);
+  // 该行已用新密钥重加密，故仍可解；构造"消费历史密钥"的场景：手工把行改回旧 key_id
+  h.broker.global.prepare('UPDATE secret_store SET key_id = ? WHERE secret_ref = ?').run(rot.old_key_id, a.secret_ref);
+  assert.throws(
+    () => h.broker.secrets.resolve(a.secret_ref, { task_id: 't', purpose: 'p' }),
+    (e) => e.code === 'E_SECRET_KEY_INVALID'
+  );
 });
 
 test('密钥不随备份走：备份产物中无 key.bin（脚本只收 .db）', () => {

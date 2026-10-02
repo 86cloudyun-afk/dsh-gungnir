@@ -39,6 +39,7 @@
       "warroom_spray_matrix",
       "warroom_audit",
       "warroom_jumps",
+      "warroom_secret_rotate",
       "skill"
     ],
     "deny": [

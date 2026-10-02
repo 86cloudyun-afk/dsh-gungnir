@@ -23,6 +23,16 @@ cp -n "$HOME/.warroom-backup-$(date +%s)/global.db" "$DSH_HOME/warroom/global.db
 3. 打开一次即触发迁移自检（`runMigrations`）：库版本高于代码 → 拒绝打开并报
    `E_SCHEMA_NEWER_THAN_CODE`，此时应升级代码而不是降级库。
 
+## 密钥轮换
+
+```sh
+node bin/warroom.mjs secret rotate --confirm     # 或工具 warroom_secret_rotate {confirm:true}
+```
+
+- 旧密钥归档到 `secrets/keys/<key_id>.bin`（600），新密钥写入 `secrets/key.bin`（600）
+- 全部秘密在**单事务**内用新密钥重加密并更新 `key_id`；轮换后旧秘密仍可解
+- **轮换前先备份 `secrets/` 整个目录**：历史密钥丢失 = 对应历史密文不可恢复
+
 ## 加密密钥（v0.1 起适用）
 
 - 秘密存储使用 at-rest 加密，密钥位于 `$DSH_HOME/warroom/secrets/`（权限 700/600），
