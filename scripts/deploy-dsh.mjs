@@ -26,7 +26,7 @@ const presetId = 'warroom-gungnir';
 
 const yamlSnippet = `- insert:
     - id: ${presetId}
-      name: dsh-warroom-preset
+      name: dsh-warroom
       config:
         preset: ${join(root, 'presets', 'warroom.preset.json')}
         rolesDir: ${join(root, 'presets', 'roles')}

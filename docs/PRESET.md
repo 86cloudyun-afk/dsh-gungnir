@@ -11,7 +11,7 @@ GUNGNIR 作为 DSH 插件挂载时，**隔离靠挂载层**（不是提示词）
 ```yaml
 - insert:
     - id: warroom-gungnir
-      name: dsh-warroom-preset
+      name: dsh-warroom
       config:
         preset: <插件目录>/presets/warroom.preset.json
         rolesDir: <插件目录>/presets/roles

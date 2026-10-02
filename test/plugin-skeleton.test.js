@@ -72,3 +72,14 @@ test('bridge 模式在 home 下创建 spool 目录（协议就位）', () => {
   assert.ok(existsSync(join(home, 'dsh-bridge', 'outbox')));
   assert.ok(existsSync(join(home, 'dsh-bridge', 'inbox')));
 });
+
+test('cordis 可加载入口：dsh-warroom 包默认导出是插件对象，name 与 package.json 一致', async () => {
+  const { readFileSync } = await import('node:fs');
+  const pkg = JSON.parse(readFileSync(new URL('../packages/warroom-plugin/package.json', import.meta.url), 'utf8'));
+  // 包 `.` 入口（exports['.'] = ./src/index.js）必须暴露 default（宿主按 name 解析后取默认导出）
+  const mod = await import('../packages/warroom-plugin/src/index.js');
+  assert.equal(typeof mod.default, 'object', 'index.js 必须有 default 导出（cordis 插件）');
+  assert.equal(typeof mod.default.apply, 'function', 'cordis 插件必须有 apply');
+  assert.equal(mod.default.name, pkg.name, '插件 name 必须等于 package.json 的真实包名');
+  assert.equal(pkg.name, 'dsh-warroom', '真实包名应为 dsh-warroom');
+})
