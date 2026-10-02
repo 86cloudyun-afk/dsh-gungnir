@@ -67,6 +67,7 @@ function buildSnippet() {
             name: ${join(root, 'packages', 'warroom-plugin', 'src', 'dsh-entry.mjs')}
             config:
               role: ${role}
+              preset: ${join(root, 'presets', 'warroom.preset.json')}
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
             config:

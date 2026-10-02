@@ -8,6 +8,7 @@
 // 宿主契约（dsh 0.2.0-rc.2 @deepseek-ai/dsh-tools）：
 //   ctx.tools.register({ name, description, parameters: <JSON Schema>, output, execute }) -> disposer
 //   ctx.tools.restrict({ deny: [...] }) -> disposer（作用域内收窄可见工具集）
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createWarroomService } from './service.js';
@@ -59,6 +60,22 @@ export function resolveWarroomHome(config = {}) {
 }
 
 /**
+ * 读取本预设的 allowlist 工具策略（ADR-001 D1 的隔离核心）。
+ * 优先 inline `config.toolPolicy`，否则从 `config.preset`（声明文件路径）读取其 `toolPolicy`。
+ * 缺省返回 null（向后兼容：无策略时注册全部工具、不做门控）。
+ * @param {{toolPolicy?:object, preset?:string}} [config]
+ * @returns {{mode?:string, allow?:string[], deny?:string[]}|null}
+ */
+export function loadToolPolicy(config = {}) {
+  if (config.toolPolicy && typeof config.toolPolicy === 'object') return config.toolPolicy;
+  if (typeof config.preset === 'string' && config.preset) {
+    try { return JSON.parse(readFileSync(config.preset, 'utf8'))?.toolPolicy ?? null; }
+    catch { return null; }
+  }
+  return null;
+}
+
+/**
  * cordis 插件入口（预设内挂载）。
  * @param {object} ctx 宿主上下文（需要 ctx.tools）
  * @param {{home?:string, adapterKind?:string}} [config]
@@ -69,9 +86,15 @@ export function apply(ctx, config = {}) {
   const disposers = [];
   const registered = [];
 
+  // 消费 allowlist 预设：以声明的 toolPolicy.allow 为单一真相源（ADR-001 D1）。
+  const policy = loadToolPolicy(config);
+  const allow = policy && Array.isArray(policy.allow) ? new Set(policy.allow) : null;
+
   const registry = ctx?.tools;
   if (registry && typeof registry.register === 'function') {
     for (const tool of dshTools(service)) {
+      // allowlist 门控（源头过滤）：有显式允许集时，只注册在允许集内的工具。
+      if (allow && !allow.has(tool.name)) continue;
       disposers.push(registry.register(toToolDefinition(tool)));
       registered.push(tool.name);
     }
@@ -88,10 +111,31 @@ export function apply(ctx, config = {}) {
       process.stderr.write(`[warroom] tools.restrict 未生效（${e.message}）；允许清单由挂载构成保证\n`);
     }
   }
-  // 允许清单自检：注册数必须与声明一致（少一个就是挂载层与声明脱钩）
-  const missing = TOOL_NAMES.filter((n) => !registered.includes(n));
+  // 允许清单自检（fail-closed）：声明要求的 warroom 工具必须全部注册；且不得注册允许集之外的 warroom 工具。
+  const expectWarroom = allow ? TOOL_NAMES.filter((n) => allow.has(n)) : TOOL_NAMES;
+  const missing = expectWarroom.filter((n) => !registered.includes(n));
   if (registered.length > 0 && missing.length > 0) {
     throw new Error(`warroom 允许清单挂载不完整，缺失：${missing.join(', ')}`);
+  }
+  if (allow && registered.length > 0) {
+    const extra = registered.filter((n) => n.startsWith('warroom_') && !allow.has(n));
+    if (extra.length > 0) throw new Error(`warroom 注册了不在允许清单内的工具：${extra.join(', ')}`);
+  }
+
+  // 工具门控（纵深防御）：把**继承面**（host/祖先层）收窄到允许集——
+  // 丢弃一切不在 allow 内的继承工具（内核 exec/文件写/进程/委派等）。
+  // 本插件 own-layer 注册的 warroom_* 不受 restrict 影响（宿主语义：restrict 只过滤继承面）。
+  let gateStatus = allow ? 'allowlist' : 'no-policy';
+  if (allow && registry && typeof registry.restrict === 'function' && typeof registry.view === 'function') {
+    try {
+      const inherited = registry.view().restrictableNames ?? new Set();
+      const deny = [...inherited].filter((n) => !allow.has(n) && n !== 'run_code');
+      if (deny.length > 0) { disposers.push(registry.restrict({ deny })); gateStatus = `restricted:${deny.length}`; }
+      else gateStatus = 'allowlist:no-inherited-violation';
+    } catch (e) {
+      gateStatus = `restrict-skipped: ${e.message}`;
+      process.stderr.write(`[warroom] toolPolicy 门控（restrict）未生效（${e.message}）；允许清单由源头过滤 + 挂载构成保证\n`);
+    }
   }
 
   if (typeof ctx?.on === 'function') {
@@ -110,7 +154,7 @@ export function apply(ctx, config = {}) {
     disposers.push(ctx.isolate('warroom').provide('warroom', service));
   }
 
-  return { ...service, registered, restrictStatus };
+  return { ...service, registered, restrictStatus, gateStatus, allowlistSize: allow ? allow.size : null };
 }
 
 export const name = 'warroom-gungnir';
