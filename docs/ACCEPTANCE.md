@@ -67,10 +67,30 @@
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | 桥协议与驱动就绪，DSH 侧应答器未实现 | v0.2（`docs/DSH-BRIDGE-PROTOCOL.md` 待办） |
 
+## 批次 4–6 新增能力的验收映射
+
+| 能力 | 判据 | 证据 | 状态 |
+|---|---|---|---|
+| 知识库（跨战役复用） | 两战役共用同一 POC 且留痕；未脱敏被拒 | `test/knowledge.test.js` | ✅ |
+| 回填强制脱敏 | 内网 IP / 环回 / 内部域名 / 未替换占位一律 `E_KB_UNSANITIZED` | `test/knowledge.test.js` | ✅ |
+| 进程级停止证实 | 真实子进程在 → unresolved；杀掉后 → confirmed_stopped | `test/process-probes.test.js` | ✅ |
+| 围栏真实容器验收 | CI `fence` job：任务容器直连被阻断 | run [36944503518](https://github.com/86cloudyun-afk/dsh-gungnir/actions/runs/36944503518) | ✅ |
+| 波次编排（会不开波不发） | 纪要落库 + 依赖立即交接 + 结项 | `test/wave.test.js` | ✅ |
+| 波次演练（零副作用） | dry-run 前后命令/纪要/事实计数不变 | `test/wave.test.js` | ✅ |
+| 超时治理 | 超时转 unknown、清扫不新增命令 | `test/timeout.test.js` | ✅ |
+| 证据落盘（三段式索引） | md/json/水位/索引齐全且无明文 | `test/evidence.test.js` | ✅ |
+| 审计（含拒绝路径） | decision 过滤 + JSONL 导出 + deny 留痕 | `test/audit.test.js` | ✅ |
+| 跳板台账与收口 | status 计数正确；release 幂等 | `test/jumps-tool.test.js` | ✅ |
+| 喷洒矩阵（断点/扩散防护） | 已试过/已锁定不进 ready；锁定跨服务拦截 | `test/spray-matrix.test.js` | ✅ |
+| 效率视图（档位 + 返工率） | by_tier 派生指标；重派计入返工率 | `test/efficiency.test.js` | ✅ |
+| 执行器插件（fail-closed） | 未配置不写假回执；三方端到端 | `test/executor-plugin.test.js`、`test/executor-guide.test.js` | ✅ |
+| 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
+| 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+
 ## 数字快照
 
-- 测试：169 例（`node --test`）
+- 测试：174 例（`node --test`）
 - CI 闸：6（测试 / 工具 schema / 预设允许清单 / 故障注入矩阵 / 工具文档同步 / 自审闸）
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=5（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.6`（批次 1–5 已合并）
+- 标签：`v0.1.0-alpha.6`（批次 1–5 已合并；批次 6 合并时升 alpha.7）

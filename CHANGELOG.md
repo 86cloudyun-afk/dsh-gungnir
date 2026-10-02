@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **验收映射刷新**：`docs/ACCEPTANCE.md` 新增「批次 4–6 新增能力 → 判据/证据/状态」映射表（15 项）
 - **执行器接入闭环**：`docs/DSH-EXECUTOR.md`（三步接法 + 语义约束表 + 接入检查单）、
   `executors/example-role-cmd.mjs`（可跑示例：按 role 产出占位事实与资源）；
   **三方端到端回归**（GUNGNIR ↔ 应答器子进程 ↔ 执行器孙进程）
