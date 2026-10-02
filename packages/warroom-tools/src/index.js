@@ -308,6 +308,25 @@ export const TOOLS = [
     },
     run: (core, args) => core.broker.exportEvidence(args.engagement_id, { outDir: args.out_dir, target: args.target }),
   },
+  {
+    name: 'warroom_spray_matrix',
+    description: '凭据喷洒矩阵：展开 凭据×服务×账号，标注断点/锁定并给出可执行格子',
+    input_schema: {
+      type: 'object',
+      properties: {
+        engagement_id: { type: 'string' },
+        credentials: { type: 'array', items: { type: 'string' } },
+        services: { type: 'array', items: { type: 'string' } },
+        accounts: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['engagement_id', 'credentials', 'services'],
+      additionalProperties: false,
+    },
+    run: (core, args) => {
+      const { engagement_id, ...rest } = args;
+      return core.broker.sprayMatrix(engagement_id, rest);
+    },
+  },
 ];
 
 export { ERR };
