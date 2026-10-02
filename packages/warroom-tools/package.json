@@ -1,6 +1,6 @@
 {
   "name": "warroom-tools",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "WARROOM agent 平面：warroom_* 工具定义（v0.1 骨架；host 包裹层后续接入 DSH ctx）",

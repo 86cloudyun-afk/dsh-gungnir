@@ -1,6 +1,6 @@
 {
   "name": "dsh-warroom",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "GUNGNIR DSH 插件：host 服务（事实库/门闸/跳板池）+ warroom_* 工具包装 + 预设声明",
