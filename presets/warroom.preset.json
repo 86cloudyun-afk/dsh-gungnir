@@ -15,6 +15,7 @@
   "toolPolicy": {
     "mode": "allowlist",
     "allow": [
+      "warroom_engage",
       "warroom_execute",
       "warroom_collect",
       "warroom_cancel",

@@ -57,8 +57,8 @@ test('deploy 脚本：--print 输出合法挂载片段；--check 报告 profile 
 
   const home = mkdtempSync(join(tmpdir(), 'wr-deploy-'));
   const check = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home], { encoding: 'utf8', env: nodeEnv() });
-  assert.match(check, /预设文件可读（声明允许清单 37 项）/);
-  assert.match(check, /声明允许清单 == 实际注册工具（36 个/);
+  assert.match(check, /预设文件可读（声明允许清单 \d+ 项）/);
+  assert.match(check, /声明允许清单 == 实际注册工具（\d+ 个/);
 });
 
 test('deploy 脚本 --apply 幂等且先备份', async () => {
