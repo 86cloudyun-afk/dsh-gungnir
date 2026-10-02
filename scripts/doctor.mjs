@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // warroom doctor：一键体检（环境 / 数据 / 秘密 / 闸门）。
 // 用法：node scripts/doctor.mjs [--home <warroom-home>] [--json]
-import { existsSync, statSync, readdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -9,6 +9,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, targetVersionFor } from '../packages/warroom-core/src/migrate.js';
 import { latestBackup } from '../packages/warroom-core/src/maintenance.js';
 import { loadConfig } from '../packages/warroom-core/src/config.js';
+import { openEngagementDb } from '../packages/warroom-core/src/db.js';
+import { FactStore } from '../packages/warroom-core/src/store.js';
+import { verifyReportAgainstStore } from '../packages/warroom-core/src/report.js';
 import { SCHEMA_VERSION } from '../packages/warroom-core/src/version.js';
 
 const { values: v } = parseArgs({
@@ -99,6 +102,38 @@ else {
         anyValid ? `强制中（有效期 ${cfg.egressMaxAgeMin} 分钟，已有有效记录）` : '强制中但无有效期内的 pass——出网会被拒绝');
     }
   } catch (e) { add('出口验证门闸', 'warn', `配置读取失败：${e.message}`); }
+
+  // 报告可复现性：复用 report.js 的同一判定（水位 + 证据摘要），漂移即提示重出
+  try {
+    const engDir3 = join(home, 'engagements');
+    if (!existsSync(engDir3)) add('报告可复现性', 'ok', '尚无战役');
+    else {
+      const engs3 = readdirSync(engDir3).filter((d) => statSync(join(engDir3, d)).isDirectory());
+      let checked = 0;
+      const drifted = [];
+      for (const e of engs3) {
+        const reportsDir = join(engDir3, e, 'reports');
+        if (!existsSync(reportsDir)) continue;
+        const mdPath = readdirSync(reportsDir).filter((f) => f.endsWith('.md'))
+          .map((f) => join(reportsDir, f))
+          .map((p) => ({ p, mtime: statSync(p).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime)[0];
+        if (!mdPath) continue;
+        const db = openEngagementDb(join(engDir3, e));      // 复用同一打开路径（含迁移）
+        try {
+          const store = new FactStore(db, e);
+          const verdict = verifyReportAgainstStore(readFileSync(mdPath.p, 'utf8'), store);
+          checked += 1;
+          if (!verdict.reproducible) {
+            drifted.push(`${e}: 报告 seq=${verdict.report.seq} ≠ 当前 seq=${verdict.current.seq}（重出报告）`);
+          }
+        } catch { /* 读取失败视为未检查 */ } finally { db.close(); }
+      }
+      if (checked === 0) add('报告可复现性', 'ok', '尚无报告');
+      else if (drifted.length === 0) add('报告可复现性', 'ok', `${checked} 份报告与库一致（水位+摘要）`);
+      else add('报告可复现性', 'warn', drifted.join('；'));
+    }
+  } catch (e) { add('报告可复现性', 'warn', `检查失败：${e.message}`); }
 
   // 备份新鲜度（>7 天提示；从未备份也给提示，但不阻塞）
   const latest = latestBackup({ home });

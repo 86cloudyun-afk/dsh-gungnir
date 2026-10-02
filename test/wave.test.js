@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { harness } from '../packages/warroom-core/src/testing.js';
 import { runWave, listMeetings, recordMeeting } from '../packages/warroom-core/src/wave.js';
+import { JumphostManager } from '../packages/warroom-core/src/jumphosts.js';
 
 test('会议纪要落库（会不开，波不发）', () => {
   const h = harness();
@@ -174,4 +175,69 @@ test('未结项的波必须如实报错（不允许"看起来跑完"）', () => 
     broker: h.broker, engagementId: h.eng.engagement_id,
     wave: { title: '卡住的波', notes: 'x', tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'] }] },
   }), (e) => e.code === 'E_GATE_CONCURRENCY_LIMIT' && /未结项/.test(e.message));
+});
+
+test('计划标注执行桶与出口需求（含默认桶与分桶计数）', () => {
+  const h = harness();
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id, dryRun: true,
+    wave: {
+      title: '桶标注', notes: 'x', default_bucket: 'B',
+      tasks: [
+        { id: 'A', role: 'recon', targets: ['10.0.0.5'], bucket: 'B', action_class: 'readonly' },
+        { id: 'B', role: 'chain', targets: ['10.0.0.6'], bucket: 'A', wire_cost: 1 },
+        { id: 'C', role: 'recon', targets: ['10.0.0.7'], bucket: 'B', wire_cost: 1 },
+      ],
+    },
+  });
+  const byId = Object.fromEntries(r.plan.tasks.map((t) => [t.id, t]));
+  assert.equal(byId.A.bucket, 'B');
+  assert.equal(byId.A.egress, 'none', '只读任务本波不出网');
+  assert.equal(byId.A.needs_egress, false, '只读任务不出网');
+  assert.equal(byId.B.bucket, 'A');
+  assert.equal(byId.B.egress, 'route', '桶 A 且需出网 → 走 route');
+  assert.equal(byId.C.egress, 'direct', '桶 B 需出网时走直连（不经 socks）');
+  assert.deepEqual(r.plan.buckets, { B: 2, A: 1 });
+  assert.equal(r.plan.default_bucket, 'B');
+});
+
+test('派单前桶自洽：需经 route 的任务但无活跃出口 → 拒绝开工（不产生任何命令）', () => {
+  const h = harness();
+  const before = h.broker.global.prepare('SELECT COUNT(*) c FROM command_queue').get().c;
+  assert.throws(() => runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: { title: '缺出口', notes: 'x', tasks: [{ id: 'A', role: 'chain', targets: ['10.0.0.5'], wire_cost: 1 }] },
+  }), (e) => e.code === 'E_FENCE_NO_ROUTE' && /桶 A/.test(e.message));
+  assert.equal(h.broker.global.prepare('SELECT COUNT(*) c FROM command_queue').get().c, before, '拒绝后不得留下命令');
+  assert.equal(listMeetings({ store: h.store() }).length, 0, '拒绝后不得留下会议纪要（会没开成）');
+  const rejected = h.broker.audit(h.eng.engagement_id, { decision: 'wave_rejected' });
+  assert.equal(rejected.rows.length, 1, '被拒的尝试要留痕（可追溯）');
+  assert.match(rejected.rows[0].detail, /no_active_route/);
+});
+
+test('显式标 bucket B 的任务：无 route 也能跑（本机直连）', () => {
+  const h = harness();
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: { title: '本机波', notes: 'x', tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'], bucket: 'B' }] },
+  });
+  assert.equal(r.tasks.length, 1);
+  assert.equal(r.facts_inserted, 1);
+});
+
+test('有活跃 route 时：需经 route 的波可正常开跑', () => {
+  const h = harness();
+  const jm = new JumphostManager({
+    globalDb: h.broker.global, getFactStore: (id) => h.broker._eng(id).store,
+    listEngagements: () => h.broker.listEngagements(),
+  });
+  jm.importHosts([{ id: 'wv-jh', addr_v4: '203.0.113.60' }]);
+  jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.5' });
+
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: { title: '经路由波', notes: 'x', tasks: [{ id: 'A', role: 'chain', targets: ['10.0.0.5'], wire_cost: 1 }] },
+  });
+  assert.equal(r.tasks.length, 1);
+  assert.equal(h.store().effectiveCount(), 1);
 });

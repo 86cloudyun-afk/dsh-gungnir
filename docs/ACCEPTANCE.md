@@ -87,6 +87,12 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 战役时序视图 | 事件按真实时间排序；缺失阶段为 null；账本态单列 | `test/timeline.test.js` | ✅ |
+| 报告受众差异化 | 客户版剔除审计/知识库/台账；三受众均保留水位与自校验 | `test/ioc-report.test.js` | ✅ |
+| 证据交付视图 | 客户版/蓝队版分目录归档；索引注明内部全量 | `test/evidence.test.js` | ✅ |
+| 预检留痕 | `--record` 写入审计，默认不留痕 | `test/preflight.test.js` | ✅ |
+| 波次桶/出口标注 | 每任务 bucket/egress；缺出口拒绝开工且留痕 | `test/wave.test.js` | ✅ |
+| 体检报告复现性 | 漂移即 warn 并提示重出（复用同一判定） | `test/doctor.test.js` | ✅ |
 | 效率四段观测 | 排队/交接/执行/返工分段正确；无数据为 null | `test/efficiency-segments.test.js` | ✅ |
 | 跨会话聚合（只读边界） | 聚合库写入必须失败；聚合不改本框架水位 | `test/aggregate.test.js` | ✅ |
 | 知识库检索加权 | 命中率优先、新鲜度衰减、sort 可切 | `test/knowledge.test.js` | ✅ |
@@ -113,8 +119,8 @@
 
 ## 数字快照
 
-- 测试：280 例（`node --test`）
+- 测试：299 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.11`（批次 1–10 已合并）
+- 标签：`v0.1.0-alpha.11`（批次 1–10 已合并；批次 11 合并时升 alpha.12）

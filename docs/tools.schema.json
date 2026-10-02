@@ -219,6 +219,14 @@
           },
           "max_facts_per_type": {
             "type": "integer"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "client",
+              "blue",
+              "full"
+            ]
           }
         },
         "required": [
@@ -574,6 +582,16 @@
           },
           "target": {
             "type": "string"
+          },
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "client",
+                "blue"
+              ]
+            }
           }
         },
         "required": [
@@ -819,6 +837,23 @@
         },
         "required": [
           "sessions_db"
+        ],
+        "additionalProperties": false
+      },
+      "in_allowlist": true
+    },
+    {
+      "name": "warroom_timeline",
+      "description": "战役时序（只读）：立项→派发→回执→结项→控制面→交付 的事件时间线",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
         ],
         "additionalProperties": false
       },

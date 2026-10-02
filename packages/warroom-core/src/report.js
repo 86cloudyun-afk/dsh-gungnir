@@ -35,7 +35,7 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 }
 
 /** 结构化报告（机器可读）：与 markdown 报告同水位、同证据摘要。 */
-export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null }) {
+export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null, metrics = null }) {
   const snap = store.exportSnapshot();
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
   const facts = snap.rows.map((r) => {
@@ -85,6 +85,14 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     jump_routes: routes,
     kb_usage: kbUsage,
     topology: R(topology),
+    efficiency: metrics ? {
+      queue_ms: metrics.segments?.queue_ms ?? null,
+      handoff_ms: metrics.segments?.handoff_ms ?? null,
+      exec_ms: metrics.segments?.exec_ms ?? null,
+      rework: metrics.segments?.rework ?? null,
+      by_role: metrics.by_role ?? {},
+      by_tier: metrics.by_tier ?? {},
+    } : null,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
     ioc: ioc.items,
     ioc_summary: ioc.summary,
@@ -96,7 +104,13 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
  * @param {{maxFactsPerType?:number}} opts.maxFactsPerType 每类事实最多列出多少条（默认 50），
  *   超出部分只给计数与摘要——避免大 N 下报告被事实流水账淹没（全量在 JSON 视图里）。
  */
-export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50 }) {
+/**
+ * @param {'client'|'blue'|'full'} opts.audience 报告受众：
+ *   client —— 客户版：攻击路径 + 影响面 + 修复建议（不铺审计明细与知识库内部记账）
+ *   blue   —— 蓝队版：IOC 清单优先 + 审计摘要 + 事实证据引用（排查口径）
+ *   full   —— 全量（默认，内部归档/交叉复核用）
+ */
+export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50, audience = 'full', metrics = null }) {
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
@@ -145,6 +159,11 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     }
   }
 
+  if (audience !== 'full') {
+    lines.push(`> 视图：**${audience === 'client' ? '客户版（攻击路径与修复建议）' : '蓝队版（IOC 排查清单）'}**`);
+    lines.push('');
+  }
+
   lines.push('## 战役元信息');
   lines.push('');
   lines.push(`- 授权对象哈希: \`${engagementRow?.auth_hash ?? '-'}\``);
@@ -163,7 +182,14 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     }
   }
   lines.push('');
-  lines.push('## 事实（有效修订）');
+  if (audience === 'client') {
+    lines.push('## 事实摘要（有效修订）');
+    lines.push('');
+    lines.push('- 说明：客户版只给事实的**分类统计**与攻击路径；逐条证据与原始载荷见内部全量版');
+    lines.push('');
+  } else {
+    lines.push('## 事实（有效修订）');
+  }
   lines.push('');
   if (effective.length === 0) lines.push('- （无）');
   for (const type of ENTITY_ORDER.concat([...grouped.keys()].filter((k) => !ENTITY_ORDER.includes(k)))) {
@@ -171,14 +197,17 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     if (!rows) continue;
     lines.push(`### ${type}（${rows.length}）`);
     lines.push('');
-    const shown = rows.slice(0, maxFactsPerType);
+    const effectiveLimit = audience === 'client' ? 0 : maxFactsPerType;   // 客户版不铺逐条流水
+    const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
       lines.push(`- [${r.adapter_instance}] ${r.source_id} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
-      lines.push(`- …另有 **${rows.length - shown.length}** 条同类事实未逐条列出`
-        + `（md 上限 ${maxFactsPerType}/类；全量见 JSON 报告 \`--format json|both\`）`);
+      const why = audience === 'client'
+        ? '客户版只给统计，逐条证据见内部全量版'
+        : `md 上限 ${maxFactsPerType}/类；全量见 JSON 报告 \`--format json|both\``;
+      lines.push(`- …另有 **${rows.length - shown.length}** 条同类事实未逐条列出（${why}）`);
     }
     lines.push('');
   }
@@ -239,7 +268,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('');
   }
 
-  if (kbUsage.total > 0) {
+  if (audience !== 'client' && kbUsage.total > 0) {
     lines.push('## 知识库复用（POC 使用记录）');
     lines.push('');
     for (const r of kbUsage.rows) {
@@ -252,14 +281,33 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('');
   }
 
-  if (auditSummary.length > 0) {
+  // 效率四段（§11）：客户版只给一行总览，其它视图给完整分解
+  if (metrics?.segments) {
+    const seg = metrics.segments;
+    const fmt = (ms) => (ms === null || ms === undefined ? '—' : `${Math.round(ms / 1000)}s`);
+    lines.push('## 效率观测（四段）');
+    lines.push('');
+    if (audience === 'client') {
+      lines.push(`- 端到端：排队 ${fmt(seg.queue_ms)} · 交接 ${fmt(seg.handoff_ms)} · 执行 ${fmt(seg.exec_ms)}`
+        + `（样本：交接 ${seg.samples?.handoff ?? 0} / 执行 ${seg.samples?.exec ?? 0}）`);
+    } else {
+      lines.push(`- 排队（立项→首派）：${fmt(seg.queue_ms)}`);
+      lines.push(`- 交接（派发→首回执）：${fmt(seg.handoff_ms)}（样本 ${seg.samples?.handoff ?? 0}）`);
+      lines.push(`- 执行（首回执→结项）：${fmt(seg.exec_ms)}（样本 ${seg.samples?.exec ?? 0}）`);
+      lines.push(`- 返工：${seg.rework?.tasks ?? 0} 个任务（墙钟 ${fmt(seg.rework?.wall_ms)}）`);
+      lines.push(`- 口径：${seg.basis}`);
+    }
+    lines.push('');
+  }
+
+  if (audience !== 'client' && auditSummary.length > 0) {
     lines.push('## 审计摘要（门闸判定分布）');
     lines.push('');
     for (const a of auditSummary) lines.push(`- \`${a.decision}\`：${a.n}`);
     lines.push('- 明细导出：`warroom audit --engagement <id> --export <dir>`（JSONL）');
     lines.push('');
   }
-  if (routes.length > 0) {
+  if (audience !== 'client' && routes.length > 0) {
     lines.push('## 跳板与隧道台账');
     lines.push('');
     for (const r of routes) {
@@ -288,8 +336,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
  * 导出到文件；format: 'md' | 'json' | 'both'。
  * 返回 {path|paths, watermark, evidence_digests}。
  */
-export function exportReport({ store, engagementId, engagementRow, vault, globalDb, home = null, outDir, format = 'md', maxFactsPerType = 50 }) {
-  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, home, maxFactsPerType });
+export function exportReport({ store, engagementId, engagementRow, vault, globalDb, home = null, outDir, format = 'md', maxFactsPerType = 50, audience = 'full', metrics = null }) {
+  const built = buildReport({ store, engagementId, engagementRow, vault, globalDb, home, maxFactsPerType, audience, metrics });
   const { watermark, evidence_digests } = built;
   mkdirSync(outDir, { recursive: true });
 
@@ -321,7 +369,8 @@ export function exportReport({ store, engagementId, engagementRow, vault, global
   }
   if (format === 'json' || format === 'both') {
     const path = join(outDir, `${engagementId}-report-${watermark.seq}.json`);
-    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home });
+    const json = buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home, metrics });
+    json.audience = audience;
     json.self_check = selfCheck;
     writeFileSync(path, JSON.stringify(json, null, 2), 'utf8');
     out.paths.json = path;
