@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- 文档收口：QUICKSTART 增「值班动线（每 30 分钟看什么）」；ACCEPTANCE 增 5 行（巡检/油表/CSV/HTML/交付前一体化）、
+  数字同步（322 例 / 32 工具 / 故障矩阵 16 场景）
 - **速率与预算视图**（"油表"）：`warroom rate --engagement <id> [--text|--json]`（工具 `warroom_rate_view`，
   32 个工具）—— wire 用量/上限/剩余、按目标分布、本次要求间隔（含抖动区间）与"还需等待"、
   并发上限、喷洒台账（含锁定次数）；**只读**（回归断言水位与 rate_ledger 不变）

@@ -87,6 +87,11 @@
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
+| 巡检统一视图 | 一屏汇聚路由/任务/出口/壳 + 告警；严格只读 | `test/watch.test.js` | ✅ |
+| 速率与预算视图 | wire 用量/剩余/间隔（含抖动）/锁定；只读 | `test/rate-view.test.js` | ✅ |
+| 效率 CSV 导出 | 六节行结构 + RFC4180 转义 + CLI 双路 | `test/metrics-csv.test.js` | ✅ |
+| 报告 HTML | 自包含、无外部资源、mermaid 双份 | `test/report-html.test.js` | ✅ |
+| 交付前一体化 | `report --verify` 导出即校验；漂移非零退出 | `test/report-selfcheck.test.js` | ✅ |
 | 战役时序视图 | 事件按真实时间排序；缺失阶段为 null；账本态单列 | `test/timeline.test.js` | ✅ |
 | 报告受众差异化 | 客户版剔除审计/知识库/台账；三受众均保留水位与自校验 | `test/ioc-report.test.js` | ✅ |
 | 证据交付视图 | 客户版/蓝队版分目录归档；索引注明内部全量 | `test/evidence.test.js` | ✅ |
@@ -119,8 +124,8 @@
 
 ## 数字快照
 
-- 测试：299 例（`node --test`）
+- 测试：322 例（`node --test`）
 - CI 闸：6 + 故障矩阵 11 场景 + 围栏真实容器 job
 - 工具：24 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
-- 标签：`v0.1.0-alpha.12`（批次 1–11 已合并）
+- 标签：`v0.1.0-alpha.12`（批次 1–11 已合并；批次 12 合并时升 alpha.13）
