@@ -784,7 +784,7 @@
     },
     {
       "name": "warroom_egress_check",
-      "description": "出口验证：记录一次出口 IP 结果（pass/fail）或查询状态（框架 §11 门闸）",
+      "description": "出口验证：probe（**宿主侧现测**：经路由 SOCKS 真发一次请求测出口 IP 并记录）/ record（记录已知结果）/ status（查询，含有效期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -795,6 +795,7 @@
             "type": "string",
             "enum": [
               "status",
+              "probe",
               "record"
             ]
           },
