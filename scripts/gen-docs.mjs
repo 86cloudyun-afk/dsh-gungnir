@@ -62,16 +62,88 @@ const schemaExport = {
 };
 const schemaContent = JSON.stringify(schemaExport, null, 2) + '\n';
 
+// ── 看板契约导出：由**真实样本**推导字段路径（外部看板据此对齐，字段漂移即 CI 失败）──
+const flattenKeys = (obj, prefix = '', out = new Set(), depth = 0) => {
+  if (depth > 4 || obj === null || typeof obj !== 'object') return out;
+  if (Array.isArray(obj)) {
+    if (obj.length > 0) flattenKeys(obj[0], `${prefix}[]`, out, depth + 1);
+    else out.add(`${prefix}[]`);
+    return out;
+  }
+  for (const [k, val] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    out.add(path);
+    if (val !== null && typeof val === 'object') flattenKeys(val, path, out, depth + 1);
+  }
+  return out;
+};
+
+async function buildDashboardContract() {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { Broker } = await import('../packages/warroom-core/src/broker.js');
+  const { FakeAdapter } = await import('../packages/warroom-core/src/adapters/fake.js');
+  const home = mkdtempSync(join(tmpdir(), 'wr-dash-'));
+  // neverFinish：让样本里**留一个在飞任务**，否则数组类字段（tasks.in_flight[]）推导不出嵌套字段
+  const adapter = new FakeAdapter({ faults: { neverFinish: true } });
+  const broker = new Broker({ home, adapter });
+  const eng = broker.createEngagement({ user_message_id: 'dash', targets: ['10.0.0.0/24'], overrides: { rhythm: 'open' } });
+  const ex = broker.execute({
+    command_id: 'dash-1', engagement_id: eng.engagement_id, auth_version: 1, action_class: 'active',
+    contract: {
+      targets: ['10.0.0.5'], action_class: 'active', resources: [], wire_cost: 1,
+      fake_members: [
+        { entity_type: 'asset', source_id: 'dash-asset', revision_no: 1, content_hash: 'h1', payload: { note: 'x' } },
+        { entity_type: 'vuln', source_id: 'CVE-DASH-1', revision_no: 1, content_hash: 'h2', payload: { note: 'RCE 命令执行' } },
+      ],
+    },
+  });
+  broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  broker.heartbeat(eng.engagement_id, ex.task_id, { note: '合同样本' });   // 心跳字段也进契约
+  // 再派一个任务并留在飞（不结项）；报告仍导出（跑过的那个已在账本里）
+  broker.execute({
+    command_id: 'dash-2', engagement_id: eng.engagement_id, auth_version: 1, action_class: 'active',
+    contract: {
+      targets: ['10.0.0.6'], action_class: 'active', resources: [], wire_cost: 0,
+      fake_members: [{ entity_type: 'asset', source_id: 'dash-asset-2', revision_no: 1, content_hash: 'h3', payload: {} }],
+    },
+  });
+  const report = broker.exportReport(eng.engagement_id, { format: 'json' });
+  const { readFileSync } = await import('node:fs');
+  return {
+    schema: 'gungnir-dashboards/1',
+    note: '外部看板消费的字段契约：由真实样本生成，字段漂移会让 CI 的 docs 闸失败',
+    views: {
+      watch: [...flattenKeys(broker.watch(eng.engagement_id))].sort(),
+      fleet: [...flattenKeys(broker.fleetWatch())].sort(),
+      weekly: [...flattenKeys(broker.weekly({ days: 7 }))].sort(),
+      rate: [...flattenKeys(broker.rateView(eng.engagement_id))].sort(),
+      checklist: [...flattenKeys(broker.checklist(eng.engagement_id))].sort(),
+      timeline: [...flattenKeys(broker.timeline(eng.engagement_id))].sort(),
+      report: [...flattenKeys(JSON.parse(readFileSync(report.paths.json, 'utf8')))].sort(),
+    },
+  };
+}
+
+const dashboardTarget = join(repoRoot, 'docs', 'dashboards.schema.json');
+const dashboardContent = JSON.stringify(await buildDashboardContract(), null, 2) + '\n';
+
+
 if (write) {
   writeFileSync(target, content, 'utf8');
   writeFileSync(schemaTarget, schemaContent, 'utf8');
-  console.log(`[✓] 已写入 docs/TOOLS.md 与 docs/tools.schema.json（${TOOLS.length} 个工具）`);
+  writeFileSync(dashboardTarget, dashboardContent, 'utf8');
+  console.log(`[✓] 已写入 docs/TOOLS.md、docs/tools.schema.json 与 docs/dashboards.schema.json（${TOOLS.length} 个工具）`);
 } else if (check) {
   const problems = [];
   if (!existsSync(target)) problems.push('docs/TOOLS.md 不存在');
   else if (readFileSync(target, 'utf8') !== content) problems.push('docs/TOOLS.md 与代码不一致');
   if (!existsSync(schemaTarget)) problems.push('docs/tools.schema.json 不存在');
   else if (readFileSync(schemaTarget, 'utf8') !== schemaContent) problems.push('docs/tools.schema.json 与代码不一致');
+  if (!existsSync(dashboardTarget)) problems.push('docs/dashboards.schema.json 不存在');
+  else if (readFileSync(dashboardTarget, 'utf8') !== dashboardContent) {
+    problems.push('docs/dashboards.schema.json 与看板视图不一致（字段漂移）');
+  }
   if (problems.length) {
     console.error(`[✗] ${problems.join('；')}——运行 \`node scripts/gen-docs.mjs --write\` 后提交`);
     process.exit(1);

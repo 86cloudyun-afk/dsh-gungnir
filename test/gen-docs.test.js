@@ -55,3 +55,38 @@ test('机器可读 schema 导出：结构与同步校验', () => {
     unlinkSync(bak);
   }
 });
+
+test('看板契约导出：七个视图字段齐备，且与实时输出一致（漂移即失败）', async () => {
+  const raw = readFileSync('docs/dashboards.schema.json', 'utf8');
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.schema, 'gungnir-dashboards/1');
+  for (const view of ['watch', 'fleet', 'weekly', 'rate', 'checklist', 'timeline', 'report']) {
+    assert.ok(Array.isArray(parsed.views[view]) && parsed.views[view].length > 5, `${view} 字段太少`);
+  }
+  assert.ok(parsed.views.watch.includes('tasks.in_flight[].task_id'), '在飞任务字段应在契约里');
+  assert.ok(parsed.views.watch.includes('tasks.in_flight[].overdue'));
+  assert.ok(parsed.views.fleet.includes('totals.with_issues'));
+  assert.ok(parsed.views.report.some((f) => f.startsWith('watermark.')));
+  assert.ok(parsed.views.checklist.includes('deliverable'));
+
+  // 与实时输出对比：抽样校验字段确实存在
+  const { harness } = await import('../packages/warroom-core/src/testing.js');
+  const h = harness();
+  const watch = h.broker.watch(h.eng.engagement_id);
+  assert.ok(parsed.views.watch.includes('warnings'), '告警数组字段应在契约里');
+  assert.equal(Array.isArray(watch.warnings), true);
+});
+
+test('看板契约漂移会被 docs 闸检出（改字段后不重跑生成器即失败）', () => {
+  const bak = 'docs/dashboards.schema.json.bak-test';
+  copyFileSync('docs/dashboards.schema.json', bak);
+  try {
+    writeFileSync('docs/dashboards.schema.json', '{"schema":"gungnir-dashboards/0","views":{}}');
+    let failed = false;
+    try { run('--check'); } catch (e) { failed = true; assert.match(String(e.stderr), /dashboards\.schema\.json/); }
+    assert.equal(failed, true);
+  } finally {
+    copyFileSync(bak, 'docs/dashboards.schema.json');
+    unlinkSync(bak);
+  }
+});
