@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **出口验证实跑脚本** `scripts/egress-check.mjs`：经 route 的 SOCKS 出口回显端点比对登记地址，
+  或 `--self`（操作节点自身出口，**检测到代理环境变量即拒绝**）；结果自动入账；
+  退出码语义化（0 通过 / 1 不匹配 / 2 前置缺失 / 3 SKIP——环境不可用即如实 SKIP，不伪造通过）；
+  支持 `--observed` 离线补录。`doctor` 新增「出口验证门闸」检查（强制中但无有效 pass → warn）
 - **出口验证门闸**（框架 §11）：`recordEgressCheck` / `egressStatus` / `assertEgressVerified`
   ——验证结果入 `egress_checks` 并留痕 gate_log；配置 `requireEgressCheck=true`（+ `egressMaxAgeMin`）
   时，**出网动作必须有有效期内的 pass**，否则 `E_GATE_EGRESS_UNVERIFIED`（默认关闭，不阻塞既有用法）；

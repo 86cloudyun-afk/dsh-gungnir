@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, targetVersionFor } from '../packages/warroom-core/src/migrate.js';
 import { latestBackup } from '../packages/warroom-core/src/maintenance.js';
+import { loadConfig } from '../packages/warroom-core/src/config.js';
 import { SCHEMA_VERSION } from '../packages/warroom-core/src/version.js';
 
 const { values: v } = parseArgs({
@@ -74,6 +75,30 @@ else {
     add(`秘密密钥权限（${mode.toString(8)}）`, mode === 0o600 ? 'ok' : 'fail');
   }
   add('知识库', existsSync(join(home, 'knowledge.db')) ? 'ok' : 'warn', existsSync(join(home, 'knowledge.db')) ? '' : '尚未使用');
+
+  // 出口验证配置（requireEgressCheck=true 但从未验证 → 提示；否则说明当前策略）
+  try {
+    const cfg = loadConfig(home);
+    const engDir2 = join(home, 'engagements');
+    if (!cfg.requireEgressCheck) add('出口验证门闸', 'ok', '未强制（requireEgressCheck=false）');
+    else if (!existsSync(engDir2)) add('出口验证门闸', 'warn', '已强制但尚无战役');
+    else {
+      const engs2 = readdirSync(engDir2).filter((d) => statSync(join(engDir2, d)).isDirectory());
+      let anyValid = false;
+      for (const e of engs2) {
+        const f = join(engDir2, e, 'fact.db');
+        if (!existsSync(f)) continue;
+        const db = new DatabaseSync(f);
+        try {
+          const last = db.prepare('SELECT verdict, ts FROM egress_checks ORDER BY ts DESC LIMIT 1').get();
+          if (last?.verdict === 'pass' && (Date.now() - Date.parse(last.ts)) <= cfg.egressMaxAgeMin * 60000) anyValid = true;
+        } catch { /* 老库无表 */ }
+        db.close();
+      }
+      add('出口验证门闸', anyValid ? 'ok' : 'warn',
+        anyValid ? `强制中（有效期 ${cfg.egressMaxAgeMin} 分钟，已有有效记录）` : '强制中但无有效期内的 pass——出网会被拒绝');
+    }
+  } catch (e) { add('出口验证门闸', 'warn', `配置读取失败：${e.message}`); }
 
   // 备份新鲜度（>7 天提示；从未备份也给提示，但不阻塞）
   const latest = latestBackup({ home });
