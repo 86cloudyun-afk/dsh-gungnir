@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- **证据落盘桥**（对齐作战室第 8 节纪律）：`warroom evidence --engagement <id> --out <dir> [--target <名>]`
+  → 目录内 `report-<seq>.md` / `report-<seq>.json` / `watermark.json` /
+  **`EVIDENCE_INDEX.md`（Confirmed / Leaked credentials(仅引用) / Raw artifacts 三段式）**；
+  明文秘密永不落盘（回归断言索引与报告均无明文）
 - **超时治理**（ADR-003 D3）：`broker.sweepTimeouts` / `warroom_sweep_timeouts` / CLI `sweep`——
   运行超阈值任务转 `unknown`，**绝不自动重试**（回归断言：清扫不新增命令、不重派），
   留痕 gate_log，交由 reconcile 依证据定论；默认 30 分钟
