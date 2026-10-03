@@ -7,7 +7,7 @@ import {
   warroomError, ERR, canTransition, isTerminal, makeGeneration,
   ALL_TASK_STATES, ACTION_CLASS,
 } from '../../shared-types/src/index.js';
-import { checkAgainstAuth, buildAuthObject } from './gates.js';
+import { checkAgainstAuth, buildAuthObject, approvalFingerprint, contractFingerprint, contractAddressKeys, addressKey } from './gates.js';
 import { join } from 'node:path';
 import { assertSafeSegment, resolveUnder } from './paths.js';
 import { openEngagementDb, openGlobalDb } from './db.js';
@@ -141,18 +141,19 @@ export class Broker {
     // 节奏闸（ADR-002 D10 / 框架 §4）：并发 / wire 预算 / 最小间隔
     this._checkRhythm({ engagementId: req.engagement_id, rhythm: row.rhythm, contract: req.contract, store });
 
-    // destructive 的人工裁决：令牌必须是已登记且未过期的批准（可审计），检查其归属与一次性
-    if (req.contract.action_class === 'destructive') {
-      this._consumeApproval(req.manual_approval_token, req.engagement_id);
-    }
-
     // broker 持有 task_id（四元组在派发前即完整）
     const generation = makeGeneration(row.auth_version, ++this.dispatchCounter, 1);
     const contract = { ...req.contract, task_id, generation, engagement_id: req.engagement_id };
 
-    // 命令先持久化，后派发（ADR-003 D1：派发幂等）
+    // 命令先持久化，后派发（ADR-003 D1：派发幂等）。
+    // destructive 的批准**在同一事务内**消费：指纹与动作绑定 + compare-and-set 记下真实 command_id，
+    // 这样"一张令牌授权任意动作"与"跨进程双花"都没有窗口（ADR-007）。
+    let approval = null;
     this.global.exec('BEGIN IMMEDIATE');
     try {
+    if (req.contract.action_class === 'destructive') {
+      approval = this._consumeApproval(req.manual_approval_token, req.engagement_id, contract, req.command_id);
+    }
     this.global.prepare(`INSERT INTO command_queue
       (command_id, engagement_id, task_id, contract, state, generation, attempt, ts)
       VALUES (?, ?, ?, ?, 'queued', ?, 1, ?)`).run(
@@ -168,7 +169,8 @@ export class Broker {
     } catch (e) { this.global.exec('ROLLBACK'); throw e; }
     store.appendGateLog({
       decision: 'allow', code: 'BROKER_EXECUTE',
-      detail: `class=${contract.action_class}`,
+      detail: `class=${contract.action_class} action=${contract.action ?? '(未声明)'}`
+        + (approval ? ` approval=${approval.approval_id} bound=${String(approval.contract_hash).slice(0, 12)}` : ''),
       request: this.secrets.redact(JSON.stringify({ command_id: req.command_id, task_id })),
     });
 
@@ -250,7 +252,38 @@ export class Broker {
       if (!approval || approval.engagement_id !== cmd.engagement_id || Date.parse(approval.expires_at) <= this._nowMs()) {
         throw warroomError(ERR.E_APPROVAL_EXPIRED, 'queued host approval expired or unavailable');
       }
+      // 复核：这张批准必须正是**为这条命令、这个动作**签发的（防"批条被换给别的命令"）
+      if (!approval.contract_hash || approval.contract_hash !== contractFingerprint(JSON.parse(cmd.contract))) {
+        throw warroomError(ERR.E_APPROVAL_MISMATCH, 'queued host approval does not match this command');
+      }
+      if (approval.used_by_command !== cmd.command_id) {
+        throw warroomError(ERR.E_APPROVAL_MISMATCH, 'queued host approval was consumed by another command');
+      }
     }
+  }
+
+  /**
+   * 资源收口实测（ADR-003 D4 / ADR-009）：清单里仍**未被证实停止**的资源 id。
+   *
+   * `observable:false` = 观测不到清单（适配器不认识这个任务）——此时不据此声称已收口，
+   * 但也不把"观测不到"当成"未收口"去阻塞既有语义。
+   */
+  _liveResources(cmd) {
+    if (typeof this.adapter.manifestOf !== 'function') return { observable: false, total: 0, live: [] };
+    if (typeof this.adapter.hydrate === 'function' && typeof this.adapter.lookup === 'function' && !this.adapter.lookup(cmd.command_id)) {
+      // 宿主重启后适配器可能没装载这个任务：先按持久化契据补水，再探
+      try { this.adapter.hydrate(cmd.command_id, JSON.parse(cmd.contract), cmd.state); } catch { return { observable: false, total: 0, live: [] }; }
+    }
+    let manifest;
+    try { manifest = this.adapter.manifestOf(cmd.task_id, { generation: cmd.generation }); } catch { return { observable: false, total: 0, live: [] }; }
+    if (!Array.isArray(manifest)) return { observable: false, total: 0, live: [] };
+    const live = [];
+    for (const m of manifest) {
+      let stopped = false;
+      try { stopped = m.check() === true; } catch { stopped = false; }
+      if (!stopped) live.push(m.id);
+    }
+    return { observable: true, total: manifest.length, live };
   }
 
   // ── 取消与证实（ADR-003 D4：资源清单逐项证实，账本不算证明）──────────────────
@@ -258,7 +291,18 @@ export class Broker {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
     this._assertCommandOwned(cmd, engagement_id);
-    if (isTerminal(cmd.state)) return { task_id: cmd.task_id, state: cmd.state, terminal: true };
+    if (isTerminal(cmd.state)) {
+      // 终态 ≠ 资源已收口（ADR-009）：清单里还有活着的资源时，取消请求必须把停止动作真的发下去，
+      // 否则"任务已完成"会永久盖住仍在跑的后台子进程（症状：取消直接回"已结束"，谁也没去停它）。
+      const liveness = this._liveResources(cmd);
+      if (!liveness.observable || liveness.live.length === 0) {
+        return { task_id: cmd.task_id, state: cmd.state, terminal: true, live: [] };
+      }
+      this._gate(engagement_id, 'cancel_after_terminal',
+        { task_id: cmd.task_id, state: cmd.state, live: liveness.live });
+      // 落到下面的取消流程收口：host 任务重新打开 cancel_requested 交宿主 tick 逐项证实；
+      // 非 host 任务就地探针收口。收口结果按 ADR-003：全证实 → confirmed_stopped，否则 unresolved。
+    }
 
     const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(cmd.command_id);
     if (owner) {
@@ -275,9 +319,13 @@ export class Broker {
 
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?')
       .run('cancel_requested', cmd.command_id);
-    this.adapter.cancel(cmd.task_id, reason);
+    // 停止身份（ADR-009）：同步路径也必须带可核对的 request_id，否则应答器无法把"停止"证实成
+    // confirmed_stopped（只能落 unresolved）。以前不给 id，落证据这一步永远欠着一口气。
+    const stopRequestId = randomUUID();
+    this.adapter.cancel(cmd.task_id, reason, { request_id: stopRequestId });
 
-    const manifest = this.adapter.manifestOf(cmd.task_id) ?? [];
+    const manifest = this.adapter.manifestOf(cmd.task_id,
+      { stopping: true, stop_request_id: stopRequestId, generation: cmd.generation }) ?? [];
     // 每个资源条目只探针一次（ADR-003 D4）：check() 是对运行资源的实测（PID/端口/容器 inspect），
     // 重复探针既浪费又会造成 TOCTOU 不一致（同一次取消内资源状态变化导致记账与返回自相矛盾）。
     const probed = manifest.map((m) => ({ id: m.id, kind: m.kind, confirmed: m.check() }));
@@ -730,27 +778,81 @@ export class Broker {
     return Math.max(base, gap);   // 漂移不得低于基础地板
   }
 
-  // ── 人工批准（destructive 裁决，ADR-001 D5）────────────────────────────────
-  /** 操作员侧签发批准令牌（进程内 API；DSH 中对应人工裁决动作）。 */
-  createApproval({ engagement_id, reason = '', issued_by = 'operator', ttlSeconds = 3600, single_use = true }) {
+  // ── 人工批准（destructive 裁决，ADR-001 D5 / ADR-007 绑定）──────────────────
+  /**
+   * 操作员侧签发批准令牌（进程内 API；操作员 CLI = `warroom approve`）。
+   *
+   * **必须给 `bound`**：批准绑定到「动作 + 可寻址集合」的指纹，不签发"万能令牌"。
+   * 无绑定的批准（或旧库里的裸批准）在消费时一律拒收——`reason` 只是备注，不参与校验。
+   */
+  createApproval({ engagement_id, reason = '', issued_by = 'operator', ttlSeconds = 3600, bound = null }) {
+    if (!bound || typeof bound.action !== 'string' || bound.action.trim() === '') {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH,
+        'createApproval 需要 bound.action（配 bound.targets / bound.url）：批准必须绑定到具体动作与靶标，裸批准一律拒收');
+    }
+    const action = bound.action.trim().toLowerCase();   // 与执行层/手段闸同一口径（EXEC == exec）
+    const targets = Array.isArray(bound.targets) ? bound.targets.filter((t) => String(t ?? '').trim() !== '') : [];
+    const tokens = [...targets, ...(bound.url ? [bound.url] : [])].map(addressKey).filter(Boolean);
+    if (tokens.length === 0) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH,
+        '批准必须至少绑定一个可寻址对象：给 bound.targets 或 bound.url（空白/解析不出主机的批条等于死令牌）');
+    }
+    // 战役必须存在（否则签发出来的是一张永远消费不掉的幽灵令牌）
+    this._auth(engagement_id);
+    const contract_hash = approvalFingerprint({ action, action_class: 'destructive', targets, url: bound.url ?? null });
+    const scope = [...new Set(tokens)].sort();
     const approval_id = `ap_${randomUUID()}`;
     const expires_at = new Date(this._nowMs() + ttlSeconds * 1000).toISOString();
+    // 批准一律**一次性**：多用令牌等于可复制的不记名批条，且"这条令牌放行了什么"会失去归属
+    // （需要多次就签多张，或把 TTL 缩短）。
     this.global.prepare(`INSERT INTO approvals
-      (approval_id, engagement_id, action_class, reason, issued_by, expires_at, single_use, ts)
-      VALUES (?, ?, 'destructive', ?, ?, ?, ?, ?)`).run(
-      approval_id, engagement_id, reason, issued_by, expires_at, single_use ? 1 : 0, now());
-    return { approval_id, expires_at };
+      (approval_id, engagement_id, action_class, reason, issued_by, expires_at, single_use, contract_hash, bound_action, bound_scope, ts)
+      VALUES (?, ?, 'destructive', ?, ?, ?, 1, ?, ?, ?, ?)`).run(
+      approval_id, engagement_id, reason, issued_by, expires_at, contract_hash, action, JSON.stringify(scope), now());
+    return { approval_id, expires_at, contract_hash, bound_action: action, bound_scope: scope, single_use: true };
   }
 
-  _consumeApproval(token, engagementId) {
+  /**
+   * 批准台账（只读）：签发时间/绑定动作与靶标/是否用过/是否过期——人读，不参与任何裁决。
+   */
+  listApprovals(engagementId) {
+    return this.global.prepare(`SELECT approval_id, action_class, bound_action, bound_scope, reason, issued_by,
+      expires_at, single_use, used_by_command, ts FROM approvals WHERE engagement_id = ? ORDER BY ts DESC, approval_id`)
+      .all(engagementId)
+      .map((r) => ({
+        approval_id: r.approval_id, bound_action: r.bound_action,
+        bound_scope: r.bound_scope ? JSON.parse(r.bound_scope) : [],
+        reason: r.reason, issued_by: r.issued_by, ts: r.ts, expires_at: r.expires_at,
+        single_use: true, used_by_command: r.used_by_command,
+        used: !!r.used_by_command, expired: Date.parse(r.expires_at) <= this._nowMs(),
+      }));
+  }
+
+  /**
+   * 消费批准：必须**属于本战役 + 未过期 + 指纹与本条契约一致**；一次性批准用
+   * compare-and-set 落定并记下**真实 command_id**（调用方必须在同一事务内调用）。
+   */
+  _consumeApproval(token, engagementId, contract, commandId) {
     if (!token) throw warroomError(ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL, '需要人工批准令牌');
     const row = this.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(token);
     if (!row) throw warroomError(ERR.E_APPROVAL_NOT_FOUND, '批准令牌不存在');
     if (row.engagement_id !== engagementId) throw warroomError(ERR.E_APPROVAL_MISMATCH, '批准令牌不属于该战役');
     if (Date.parse(row.expires_at) <= this._nowMs()) throw warroomError(ERR.E_APPROVAL_EXPIRED, `批准已于 ${row.expires_at} 过期`);
-    if (row.single_use && row.used_by_command) throw warroomError(ERR.E_APPROVAL_USED, '一次性批准已被使用');
-    this.global.prepare('UPDATE approvals SET used_by_command = ? WHERE approval_id = ?')
-      .run(`used_at:${now()}`, token);
+    if (!row.contract_hash) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH,
+        '该批准未绑定动作（裸批准）：请用 `warroom approve --action <动作> --targets <靶标>` 重新签发');
+    }
+    const want = contractFingerprint(contract);
+    if (row.contract_hash !== want) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH,
+        `批准绑定的是 ${row.bound_action} @ ${row.bound_scope}（指纹 ${String(row.contract_hash).slice(0, 12)}），`
+        + `与本次动作 ${String(contract?.action ?? '(未声明)').trim().toLowerCase()} @ ${JSON.stringify(contractAddressKeys(contract))}`
+        + `（指纹 ${want.slice(0, 12)}）不符：动作/靶标/端口/路径任一不同都要重新签发批准`);
+    }
+    if (row.used_by_command) throw warroomError(ERR.E_APPROVAL_USED, '批准已被使用（一律一次性）');
+    const r = this.global.prepare('UPDATE approvals SET used_by_command = ? WHERE approval_id = ? AND used_by_command IS NULL')
+      .run(commandId, token);
+    if (Number(r.changes) !== 1) throw warroomError(ERR.E_APPROVAL_USED, '批准已被使用（并发竞争）');
     return row;
   }
 
@@ -770,9 +872,20 @@ export class Broker {
     if (!runtime || !terminal.includes(runtime.state)) {
       return { settled: false, task_id: cmd.task_id, ledger_state: cmd.state, runtime_state: runtime?.state ?? null };
     }
+    // `done` 的语义是"派下去的活干完了"，**从来不等于**它留下的资源都停了（ADR-003 D4）。
+    // 但也不许悄悄过去：完成时清单里还有活资源 → 留一条 resources_outstanding 审计信号
+    // （取消请求仍能把它们停掉并逐项证实，见 ADR-009）。
+    let live = [];
+    if (runtime.state === 'done') {
+      const liveness = this._liveResources(cmd);
+      if (liveness.observable && liveness.live.length > 0) live = liveness.live;
+    }
     if (cmd.state !== runtime.state) this._setCommandState(cmd.command_id, runtime.state);
+    // 结项信号保持原样（效率四段/时序归集都认它）；资源未收口另加一条，不改既有语义
     this._gate(engagementId, 'settle', { task_id: cmd.task_id, state: runtime.state });
-    return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state, runtime_state: runtime.state };
+    if (live.length) this._gate(engagementId, 'resources_outstanding', { task_id: cmd.task_id, state: runtime.state, live });
+    return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state,
+      runtime_state: runtime.state, ...(live.length ? { live } : {}) };
   }
 
   /**

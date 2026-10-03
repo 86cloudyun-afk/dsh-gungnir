@@ -95,6 +95,17 @@ export const MIGRATIONS = [
     },
   },
   {
+    version: 10,
+    labels: ['global'],
+    up(db) {
+      // v10：批准与动作绑定（ADR-007）——批准指纹 + 绑定动作/靶标，`used_by_command` 记真实 command_id
+      const cols = db.prepare('PRAGMA table_info(approvals)').all().map((c) => c.name);
+      if (!cols.includes('contract_hash')) db.exec('ALTER TABLE approvals ADD COLUMN contract_hash TEXT');
+      if (!cols.includes('bound_action')) db.exec('ALTER TABLE approvals ADD COLUMN bound_action TEXT');
+      if (!cols.includes('bound_scope')) db.exec('ALTER TABLE approvals ADD COLUMN bound_scope TEXT');
+    },
+  },
+  {
     version: 6,
     labels: ['fact'],
     up(db) {
