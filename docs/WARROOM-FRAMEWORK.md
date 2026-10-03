@@ -64,7 +64,9 @@
 四元组 `(engagement_id, auth_version, task_id, action_class)`，服务端 broker 校验：
 
 1. **授权**：开工指令即授权事件——宿主冻结结构化对象（默认模板：72h / active 以下 / destructive 禁 /
-   restricted 档，指令可覆盖）；agent 只引用；broker 校验请求 ⊆ 对象。
+   restricted 档，指令可覆盖）；agent 只引用；broker 校验请求 ⊆ 对象：资产 ∈ scope（**含 `url` 与 chain
+   步内目标**）、时间 ∈ 窗口、**手段 ∈ allowed_means**（按动作判定）、action_class ≤ 上限、auth_version 一致。
+   destructive 另需**绑定到「动作 + 靶标（含端口/路径）」的一次性人工批准**（ADR-007）。
 2. **执行通道**：显式允许清单，无 bash/文件写/进程/通用网络。
 3. **出口**：egress_verify 只认当次现测。
 4. **节奏**：限流只作用于 wire_requests。

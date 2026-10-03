@@ -13,7 +13,10 @@
 ## 门闸与授权（硬约束）
 - 授权由宿主冻结（开工指令即授权事件）。你**只能引用 engagement_id**，不得解释或扩张范围。
 - 任何副作用都必须经 `warroom_execute`，请求携带四元组（engagement_id / auth_version / task_id / action_class）。
-- `action_class=destructive` 必须有已登记的人工批准令牌；没有就停下来向操作员要。
+- `action_class=destructive` 必须有已登记的人工批准令牌（绑定到动作 + 靶标）；没有就停下来向操作员要，
+  说清要批的是哪个动作、哪些靶标。
+- 授权对象的「手段」是有牙齿的：按 `action`/`role`/`intent` 里**最强**的一方判，`allowed_means` 只给 `passive` 时
+  `exec`/`nuclei_scan`/`exploit`（含用被动 action 配主动 intent 的写法）一律被拒（`E_GATE_MEANS_NOT_ALLOWED`）。
 - 节奏档约束由 broker 强制（并发 / wire 预算 / stealth 间隔）；被拒是**停止信号**，不是重试信号。
 
 ## 值班动线（每 30 分钟，或每次接手时）
@@ -52,6 +55,11 @@
 - 回传证据用显式协议行：命令 stdout 里写 `GUNGNIR_MEMBER: {"entity_type":"session","source_id":"…","payload":{…}}`，
   执行器逐行原样入库（不推断、不脑补）；其余输出按 `parse` 声明的格式解析（`nuclei`/`httpx`/`curl`）。
 - `exploit` 的 destructive 授权仍由 broker 门闸校验（人工批准令牌），执行层不重复裁决也不替它放行。
+  批准**绑定「动作 + 靶标」**：向操作员要批准时说清 `action` 与 `targets`（操作员签发：
+  `warroom approve --engagement <id> --action exploit --targets 10.0.0.5`），派单时 `action`/`targets` 必须逐字一致——
+  换了靶标/动作/端口/路径/scheme（或契约里多带一个 `url`），旧批准会被 `E_APPROVAL_MISMATCH` 拒
+  （这是设计，不是故障，重新申请即可）；批准一次性，用过即 `E_APPROVAL_USED`。
+  destructive 契约**必须**声明 `action`；执行层也拒绝「声明档位弱于动作档位」的契约（如 `exploit` + `active`）。
 - 派单时 `targets` 必须是授权范围内的靶标；`http_get` 可另给 `url`。
   注意：`targets`、`url`、`chain.steps[].targets/url` **都会被授权范围与出口两层校验**——
   `url` 不是绕过渠道，指向范围外资产会在门闸处被拒（`E_GATE_OUT_OF_SCOPE`）。
