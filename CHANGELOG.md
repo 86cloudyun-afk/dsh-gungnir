@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- **目标返回文本不再成为任务证据（ADR-008）**：证据协议行原先在**任何** stdout 里都被承认，于是靶标页面写一行
+  `GUNGNIR_MEMBER: {"entity_type":"shell",…}`，`http_get` 抓一下就把它当**战果**送进账本（`shell`/`chain`/`credential`
+  正是判定战果与控制面状态的那几类事实）——实测复现。现在：证据行只从**操作员命令**的 stdout 收（内置抓取模板的
+  stdout 是目标返回体，一律不解析），且必须带**本单随机 nonce**（执行器经环境变量 `GUNGNIR_EVIDENCE_NONCE` 下发，
+  目标无从得知）；被拒行数记入 `_debug.evidence.rejected` 可观测；旧写法需契约显式 `trusted_stdout: true`
+- **输出捕获改走文件（ADR-008 D3.5）**：原先用 `spawnSync` 的管道捕获，管道被后台子进程继承后执行器会一直等到
+  管道关闭——实测 `sleep 3 & echo hi` 白等 3 秒，且等到子进程自己退出后回一句 `stopped: true`（假停止证明）。
+  现在 stdout/stderr 直接重定向到产物文件，命令一退立刻返回，顺带解除 `maxBuffer` 上限
+- **后台子进程进资源清单，停止证明不再代填（ADR-008）**：回执原先无条件带 `stopped: true`，命令留下的后台进程
+  既不在清单里、也没人核实，而应答器把它原样写进 `probes.json`、broker `cancel` 据此落 `confirmed_stopped`
+  （ADR-003 D4 要求实测）。现在每条命令以**独立进程组**运行，退出后实测该组：组空才报 `stopped: true`，
+  否则报 `false` 并把每个存活子进程逐条列出（`<step>-child-<pid>`）；超时/信号杀的步骤由执行器清掉整个进程组，
+  不留无主残留
 - **批准与动作绑定（ADR-007）**：修「要求是声明出来的、动作是实际发生的，两者没绑上」这一类缺口——
   ①批准表只绑战役与 `action_class`（`reason` 是自由文本不参与校验），一张令牌可授权该战役内**任何**
   destructive 动作（实测同一张令牌连放 `exploit@10.0.0.5`/`exec@10.0.0.6`/`internal@10.0.0.7`）→ 现在

@@ -72,18 +72,34 @@ node executors/tool-runner.mjs --capabilities
 `generation` 必须回带 `contract.generation`（插件层按代际校验，缺了整单 `exit=4`、wire=0）；
 `_debug` 只在本机 `GUNGNIR_TOOL_RUNNER_VERBOSE=1` 时打到 stderr，不进回执。
 
-**证据回传协议**（显式、不推断）：命令 stdout 逐行写
+**证据回传协议**（显式、不推断、**必须带本单凭据**）：命令 stdout 逐行写
 
+```sh
+printf 'GUNGNIR_MEMBER %s: {"entity_type":"session","source_id":"ssh:10.0.0.5:root","payload":{"user":"root"}}\n' \
+  "$GUNGNIR_EVIDENCE_NONCE"
 ```
-GUNGNIR_MEMBER: {"entity_type":"session","source_id":"ssh:10.0.0.5:root","payload":{"user":"root"}}
-```
+
+- **nonce 是每单随机生成的**，只放在操作员命令的环境变量 `GUNGNIR_EVIDENCE_NONCE` 里。
+  原因是命令 stdout 会流过**目标可控文本**（`curl` 一个页面、脚本回显响应体）：不带凭据的话，
+  目标页面写一行同格式文本就能把自己塞进账本当战果（真机实测：`http_get` 抓一个含该行的页面 → 账本多出 `shell` 事实）。
+- **JSON 要用单引号包住**（双引号会被 shell 吃掉，喂给协议的会是一段没引号的伪 JSON）。
+- 显式 `contract.trusted_stdout: true` 才接受不带 nonce 的旧写法（`GUNGNIR_MEMBER: {…}`），用于 stdout 不经目标的自有脚本。
+- 只有**操作员给的命令**能申报证据；内置抓取模板（`http_get`/`recon`/`nuclei_scan`/`vuln`）的 stdout 是目标返回体，一律不解析。
+- 被拒行数记在 `_debug.evidence.rejected`（`GUNGNIR_TOOL_RUNNER_VERBOSE=1` 可见），原始 stdout 照旧落盘可取证。
 
 可用的 `entity_type`：`asset` / `domain` / `vuln` / `credential` / `session` / `shell` / `chain` / `artifact`。
 字段不全或类型不在表内的行**直接忽略**（执行器不猜）。`content_hash` 由执行器按**规范化内容重算**，
-不采信自报值（键序/自报值不同会让同一条证据变成两条互相隔离的冲突事实）。操作员命令无论成功与否都会留一条
-`artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——**非零退出是被派命令的真实结果，不是执行层故障**；
-**超时与被信号杀（SIGKILL/OOM）才作为错误抛出**（证据不完整，主控记 `unknown`）。内置工具模板
-（subfinder/httpx/nuclei/curl）仍按老规矩：非零退出即失败，绝不伪造事实。
+不采信自报值。操作员命令无论成功与否都会留一条 `artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——
+**非零退出是被派命令的真实结果，不是执行层故障**；**超时与被信号杀（SIGKILL/OOM）才作为错误抛出**
+（证据不完整，主控记 `unknown`，同时把该命令的整个进程组清掉）。内置工具模板仍按老规矩：非零退出即失败。
+
+> 输出捕获走**文件**而不是管道：管道会被后台子进程继承，执行器会一直等到管道关闭（实测 `sleep 3 & echo hi`
+> 白等 3 秒，等到子进程自己退了还报 `stopped: true` —— 一条假停止证明）。产物文件即 `<step>.stdout.txt` / `.stderr.txt`。
+
+**资源清单（停止证明不许代填）**：每条命令以**独立进程组**运行；命令退出后实测该组——
+组空 → 该步骤 `stopped: true`；组内仍有存活成员 → `stopped: false`，且**每个后台子进程逐条列出**
+（`<step>-child-<pid>`，带 `pid`/`cmd`）。留了后台进程的步骤会让任务停在该资源的 `unresolved` 上
+（要拿 `confirmed_stopped` 就得真的停掉它们），这是有意的语义。
 
 **档位绑定**：契约声明的 `action_class` **不得弱于**动作自身的档位（`http_get`/`recon` = readonly，
 `nuclei_scan`/`vuln`/`exec`/`internal`/`chain` = active，`exploit` = destructive）；`exploit` 必须显式声明
