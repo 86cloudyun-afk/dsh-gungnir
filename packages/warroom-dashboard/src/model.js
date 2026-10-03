@@ -82,7 +82,7 @@ function projectNode(row) {
   const layer = Number(payload.layer);
   return {
     id: stableId(row.adapter_instance, row.entity_type, row.source_id),
-    source_id: clean(row.source_id),
+    source_id: typeof row.source_id === 'string' ? row.source_id : null,
     adapter_instance: clean(row.adapter_instance),
     entity_type: clean(row.entity_type),
     label: normalizeDisplayText(payload.label) || normalizeDisplayText(row.source_id),

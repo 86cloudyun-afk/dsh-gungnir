@@ -3,6 +3,41 @@ import assert from 'node:assert/strict';
 import { requestData, __transportTestHooks } from '../packages/warroom-dashboard/public/transport.js';
 
 const allowed = '/api/sessions';
+test('local transport deadline aborts a pending response body', async () => {
+  const originalFetch = globalThis.fetch;
+  let observedSignal;
+  globalThis.fetch = async (_path, { signal }) => {
+    observedSignal = signal;
+    return { ok: true, json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) };
+  };
+  try {
+    const pending = requestData(allowed, { signal: new AbortController().signal, timeoutMs: 10 });
+    // Bound the regression itself even before the production deadline exists.
+    const result = await Promise.race([pending.then(() => 'resolved', (error) => error), new Promise((resolve) => setTimeout(() => resolve('deadline ignored'), 100))]);
+    assert.equal(observedSignal?.aborted, true);
+    assert.match(result.message, /timed out/i);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('local transport propagates caller cancellation and clears a completed deadline', async () => {
+  const originalFetch = globalThis.fetch;
+  let observedSignal;
+  globalThis.fetch = async (_path, { signal }) => {
+    observedSignal = signal;
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  };
+  try {
+    const controller = new AbortController();
+    const pending = requestData(allowed, { signal: controller.signal, timeoutMs: 20 });
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    globalThis.fetch = async (_path, { signal }) => { observedSignal = signal; return { ok: true, json: async () => ({ sessions: [] }) }; };
+    await requestData(allowed, { signal: new AbortController().signal, timeoutMs: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(observedSignal.aborted, false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('local transport fetches only allowlisted read endpoints and propagates abort', async () => {
   const originalFetch = globalThis.fetch;
   let seen;
@@ -11,7 +46,9 @@ test('local transport fetches only allowlisted read endpoints and propagates abo
     const controller = new AbortController();
     assert.deepEqual(await requestData(allowed, { signal: controller.signal }), { sessions: [] });
     assert.equal(seen.path, allowed);
-    assert.equal(seen.options.signal, controller.signal);
+    controller.abort();
+    // Completion removed the caller listener; the finished request stays settled.
+    assert.equal(seen.options.signal.aborted, false);
     assert.throws(() => requestData('/api/snapshot?engagement=../secret'), /endpoint/i);
   } finally { globalThis.fetch = originalFetch; }
 });
