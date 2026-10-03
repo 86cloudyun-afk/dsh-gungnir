@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { assertSafeSegment } from '../packages/warroom-core/src/paths.js';
+import { assertExecutorOutcome, assertSuccessfulExecutorResult, ExecutorAdmissionError } from '../executors/executor-receipt.mjs';
 
 const { values: v } = parseArgs({
   args: process.argv.slice(2),
@@ -53,10 +54,11 @@ function nextSequence(job) {
     ? prior.event_seq + 1 : 1;
 }
 
-function publish(job, state, event_seq = nextSequence(job)) {
+function publish(job, state, event_seq = nextSequence(job), diagnostic) {
   atomicWrite(join(inbox, `${job.external_id}.status.json`), {
     protocol: 'gungnir-bridge/1', external_id: job.external_id,
     generation: job.contract.generation, event_seq, state, updated_at: new Date().toISOString(),
+    ...(diagnostic ? { diagnostic } : {}),
   });
 }
 
@@ -110,8 +112,10 @@ function fixtureReceipts(job) {
   }
   if ([facts, probes].some((receipt) => !receipt || receipt.generation !== job.contract.generation ||
       receipt.external_id !== job.external_id)) throw new Error('fixture source identity/generation mismatch');
+  assertExecutorOutcome(facts);
+  assertExecutorOutcome(probes);
   return { generation: facts.generation, external_id: facts.external_id,
-    members: facts.members ?? [], resources: probes.resources ?? [], stop_request_id: probes.stop_request_id };
+    members: facts.members, resources: probes.resources, stop_request_id: probes.stop_request_id };
 }
 
 async function loadExecutor() {
@@ -141,7 +145,7 @@ async function handleJob(job) {
       previous = readJson(claimPath);
       if (previous?.generation !== job.contract.generation) throw new Error('claimed task identity/generation mismatch');
     }
-    if (previous.state !== 'completed') publish(job, 'unknown');
+    if (previous.state !== 'completed') publish(job, 'unknown', undefined, previous.diagnostic);
     else if (previous.final_event && !previous.cancel_requested &&
         readJson(join(outbox, `${job.external_id}.stop.json`))?.generation !== job.contract.generation) {
       const current = readJson(join(inbox, `${job.external_id}.status.json`));
@@ -168,6 +172,7 @@ async function handleJob(job) {
   } else {
     result = echoReceipts(job);
   }
+  assertSuccessfulExecutorResult(result);
   if (result?.generation !== job.contract.generation ||
       (result.external_id !== undefined && result.external_id !== job.external_id)) {
     throw new Error('executor source identity/generation mismatch');
@@ -223,8 +228,18 @@ function tick() {
       if (job?.protocol === 'gungnir-bridge/1') {
         const work = handleJob(job).catch((e) => {
           // A claimed action may have run. Failures never release its durable idempotency key.
+          let diagnostic;
+          if (e instanceof ExecutorAdmissionError) {
+            diagnostic = { ...e.diagnostic, external_id: job.external_id,
+              generation: job.contract?.generation, role: job.role };
+            const claimPath = join(claims, `${job.external_id}.json`);
+            const current = readJson(claimPath);
+            if (current?.generation === job.contract?.generation) {
+              atomicWrite(claimPath, { ...current, diagnostic });
+            }
+          }
           if ((!v.once || job.background) && typeof job.contract?.generation === 'string' &&
-              /^[A-Za-z0-9_-]+$/.test(job.external_id)) publish(job, 'unknown');
+              /^[A-Za-z0-9_-]+$/.test(job.external_id)) publish(job, 'unknown', undefined, diagnostic);
           process.stderr.write(`[job-error] ${job.external_id}: ${e.message}\n`);
         });
         active.add(work); work.finally(() => active.delete(work));
