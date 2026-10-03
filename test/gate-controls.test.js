@@ -50,7 +50,7 @@ test('open 档无最小间隔限制（批量流可用）', () => {
 test('destructive：无令牌 / 伪造令牌 / 过期 / 跨战役 / 重复使用 全部拒绝', () => {
   const h = harness();
   const other = h.broker.createEngagement({ user_message_id: 'um-2', targets: ['10.0.0.0/24'] });
-  const c = () => h.contract({ action_class: 'destructive' });
+  const c = () => h.contract({ action_class: 'destructive', action: 'exec' });
 
   assert.throws(
     () => h.broker.execute({ ...h.base, command_id: 'ap-1', contract: c() }),
@@ -61,19 +61,19 @@ test('destructive：无令牌 / 伪造令牌 / 过期 / 跨战役 / 重复使用
     (e) => e.code === 'E_APPROVAL_NOT_FOUND'
   );
   // 过期
-  const expired = h.broker.createApproval({ engagement_id: h.eng.engagement_id, ttlSeconds: -1 });
+  const expired = h.broker.createApproval({ engagement_id: h.eng.engagement_id, ttlSeconds: -1, bound: { action: 'exec', targets: ['10.0.0.5'] } });
   assert.throws(
     () => h.broker.execute({ ...h.base, command_id: 'ap-3', contract: c(), manual_approval_token: expired.approval_id }),
     (e) => e.code === 'E_APPROVAL_EXPIRED'
   );
   // 跨战役
-  const forOther = h.broker.createApproval({ engagement_id: other.engagement_id });
+  const forOther = h.broker.createApproval({ engagement_id: other.engagement_id, bound: { action: 'exec', targets: ['10.0.0.5'] } });
   assert.throws(
     () => h.broker.execute({ ...h.base, command_id: 'ap-4', contract: c(), manual_approval_token: forOther.approval_id }),
     (e) => e.code === 'E_APPROVAL_MISMATCH'
   );
   // 正常 + 一次性复用被拒
-  const good = h.broker.createApproval({ engagement_id: h.eng.engagement_id, reason: '授权内破坏性验证' });
+  const good = h.broker.createApproval({ engagement_id: h.eng.engagement_id, reason: '授权内破坏性验证', bound: { action: 'exec', targets: ['10.0.0.5'] } });
   const ok = h.broker.execute({ ...h.base, command_id: 'ap-5', contract: c(), manual_approval_token: good.approval_id });
   assert.equal(ok.state, 'running');
   assert.throws(
@@ -82,13 +82,19 @@ test('destructive：无令牌 / 伪造令牌 / 过期 / 跨战役 / 重复使用
   );
 });
 
-test('批准与节奏闸留痕：approvals 记录 used_by_command，gate_log 有 allow', () => {
+test('批准与节奏闸留痕：approvals 记**真实 command_id**，gate_log 有 allow 且带批准 id', () => {
   const h = harness();
-  const ap = h.broker.createApproval({ engagement_id: h.eng.engagement_id, issued_by: 'operator-1' });
-  h.broker.execute({ ...h.base, command_id: 'ap-log', contract: h.contract({ action_class: 'destructive' }), manual_approval_token: ap.approval_id });
+  const ap = h.broker.createApproval({ engagement_id: h.eng.engagement_id, issued_by: 'operator-1',
+    bound: { action: 'exec', targets: ['10.0.0.5'] } });
+  h.broker.execute({ ...h.base, command_id: 'ap-log',
+    contract: h.contract({ action_class: 'destructive', action: 'exec' }), manual_approval_token: ap.approval_id });
   const row = h.broker.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(ap.approval_id);
-  assert.match(row.used_by_command, /^used_at:/);
+  assert.equal(row.used_by_command, 'ap-log', '必须记下这条命令本身（批准 → 动作可审计）');
   assert.equal(row.issued_by, 'operator-1');
+  assert.equal(row.bound_action, 'exec');
+  assert.deepEqual(JSON.parse(row.bound_scope), ['10.0.0.5']);
+  const detail = h.store().db.prepare("SELECT detail FROM gate_log WHERE decision = 'allow' ORDER BY rowid DESC LIMIT 1").get().detail;
+  assert.match(detail, /approval=ap_/, 'allow 记录必须带批准 id（事后能证明哪张批准放行了哪条命令）');
   const log = h.store().db.prepare("SELECT COUNT(*) c FROM gate_log WHERE decision = 'allow'").get().c;
   assert.ok(log >= 1);
 });

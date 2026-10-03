@@ -32,6 +32,31 @@ node bin/warroom.mjs exec --engagement "$ENG" --command-id demo-1 \
 
 `command_id` 是幂等键：重复派发返回同一任务；丢回包时状态为 `unknown` 且可用 `lookup` 找回。
 
+### 2.1 破坏性动作的人工批准（绑定「动作 + 靶标」）
+
+`action_class=destructive` 必须有**已登记的人工批准令牌**，且批准绑定到具体动作与靶标（**含端口/路径/scheme**），
+**一律一次性**（[ADR-007](adr/ADR-007-approval-action-binding.md)）——没有万能令牌，也没有可复制的多用批条：
+
+```sh
+# 操作员签发（绑定动作 + 靶标）；agent 无 CLI，只能向你申请
+node bin/warroom.mjs approve --engagement "$ENG" --action exploit --targets 10.0.0.5 \
+  --reason "授权内利用验证" --by operator        # → approval_id + contract_hash + bound_scope
+
+# 派单：action / targets 必须与批准逐字一致
+node bin/warroom.mjs exec --engagement "$ENG" --command-id demo-2 --target 10.0.0.5 \
+  --class destructive --action exploit --command 'msfconsole -q -x "use exploit/x; run"' \
+  --approval ap_… --json
+
+# 台账（只读）：绑定动作/靶标、是否已用（used_by_command）、是否过期
+node bin/warroom.mjs approvals --engagement "$ENG"
+```
+
+换靶标、换动作、换端口、换路径、换 scheme、甚至契约里多写一个 `url` → `E_APPROVAL_MISMATCH`（重新申请即可，
+报错里会给出批准绑定的动作与可寻址键）；令牌用过 → `E_APPROVAL_USED`；未绑定动作的裸批准一律拒收；
+没有靶标的批条在签发时就被拒（不会签出永远用不掉的死令牌）。
+授权对象的「手段」同样有牙齿：`allowed_means:['passive']` 的战役里 `exec`/`nuclei_scan`/`exploit` 一律
+`E_GATE_MEANS_NOT_ALLOWED`（手段按 `action`/`role`/`intent` 里最强的一方判）。
+
 ## 3. 收执与状态
 
 ```sh

@@ -3,6 +3,29 @@
 ## Unreleased
 
 ### Fixed
+- **批准与动作绑定（ADR-007）**：修「要求是声明出来的、动作是实际发生的，两者没绑上」这一类缺口——
+  ①批准表只绑战役与 `action_class`（`reason` 是自由文本不参与校验），一张令牌可授权该战役内**任何**
+  destructive 动作（实测同一张令牌连放 `exploit@10.0.0.5`/`exec@10.0.0.6`/`internal@10.0.0.7`）→ 现在
+  批准绑定 `sha256(动作 + 排序后的靶标集合)` 指纹，换动作/换靶标在门闸处即拒（`E_APPROVAL_MISMATCH`），
+  无绑定的裸批准（含旧库）一律拒收；签发面补齐为操作员 CLI `warroom approve` / `warroom approvals`
+  ②`used_by_command` 记的是 `used_at:<时间戳>`、`gate_log` 无批准 id、消费 `SELECT` + **无条件**`UPDATE`
+  且在事务外 → 现在消费移入派发事务，用 `WHERE used_by_command IS NULL` 的 compare-and-set 落定并写
+  **真实 command_id**，allow 记录带 `approval=<id>`；宿主派发前再复核指纹与消费归属
+  ③授权对象的第四维「手段」从来没校验过（`allowed_means` 只冻结不使用，`['passive']` 的战役照样能派任意
+  命令）→ 新增 `ACTION_MEANS` 词表按**动作本身**判定，越界即 `E_GATE_MEANS_NOT_ALLOWED`（与执行层
+  `CAPABILITIES` 由测试双向断言）
+  ④`action_class` 是请求方自填的标签，执行层的动作档位不受它约束（`exploit` 声明成 `active` 即可免批准）
+  → 执行层拒绝「声明档位弱于动作档位」的契约；destructive 契约必须声明 `action`，否则无从绑定与审计
+- 对抗式审查后追加收紧：批准绑定的粒度到**端口/路径/scheme**（同一主机上的 `:8443` 与 `:9443`、`/safe` 与
+  `/admin/delete-all` 不再是同一个靶标；`contract.steps[].url` 一并参与）、动作归一化（`EXEC` == `exec`，
+  不再出现"动作其实一样却被判成换动作"）、手段判定把 `intent`/`role` 一起算进去（被动标签配主动意图不再放行）、
+  批准**一律一次性**（删掉 `--multi`：可复制的不记名批条既不安全、台账也失去归属）、签发时校验
+  「至少有靶标/URL」与「战役存在」（不再签出永远消费不掉的死令牌）、`hostOf` 补协议相对 URL 与裸 IPv6
+- 破坏性兼容（有意 fail-closed）：旧库裸批准失效须重新签发；destructive 契约必须补 `action` 字段
+- schema：global 目标版本 v9 → **v10**（`approvals` 增 `contract_hash` / `bound_action` / `bound_scope`，
+  老库补列、旧行保留但不伪造绑定）
+
+### Added
 - **执行层能力面配齐（通道不再回"未实装"）**：`executors/tool-runner.mjs` 原先只实装 3 个动作
   （`http_get`/`recon`/`nuclei_scan`），指挥层派 `exec`/`vuln`/`exploit`/`internal`/`chain` 时只能收到
   「未实装且不属于本通道」——既没缺哪个字段、也没说这条通道能干什么，任务在 failed/unknown 之间打转。

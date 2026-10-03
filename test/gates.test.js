@@ -39,16 +39,20 @@ test('撤销后旧 auth_version 被拒绝', () => {
   );
 });
 
-test('destructive 无人工批准被拒绝；带批准通过', () => {
+test('destructive 无人工批准被拒绝；带**绑定动作靶标**的批准通过', () => {
   const h = harness();
+  const destructive = h.contract({ action_class: 'destructive', action: 'exec' });
   expectCode(
-    () => h.broker.execute({ ...h.base, command_id: 'g3', contract: h.contract({ action_class: 'destructive' }) }),
+    () => h.broker.execute({ ...h.base, command_id: 'g3', contract: destructive }),
     ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL
   );
-  const ap = h.broker.createApproval({ engagement_id: h.eng.engagement_id, reason: '测试批准' });
+  const ap = h.broker.createApproval({
+    engagement_id: h.eng.engagement_id, reason: '测试批准',
+    bound: { action: 'exec', targets: ['10.0.0.5'] },
+  });
   const ok = h.broker.execute({
     ...h.base, command_id: 'g4',
-    contract: h.contract({ action_class: 'destructive' }),
+    contract: destructive,
     manual_approval_token: ap.approval_id,
   });
   assert.equal(ok.state, 'running');

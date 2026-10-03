@@ -73,9 +73,29 @@ test('assess：nuclei 产出 vuln 成员（带 severity/matched_at）', async ()
 });
 
 test('角色缺契约字段：精确报缺（不是"未实装"空话）', async () => {
-  await assert.rejects(() => runJob(jobFor('exploit', '10.0.0.5')), /contract\.command|contract\.argv/);
   await assert.rejects(() => runJob(jobFor('internal', '10.0.0.5')), /contract\.command|contract\.argv/);
   await assert.rejects(() => runJob(jobFor('chain', '10.0.0.5')), /contract\.steps|contract\.command/);
+});
+
+test('档位绑定：声明档位不得弱于动作档位（exploit 不能套 active 标签免批准）', async () => {
+  // exploit（tier=destructive）+ action_class=active → 自相矛盾，拒绝
+  await assert.rejects(() => runJob({ ...jobFor('recon', '10.0.0.5'), contract: {
+    targets: ['10.0.0.5'], action_class: 'active', action: 'exploit', command: 'msfconsole -x run' } }),
+  /自相矛盾/);
+  // exec（tier=active）+ action_class=readonly → 同样自相矛盾
+  await assert.rejects(() => runJob({ ...jobFor('recon', '10.0.0.5'), contract: {
+    targets: ['10.0.0.5'], action_class: 'readonly', action: 'exec', command: 'id' } }), /自相矛盾/);
+  // exploit 未声明档位 → 拒绝（无从判定是否需要人工裁决）
+  await assert.rejects(() => runJob({ protocol: 'gungnir-bridge/1', external_id: 'tier-3', role: 'recon', contract: {
+    targets: ['10.0.0.5'], action: 'exploit', command: 'msfconsole -x run' } }, { artifactDir: mkdtempSync(join(tmpdir(), 'wr-tier-')) }),
+  /必须显式声明 action_class=destructive/);
+  // 声明正确档位后动作本身可规划（人工批准由 broker 门闸负责，不在执行层）
+  const plan = planCommands('recon', ['10.0.0.5'], { action: 'exploit', command: 'msfconsole -x run', actionClass: 'destructive' });
+  assert.equal(plan.commands.length, 1);
+  // 未知档位一律拒绝
+  const bad = planCommands('recon', ['10.0.0.5'], { action: 'exec', command: 'id', actionClass: 'whatever' });
+  assert.equal(bad.commands.length, 0);
+  assert.match(bad.reason, /未知的 action_class/);
 });
 
 test('工具失败 → 抛错（主控记 unknown），绝不返回安慰性事实', async () => {
@@ -103,7 +123,7 @@ test('命令行形态：CLI 读 stdin → stdout 回执；exec 无命令 → 非
     let stderr = '';
     try {
       execFileSync('node', ['executors/tool-runner.mjs'],
-        { input: JSON.stringify(jobFor('exploit', '10.0.0.5')), encoding: 'utf8', stdio: 'pipe' });
+        { input: JSON.stringify(jobFor('internal', '10.0.0.5')), encoding: 'utf8', stdio: 'pipe' });
     } catch (e) { code = e.status; stderr = String(e.stderr); }
     assert.equal(code, 4, '缺契约字段必须非零退出（fail-closed）');
     assert.match(stderr, /contract\.command|contract\.argv/, '报错要说清缺哪个字段');
@@ -189,7 +209,7 @@ test('chain 多跳：contract.steps 顺序成计划，步内失败即整单拒�
   const bad = planCommands('chain', ['10.0.0.5'], { action: 'chain', steps: [{ action: 'exploit' }] });
   assert.equal(bad.commands.length, 0);
   assert.match(bad.reason, /chain\.steps\[0\]/);
-  assert.match(bad.reason, /contract\.command/);
+  assert.match(bad.reason, /必须显式声明 action_class=destructive/);
 });
 
 test('chain 步数上限：超过 MAX_STEPS 直接拒绝（不让一次派单变成无界批处理）', () => {
