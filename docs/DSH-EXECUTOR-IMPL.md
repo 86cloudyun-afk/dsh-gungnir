@@ -44,17 +44,56 @@ node scripts/dsh-bridge-responder.mjs --root <WARROOM_HOME>/dsh-bridge \
 echo '{"adapterKind":"bridge"}' > <WARROOM_HOME>/config.json
 ```
 
-角色 → 工具（可在 `tools/TOOLBOX.md` 查到同款模板）：
+角色 → 工具（可在 `tools/TOOLBOX.md` 查到同款模板）。**执行器按 `contract.action` 办事，不按角色猜**；
+下表是「没有 action 时按 role 兜底」的映射，八项能力全部实装：
 
-| 角色 | 命令 | 产出事实 |
+| 角色 / action | 命令 | 产出事实 |
 |---|---|---|
 | `recon` | `subfinder -d <域名> -silent` → `httpx -silent -td -title -sc -rl 20` | `domain` / `asset` |
-| `assess` | `nuclei -silent -jsonl -severity critical,high,medium -rl 5 -retry 1` | `vuln` |
-| `vuln` / `exploit` / `internal` / `chain` | **未实装** | 明确非零退出（fail-closed，不猜不造） |
+| `assess` / `nuclei_scan` | `nuclei -silent -jsonl -severity critical,high,medium -rl 5 -retry 1` | `vuln` |
+| `vuln` | 给了 `template`/`tags`/`severity` 走定点 nuclei；给了 `command` 就按命令跑 | `vuln` / `artifact` |
+| `http_get` | `curl -sS -i -m 20 -x <socks> …`（显式 `-x`，只发 1 个请求） | `asset` |
+| `exec` | `contract.command`（或 `argv` 数组）经非登录 `bash -c` 执行 | `artifact` |
+| `exploit` | 同上（命令由操作员给出；destructive 由 broker 门闸要人工批准令牌） | `session` / `credential` / `artifact` |
+| `internal` | 同上（横向/提权用 netexec、impacket、msf 任选） | `session` / `credential` / `asset` / `artifact` |
+| `chain` | `contract.steps` 顺序执行（≤12 步），任一步失败即停 | `chain` / `artifact` |
 
-**出口纪律**：目标是外部地址时必须给 `GUNGNIR_EXIT_SOCKS`（跳板出口），否则**拒绝执行**；
-本地/实验室目标需显式 `GUNGNIR_ALLOW_DIRECT=1`。原始输出落盘到 `GUNGNIR_ARTIFACT_DIR`
-（默认 `<cwd>/artifacts/<external_id>/`）供人工复核；工具失败即非零退出 → 主控记 `unknown`。
+现查能力面（机器可读）：
+
+```sh
+node executors/tool-runner.mjs --capabilities
+```
+
+**契约字段**：`action`、`url`、`method`、`command`（字符串）、`argv`（数组，按参数边界拼壳，空格路径不会被拆开）、
+`steps`（chain 用）、`template`/`tags`/`severity`（vuln 用）、`parse`（`nuclei|httpx|curl|evidence`）、
+`timeout_ms`（操作员命令超时，默认 300s，上限 `GUNGNIR_MAX_TIMEOUT_MS`＝1h）。
+
+**回执形状**（与 `executors/dsh-redteam-executor.mjs` 对齐）：`{ generation, external_id, members, resources }`——
+`generation` 必须回带 `contract.generation`（插件层按代际校验，缺了整单 `exit=4`、wire=0）；
+`_debug` 只在本机 `GUNGNIR_TOOL_RUNNER_VERBOSE=1` 时打到 stderr，不进回执。
+
+**证据回传协议**（显式、不推断）：命令 stdout 逐行写
+
+```
+GUNGNIR_MEMBER: {"entity_type":"session","source_id":"ssh:10.0.0.5:root","payload":{"user":"root"}}
+```
+
+可用的 `entity_type`：`asset` / `domain` / `vuln` / `credential` / `session` / `shell` / `chain` / `artifact`。
+字段不全或类型不在表内的行**直接忽略**（执行器不猜）。`content_hash` 由执行器按**规范化内容重算**，
+不采信自报值（键序/自报值不同会让同一条证据变成两条互相隔离的冲突事实）。操作员命令无论成功与否都会留一条
+`artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——**非零退出是被派命令的真实结果，不是执行层故障**；
+**超时与被信号杀（SIGKILL/OOM）才作为错误抛出**（证据不完整，主控记 `unknown`）。内置工具模板
+（subfinder/httpx/nuclei/curl）仍按老规矩：非零退出即失败，绝不伪造事实。
+
+> 秘密别写进 argv：产物目录（stdout/stderr 原文）与执行日志按原样留档，凭据用环境变量引用（`$TOKEN`）。
+
+**出口纪律**：`contract` 里**任何可寻址对象**（`targets`、`url`、`chain` 步内 `targets`/`url`）只要落在外部地址
+且没给 `GUNGNIR_EXIT_SOCKS`，就**拒绝执行**——`url` 不是绕过出口的旁路。本地/实验室目标需显式
+`GUNGNIR_ALLOW_DIRECT=1`。原始输出落盘到 `GUNGNIR_ARTIFACT_DIR`（默认 `<cwd>/artifacts/<external_id>/`）
+供人工复核；工具失败即非零退出 → 主控记 `unknown`。
+
+> 授权范围同理：broker 的 scope 校验（`packages/warroom-core/src/gates.js`）与出口判定都覆盖
+> `targets` + `url` + chain 步内目标，`url` 指向范围外资产会在门闸处就被拒绝。
 
 > 性能坑（已修）：执行器用 **非登录** shell（`bash -c`）跑工具。`bash -lc` 会加载交互式 profile，
 > 实测一条命令要 ~30 秒（并把执行层耦合到你的 shell 环境）。需要工具链环境就显式给
