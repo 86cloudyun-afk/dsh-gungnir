@@ -77,7 +77,7 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
   }
 });
 
-test('daemon 初始 done：collect 不改终态，cancel 不发停止请求或伪造资源证据', async () => {
+test('daemon 初始 done：collect 不改终态；终态取消必须真的停并逐项证实（ADR-009）', async () => {
   const home = mkdtempSync(join(tmpdir(), 'wr-responder-done-'));
   const root = join(home, 'dsh-bridge');
   mkdirSync(root, { recursive: true });
@@ -105,13 +105,16 @@ test('daemon 初始 done：collect 不改终态，cancel 不发停止请求或�
     assert.equal(broker._findCommand(ex.task_id).state, 'done');
     assert.equal(broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id)).accepted, true);
     assert.equal(broker._findCommand(ex.task_id).state, 'done', 'collect 不触发终态转换');
-    const result = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.equal(result.state, 'done');
-    assert.equal(result.terminal, true);
-    assert.equal(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)), false, 'ADR-003：终态取消仅返回当前终态');
     const probes = adapter.manifestOf(ex.task_id) ?? [];
     assert.equal(probes.length, 2);
     assert.equal(probes.every((p) => p.check() === false), true, 'done 不是 stopped 证明');
+    // ADR-009：终态任务上清单里仍有活资源 → 取消请求必须真的去停 + 逐项证实，
+    // 不许无副作用地回一句"已结束"（那会让 done 永久盖住在跑的资源）。
+    const result = broker.cancel(eng.engagement_id, ex.task_id, 'test');
+    assert.equal(result.state, 'confirmed_stopped', '逐项证实通过才落 confirmed_stopped');
+    assert.equal(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)), true, '停止请求必须发下去');
+    const after = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(after.every((p) => p.check() === true), true, '证实后清单逐项为已停止');
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });

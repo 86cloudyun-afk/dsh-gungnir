@@ -57,6 +57,9 @@
   （内置抓取模板的证据行直接不解析）；要收旧写法得在契约里显式 `trusted_stdout: true`，只对 stdout 不经目标的自有脚本用。
 - 资源清单按**实测**回：命令留下的后台进程会以 `<step>-child-<pid>` 进清单并标 `stopped: false`——
   这意味着那个资源还没收口（任务停在 `unresolved`），**别把它读成"已停"**；要收口就真的停掉它或走探针证实。
+- `done` 只表示「活干完了」，**不**表示资源已停：完成时清单里还有活资源会另记 `resources_outstanding`。
+  这类残留**可以也应该**用 `warroom_cancel` 收口——终态任务上的取消会真的发出停止请求并逐项证实
+  （全证实 → `confirmed_stopped`；未证实 → `unresolved` 人工队列），不是「已结束」的空操作。
 - `exploit` 的 destructive 授权仍由 broker 门闸校验（人工批准令牌），执行层不重复裁决也不替它放行。
   批准**绑定「动作 + 靶标」**：向操作员要批准时说清 `action` 与 `targets`（操作员签发：
   `warroom approve --engagement <id> --action exploit --targets 10.0.0.5`），派单时 `action`/`targets` 必须逐字一致——
