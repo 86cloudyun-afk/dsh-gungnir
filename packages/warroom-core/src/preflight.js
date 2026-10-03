@@ -72,11 +72,11 @@ export function preflight({ broker, engagementId, home = null, meeting = null })
   } catch (e) {
     // 战役不存在时 `_engWithRow().row` 是 undefined，直接取 auth_version 会抛原始 TypeError
     // （真机症状：blocker="Cannot read properties of undefined (reading 'auth_version')"，
-    //  使用者据此无法判断"该先冻结授权"）。这里给可读结论 + 自举指引，fail-closed 语义不变。
+    //  使用者据此无法判断"该先冻结授权"）。这里给可读结论 + 可信授权指引，fail-closed 语义不变。
     const missing = /Cannot read properties of undefined|null is not|not found/i.test(String(e?.message ?? ''));
     add('engagement', '战役存在', FAIL,
       missing
-        ? `战役不存在：${engagementId}（请先冻结授权：warroom_engage / CLI \`warroom engage\`）`
+        ? `战役不存在：${engagementId}（请由可信宿主或操作员通过 CLI \`warroom engage\` 冻结授权，再引用已有 engagement_id）`
         : e.message);
   }
 
