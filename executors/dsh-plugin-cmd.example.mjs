@@ -11,6 +11,7 @@
 //
 // 未配置 → 明确失败（fail-closed）：绝不返回"看起来成功"的空回执。
 import { execFile } from 'node:child_process';
+import { parseCmdline } from './parse-cmdline.mjs';
 
 const fill = (tpl, job) => tpl
   .replaceAll('{role}', job.role ?? 'recon')
@@ -20,7 +21,7 @@ const fill = (tpl, job) => tpl
   .replaceAll('{external_id}', job.external_id ?? '');
 
 const runCmd = (cmdline, timeoutMs = 180000) => new Promise((resolve, reject) => {
-  const [cmd, ...args] = cmdline.split(' ').filter(Boolean);
+  const [cmd, ...args] = parseCmdline(cmdline, 'GUNGNIR_DSH_TOOL_CMD');
   execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
     if (err) return reject(new Error(`派单命令失败：${err.message}; stderr=${String(stderr).slice(0, 500)}`));
     try { resolve(JSON.parse(stdout)); }

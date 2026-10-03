@@ -16,6 +16,7 @@
 # 你的派单命令：读参数 → 调红队模式插件服务 → stdout 输出 {members, resources}
 export GUNGNIR_DSH_TOOL_CMD="dsh tool redteam_dispatch --role {role} --targets {targets} --intent {intent}"
 export GUNGNIR_EXECUTOR_CMD="node executors/dsh-plugin-cmd.example.mjs"
+# 路径含空格：JSON 数组或引号，见 executors/parse-cmdline.mjs
 node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge" \
   --executor executors/dsh-redteam-executor.mjs
 ```
