@@ -10,13 +10,14 @@ import { createWarroomService } from '../packages/warroom-plugin/src/service.js'
 import { dshTools } from '../packages/warroom-plugin/src/tools.js';
 import { toToolDefinition } from '../packages/warroom-plugin/src/dsh-entry.mjs';
 import { ERR } from '../packages/shared-types/src/index.js';
+import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 
 const tool = (name) => TOOLS.find((t) => t.name === name);
 const close = (svc) => { for (const { db } of svc.broker.engagements.values()) db.close(); svc.broker.global.close(); };
-function fresh(t) {
+function fresh(t, opts = {}) {
   const home = mkdtempSync(join(tmpdir(), 'wr-host-auth-'));
-  const c = { home, svc: createWarroomService({ home, adapterKind: 'fake' }) };
-  t.after(() => { close(c.svc); rmSync(home, { recursive: true, force: true }); });
+  const c = { home, svc: createWarroomService({ home, adapterKind: 'fake', autoStart: false, ...opts }) };
+  t.after(async () => { await c.svc.dispose(); rmSync(home, { recursive: true, force: true }); });
   return c;
 }
 const request = (eng, extra = {}) => ({ engagement_id: eng.engagement_id, auth_version: eng.auth_version, command_id: 'host-reference', action_class: 'active',
@@ -37,7 +38,10 @@ test('trusted host setup permits model dispatch using an existing authorization 
 });
 
 test('schema-valid native model wrapper dispatches an existing host authorization reference', async (t) => {
-  const c = fresh(t);
+  // Native tools require a real parent context and host observation; this fake source remains inert.
+  class ObservableFakeAdapter extends FakeAdapter { observe() { return null; } }
+  const c = fresh(t, { adapter: new ObservableFakeAdapter(),
+    hostDelivery: { deliver: async () => ({ status: 'pending' }) } });
   const eng = c.svc.broker.createEngagement({ user_message_id: 'trusted-wrapper-fixture', targets: ['target.example.test'] });
   const args = request(eng);
   const definition = toToolDefinition(dshTools(c.svc).find((d) => d.name === 'warroom_execute'));
@@ -45,8 +49,12 @@ test('schema-valid native model wrapper dispatches an existing host authorizatio
     assert.ok(Object.hasOwn(args, field), `model request must include schema-required ${field}`);
   }
   assert.equal(args.action_class, 'active');
-  const out = await definition.execute(args);
-  assert.equal(out.state, 'running');
+  const out = await definition.execute(args, {
+    agent: { id: 'inert-parent', session: { header: { id: 'inert-parent', createdAt: 1000 } } },
+  });
+  assert.equal(out.state, 'queued');
+  assert.equal(c.svc.broker.adapter.lookup('host-reference'), null);
+  await c.svc.tasks.tick();
   assert.equal(c.svc.broker.adapter.lookup('host-reference').task_id, out.task_id);
 });
 

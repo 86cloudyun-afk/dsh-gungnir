@@ -49,7 +49,14 @@ export function toToolDefinition(tool) {
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value ?? null, null, 2) }],
     },
-    execute: async (args, exec) => json(await tool.execute(args ?? {}, exec)),
+    execute: async (args, exec) => {
+      // Native dispatch must never fall into the direct-tool/CLI synchronous compatibility path.
+      if (tool.name === 'warroom_execute' && !exec?.agent) {
+        throw Object.assign(new Error('host parent context required; no task registered or started'),
+          { code: 'E_HOST_CONTEXT_REQUIRED' });
+      }
+      return json(await tool.execute(args ?? {}, exec));
+    },
   };
 }
 

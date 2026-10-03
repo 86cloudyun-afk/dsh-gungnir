@@ -11,13 +11,18 @@ import { parentIdentity } from './host-delivery.js';
 export function dshTools(service) {
   return TOOLS.map((t) => ({
     name: t.name,
-    description: t.description,
+    description: t.name === 'warroom_execute'
+      ? `${t.description} DSH 调用只登记宿主后台任务并返回 task_id/generation/state；汇报登记结果后结束当前回合，主会话接受用户新消息。不得 wait/whenIdle 或循环轮询；完成或失败由宿主通知，收到后先用 warroom_status 核账。缺父会话或通知能力即拒绝，不同步回退。`
+      : t.description,
     input_schema: t.input_schema,
     execute: (args = {}, exec) => {
       if (t.name === 'warroom_execute' && exec) {
         if (exec.signal?.aborted) throw new Error('parent tool invocation cancelled');
         if (!service.tasks || !exec.agent) throw new Error('host background delivery and parent agent required');
-        return service.broker.execute(args, { deferDispatch: true, parent: parentIdentity(exec.agent) });
+        const result = service.broker.execute(args, { deferDispatch: true, parent: parentIdentity(exec.agent) });
+        return { ...result, host_dispatch: {
+          mode: 'background', completion: 'host_notification', next_action: 'return_to_user',
+        } };
       }
       // 执行类工具先做四元组形状校验（其余校验在 broker 内部，缺一不可）
       if (t.name === 'warroom_execute') {
