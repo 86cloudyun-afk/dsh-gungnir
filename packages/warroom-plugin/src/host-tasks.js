@@ -146,6 +146,16 @@ export class HostTaskRunner {
       const collected = this.broker.collectHostObservation(cmd.engagement_id, cmd.task_id, event);
       if (!collected.accepted) return;
     }
+    // 执行器报 done ≠ 它留下的资源都停了（ADR-003 D4）：记 done 的同时留一条审计信号，
+    // 让"完成但资源未收口"可见；取消请求仍能把它们停掉并逐项证实（ADR-009）。
+    let next = event.state;
+    if (next === 'done') {
+      const liveness = this.broker._liveResources(cmd);
+      if (liveness.observable && liveness.live.length > 0) {
+        this.broker._gate(cmd.engagement_id, 'resources_outstanding',
+          { task_id: cmd.task_id, reported: event.state, live: liveness.live });
+      }
+    }
     const db = this.broker.global;
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -153,13 +163,13 @@ export class HostTaskRunner {
       if (cmd.state === 'queued' && ['done', 'partial', 'failed'].includes(event.state)) {
         this.broker._setCommandState(cmd.command_id, 'running');
       }
-      if (event.state !== this.broker._findCommand(cmd.task_id).state &&
-          !canTransition(this.broker._findCommand(cmd.task_id).state, event.state)) {
+      if (next !== this.broker._findCommand(cmd.task_id).state &&
+          !canTransition(this.broker._findCommand(cmd.task_id).state, next)) {
         db.exec('ROLLBACK'); return;
       }
-      this.broker._setCommandState(cmd.command_id, event.state);
+      this.broker._setCommandState(cmd.command_id, next);
       db.prepare('UPDATE task_owners SET last_event_seq = ? WHERE command_id = ?').run(event.event_seq, cmd.command_id);
-      if (isTerminal(event.state)) this._notice(cmd, event.state, event.event_seq);
+      if (isTerminal(next)) this._notice(cmd, next, event.event_seq);
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }

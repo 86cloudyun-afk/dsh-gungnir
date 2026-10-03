@@ -4,12 +4,12 @@
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-2026-10-03 本次身份隔离修复在 Mac 上仅做安全离线复核：776 例登记用例中 751 通过、0 失败、25 项未运行
+2026-10-03 本次身份隔离修复在 Mac 上仅做安全离线复核：841 例登记用例中 805 通过、0 失败、36 项未运行
 （真实执行器、网络/系统探针、原生 DSH 与部署用例按本次任务边界跳过）。六闸在交付证据包的
-`offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
-复跑：`NODE_OPTIONS='--require=<证据目录>/offline-scope.cjs' node scripts/ci.mjs`。
+`integration-offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
+复跑：`NODE_OPTIONS='--require=<证据目录>/integration-offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**776 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**841 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -106,6 +106,11 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
 | 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
 | 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
+| 任务身份与桥证据隔离 | task/command 共用命名空间拒绝跨任务歧义；同一 writer 事务内幂等复核、身份/节奏检查后才按完整契约消费绑定批准；宿主历史歧义拒绝；同步与序列等待严格核 external_id、保留源 generation/event_seq | `test/task-identity-isolation.test.js`、`test/task-identity-concurrency.test.js`、`test/host-identity-isolation.test.js`、`test/bridge-evidence-identity.test.js` | 本次离线定向回归；不代表真实污染记录已清理 |
+| 批准与动作绑定 | 批准指纹（动作 + 靶标，**含端口/路径/scheme**）不符即拒；裸批准/死令牌在签发或消费处拒；**一律一次性** + CAS 原子消费 + 记真实 command_id；宿主派发前复核；`allowed_means` 手段校验（按 `action`/`role`/`intent` 最强一方）；执行层拒绝「声明档位弱于动作档位」的契约 | `test/approval-binding.test.js`、`test/gate-controls.test.js` | ✅ |
+| 终态与资源收口 | 完成 + 清单仍有活资源 → 记 `resources_outstanding`（不重定义 `done`）；终态任务取消 → 真的发停止请求 + 逐项证实（`confirmed_stopped` / `unresolved`），不再无副作用回「已结束」；同步取消带 `request_id` 且只认新发布 | `test/resource-settlement.test.js`、`test/dsh-responder.test.js` | ✅ |
+| 证据来源与资源清单真实性 | 目标返回文本不得成为事实（证据行须带本单 nonce；内置抓取模板一律不解析；`trusted_stdout` 显式逃逸）；后台子进程逐条进资源清单且 `stopped` 按进程组实测（不代填停止证明）；超时/信号杀清组不留残留 | `test/tool-runner.test.js` | ✅ |
+| 执行层能力面配齐 | 八个动作（http_get/recon/nuclei_scan/vuln/exec/exploit/internal/chain）全部有真实命令计划；文档承诺 == 注册表（双向断言）；缺字段精确报缺；`--capabilities` 可现查；操作员命令留 artifact 事实（退出码/输出哈希/落盘路径） | `test/tool-runner.test.js` | ✅ |
 | 蓝队视图 IOC 前置 | 整段搬迁且段集合不变 | `test/ioc-report.test.js` | ✅ |
 | HTML 窄屏适配 | 表格滚动容器 + 媒体查询；零外部资源 | `test/report-html.test.js` | ✅ |
 | 角色动线落地 | 值班/交付/路径口径写进三角色提示词 | `presets/roles/*.md`、`scripts/check-preset.mjs` | ✅ |
@@ -157,8 +162,8 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：776 例（`node --test`）
+- 测试：841 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
+- schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）

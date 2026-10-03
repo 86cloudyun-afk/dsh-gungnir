@@ -61,14 +61,28 @@ export class FileBridgeDriver {
   }
 
   _awaitFile(path, phase, externalId) {
+    return this._awaitFileAfter(path, null, phase, externalId);
+  }
+
+  /**
+   * 等一个**新**版本的文件：`afterSeq` 给定时，只接受 event_seq 更大的发布。
+   *
+   * 存在理由（真机实测）：同步取消原本用 `_awaitFile` 等状态文件，而文件早就存在（上一次发布），
+   * 于是立刻返回**取消前**的状态，紧接着的停止探针读到的还是旧证据 → 只能落 unresolved。
+   */
+  _awaitFileAfter(path, afterSeq, phase, externalId) {
     const deadline = Date.now() + this.timeoutMs;
+    let last = null;
     while (Date.now() < deadline) {
       const v = this._readTaskEvidence(path, externalId);
-      if (v) return v;
+      if (v) {
+        last = v;
+        if (afterSeq === null || !Number.isSafeInteger(v.event_seq) || v.event_seq > afterSeq) return v;
+      }
       // 真实模式：等执行层落盘；这里用忙等 + 小睡（Node 同步上下文下最简实现）
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.pollMs);
     }
-    return null; // 超时 → 调用方转 unknown
+    return afterSeq === null ? null : (last ?? null);   // 超时：把最后看到的状态交给调用方（可能是旧状态）
   }
 
   spawnRole(role, contract) {
@@ -91,7 +105,8 @@ export class FileBridgeDriver {
     atomicWrite(this._stopPath(externalId), { protocol: PROTOCOL, external_id: externalId,
       generation: this.generations.get(externalId), request_id, after_event_seq, action: 'stop', at: new Date().toISOString() });
     if (this.background) return { state: 'cancel_requested' };
-    const st = this._awaitFile(this._statusPath(externalId), 'stop', externalId);
+    // 同步路径必须等**新的**发布（event_seq 前进），否则读到的是取消前的旧状态
+    const st = this._awaitFileAfter(this._statusPath(externalId), after_event_seq, 'stop', externalId);
     return { state: st?.state ?? 'unknown' };
   }
 

@@ -1,7 +1,7 @@
 # ADR-003 Adapter 生命周期
 
 - 状态：Accepted · **rev2**（2026-10-02 复核收敛）
-- 修订记录：rev2 = 派发幂等（command_id 先持久化后派发、可按 ID 找回）；停止证明改为**资源清单
+- 修订记录：rev3 = 「取消幂等」补一条例外——清单里仍有未证实停止的资源时，取消请求必须发出停止动作并逐项证实（见 [ADR-009](ADR-009-terminal-state-and-resource-settlement.md)）；rev2 = 派发幂等（command_id 先持久化后派发、可按 ID 找回）；停止证明改为**资源清单
   逐项证实**；generation 比较范围限定为同任务执行尝试。rev1 = 状态机增补、取消与证实分离、探针证明。
 - 关联：[WARROOM-FRAMEWORK.md](../WARROOM-FRAMEWORK.md) §3.6；ADR-001（撤销、时间窗）、
   ADR-002（op_log、代际、回执幂等）
