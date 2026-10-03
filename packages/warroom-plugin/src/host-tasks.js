@@ -2,6 +2,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isTerminal, canTransition, validateReceipt } from '../../shared-types/src/index.js';
 
+/**
+ * 派发宽限：dispatch 已尝试、适配器尚未上报 running 的连续 tick 数。
+ * background 派发后命令仍是 queued（等首次 observe），立刻标 unknown 会造成
+ * queued→unknown→running 的状态抖动；daemon 侧 50ms 观察者会看到瞬时 unknown。
+ * 连续 UNKNOWN_GRACE_TICKS 个 tick（默认 100ms tick ≈ 500ms）仍无进展才标 unknown。
+ */
+const UNKNOWN_GRACE_TICKS = 5;
+
 export class HostTaskRunner {
   constructor({ broker, delivery, intervalMs = 100 }) {
     this.broker = broker;
@@ -10,6 +18,7 @@ export class HostTaskRunner {
     this.closed = false;
     this.active = null;
     this.timer = null;
+    this._unknownGrace = new Map(); // command_id -> 连续 grace tick 计数（内存态，重启即重置为重新宽限）
   }
 
   start() {
@@ -162,14 +171,30 @@ export class HostTaskRunner {
       if (this.closed) return;
       try {
         let owner = this._owner(cmd.command_id);
-        if (isTerminal(cmd.state)) continue;
+        if (isTerminal(cmd.state)) { this._unknownGrace.delete(cmd.command_id); continue; }
         if (!this._authorized(cmd, owner) && !owner.cancel_requested) {
           this.broker.cancel(cmd.engagement_id, cmd.task_id, 'authorization revoked or expired');
           owner = this._owner(cmd.command_id); cmd = this.broker._findCommand(cmd.task_id);
         }
-        if (owner.cancel_requested) { this._stop(cmd, owner); continue; }
-        if (cmd.state === 'queued' && !owner.dispatch_attempted) this.broker.dispatchQueued(cmd.command_id);
-        else if (cmd.state === 'queued') this.broker._setCommandState(cmd.command_id, 'unknown');
+        if (owner.cancel_requested) { this._unknownGrace.delete(cmd.command_id); this._stop(cmd, owner); continue; }
+        if (cmd.state === 'queued' && !owner.dispatch_attempted) {
+          this.broker.dispatchQueued(cmd.command_id);
+          this._unknownGrace.delete(cmd.command_id);
+        } else if (cmd.state === 'queued') {
+          // 派发已尝试但适配器尚未上报 running：给宽限，连续多个 tick 仍无进展才标 unknown，
+          // 并打 dispatch_unknown 门闸日志（与 broker.dispatchQueued 异常路径的 code 对齐）。
+          const n = (this._unknownGrace.get(cmd.command_id) ?? 0) + 1;
+          if (n >= UNKNOWN_GRACE_TICKS) {
+            this._unknownGrace.delete(cmd.command_id);
+            this.broker._setCommandState(cmd.command_id, 'unknown');
+            this.broker._gate(cmd.engagement_id, 'dispatch_unknown',
+              { task_id: cmd.task_id, reason: 'no adapter progress within grace period after dispatch' });
+          } else {
+            this._unknownGrace.set(cmd.command_id, n);
+          }
+        } else {
+          this._unknownGrace.delete(cmd.command_id);
+        }
         cmd = this.broker._findCommand(cmd.task_id);
         owner = this._owner(cmd.command_id);
         if (owner.dispatch_attempted && !isTerminal(cmd.state) && this._attach(cmd)) {
@@ -181,20 +206,20 @@ export class HostTaskRunner {
     const pending = db.prepare("SELECT * FROM task_notifications WHERE delivery_state = 'pending' ORDER BY rowid").all();
     for (const notice of pending) {
       if (this.closed) return;
-      const cmd = this.broker._findCommand(notice.command_id);
-      const owner = this._owner(notice.command_id);
-      const valid = () => {
-        const current = this.broker._findCommand(notice.command_id);
-        const own = this._owner(notice.command_id);
-        return !this.closed && current.generation === notice.generation &&
-          (!['done', 'partial', 'failed'].includes(notice.state) ||
-            (!own.cancel_requested && this._authorized(current, own)));
-      };
-      if (!valid()) {
-        db.prepare("UPDATE task_notifications SET delivery_state = 'blocked', detail = 'generation or authorization changed' WHERE notice_id = ?").run(notice.notice_id);
-        continue;
-      }
       try {
+        const cmd = this.broker._findCommand(notice.command_id);
+        const owner = this._owner(notice.command_id);
+        const valid = () => {
+          const current = this.broker._findCommand(notice.command_id);
+          const own = this._owner(notice.command_id);
+          return !this.closed && current.generation === notice.generation &&
+            (!['done', 'partial', 'failed'].includes(notice.state) ||
+              (!own.cancel_requested && this._authorized(current, own)));
+        };
+        if (!valid()) {
+          db.prepare("UPDATE task_notifications SET delivery_state = 'blocked', detail = 'generation or authorization changed' WHERE notice_id = ?").run(notice.notice_id);
+          continue;
+        }
         const result = await this.delivery.deliver(owner, { ...notice, task_id: cmd.task_id }, valid);
         if (this.closed) return;
         if (result?.status === 'delivered' || result?.status === 'blocked') {

@@ -108,3 +108,26 @@ test('flush failure after enqueue keeps acknowledgement pending and next attempt
 test('without persistence/flush capability no transport claims delivery', () => {
   assert.equal(createHostDelivery({ agents: { get() {} } }), null);
 });
+
+test('read lag after flush does not duplicate followup for the same agent', async () => {
+  const h = fixture();
+  let lagReads = true; // 模拟宿主 read-your-write 滞后：flush 成功但重读看不到 spliced 事件
+  const origOpen = h.ctx.sessionPersistence.open;
+  h.ctx.sessionPersistence.open = async (id, access) => {
+    const handle = await origOpen(id, access);
+    const origRead = handle.read;
+    handle.read = async (offset, length) => lagReads ? { events: [] } : origRead(offset, length);
+    return handle;
+  };
+  const delivery = createHostDelivery(h.ctx);
+  assert.equal((await delivery.deliver(h.owner, h.notice)).status, 'pending');
+  assert.equal(h.nextTurn.length, 1, '首次注入一次');
+  h.nextTurn.shift(); // agent 消费了 inbox（变 idle），但读路径仍滞后
+  assert.equal((await delivery.deliver(h.owner, h.notice)).status, 'pending');
+  assert.equal(h.nextTurn.length, 0, '同 agent 对象不得重复注入');
+  assert.equal(h.log.length, 1);
+  lagReads = false; // 读路径追上
+  assert.equal((await delivery.deliver(h.owner, h.notice)).status, 'delivered');
+  assert.equal(h.nextTurn.length, 0);
+  assert.equal(h.log.length, 1);
+});
