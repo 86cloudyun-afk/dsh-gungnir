@@ -35,25 +35,13 @@ function snapshot(h, peerAdapter) {
     firstDispatchCounter: h.broker.dispatchCounter,
   };
 }
-// Deterministically inject a second Broker's complete registration immediately after
-// the first Broker's unlocked cheap namespace query returned empty. This represents
-// the database schedule A:SELECT -> B:SELECT/INSERT/COMMIT -> A:INSERT, without workers.
-function afterCheapCheck(broker, action) {
-  const original = broker.global.prepare.bind(broker.global);
-  let injected = false;
-  broker.global.prepare = function(sql) {
-    const stmt = original(sql);
-    if (injected || !/SELECT command_id FROM command_queue\s+WHERE task_id = \? OR command_id = \? OR task_id = \? LIMIT 1/.test(sql)) return stmt;
-    return new Proxy(stmt, { get(target, name) {
-      if (name !== 'get') {
-        const value = Reflect.get(target, name); return typeof value === 'function' ? value.bind(target) : value;
-      }
-      return (...args) => {
-        const result = target.get(...args);
-        if (!injected) { injected = true; action(); }
-        return result;
-      };
-    } });
+// Deterministically inject the peer's complete registration after A's unlocked
+// reads and immediately before A takes its writer lock: A:READ -> B:COMMIT -> A:BEGIN.
+function beforeWriteLock(broker, action) {
+  const exec = broker.global.exec.bind(broker.global); let injected = false;
+  broker.global.exec = function(sql) {
+    if (!injected && sql === 'BEGIN IMMEDIATE') { injected = true; action(); }
+    return exec(sql);
   };
   return () => injected;
 }
@@ -65,7 +53,7 @@ for (const deferred of [false, true]) for (const kind of ['duplicate-task', 'tas
     const second = c.req(kind === 'command-as-task' ? 'review-task' : 'review-peer',
       kind === 'duplicate-task' ? 'review-task' : kind === 'task-as-command' ? 'review-first' : 'review-peer-task');
     let before;
-    const injected = afterCheapCheck(c.h.broker, () => {
+    const injected = beforeWriteLock(c.h.broker, () => {
       c.peer.execute(second, c.opts); before = snapshot(c.h, c.peerAdapter);
     });
     assert.throws(() => c.h.broker.execute(first, c.opts), { code: 'E_APPROVAL_MISMATCH' });
@@ -76,7 +64,7 @@ for (const deferred of [false, true]) for (const kind of ['duplicate-task', 'tas
 for (const deferred of [false, true]) test(`independent interleaving ${deferred ? 'deferred' : 'sync'} identical command/task stays idempotent`, (t) => {
   const c = fixture(t, deferred); const request = c.req('review-identical', 'review-task');
   let before, accepted;
-  const injected = afterCheapCheck(c.h.broker, () => {
+  const injected = beforeWriteLock(c.h.broker, () => {
     accepted = c.peer.execute(request, c.opts); before = snapshot(c.h, c.peerAdapter);
   });
   const retry = c.h.broker.execute(request, c.opts);
@@ -89,7 +77,7 @@ for (const deferred of [false, true]) test(`independent interleaving ${deferred 
   c.h.broker.execute(c.req('review-existing', 'review-existing-task'), c.opts);
   const request = c.req('review-identical', 'review-task');
   let before, accepted;
-  const injected = afterCheapCheck(c.h.broker, () => {
+  const injected = beforeWriteLock(c.h.broker, () => {
     accepted = c.peer.execute(request, c.opts); before = snapshot(c.h, c.peerAdapter);
   });
   const retry = c.h.broker.execute(request, c.opts);
@@ -106,7 +94,7 @@ for (const deferred of [false, true]) for (const kind of ['duplicate-task', 'tas
     const second = c.req(kind === 'command-as-task' ? 'review-task' : 'review-peer',
       kind === 'duplicate-task' ? 'review-task' : kind === 'task-as-command' ? 'review-first' : 'review-peer-task');
     let before;
-    const injected = afterCheapCheck(c.h.broker, () => {
+    const injected = beforeWriteLock(c.h.broker, () => {
       c.peer.execute(second, c.opts); before = snapshot(c.h, c.peerAdapter);
     });
     assert.throws(() => c.h.broker.execute(first, c.opts), { code: 'E_APPROVAL_MISMATCH' });
@@ -116,7 +104,7 @@ for (const deferred of [false, true]) for (const kind of ['duplicate-task', 'tas
 }
 for (const deferred of [false, true]) test(`independent interleaving ${deferred ? 'deferred' : 'sync'} same command changed task remains a mismatch`, (t) => {
   const c = fixture(t, deferred); let before;
-  const injected = afterCheapCheck(c.h.broker, () => {
+  const injected = beforeWriteLock(c.h.broker, () => {
     c.peer.execute(c.req('review-identical', 'review-peer-task'), c.opts); before = snapshot(c.h, c.peerAdapter);
   });
   assert.throws(() => c.h.broker.execute(c.req('review-identical', 'review-task'), c.opts), { code: 'E_APPROVAL_MISMATCH' });
@@ -137,3 +125,38 @@ test('independent second writer cannot enter while identity registration lock is
   assert.equal(lockObserved, true);
   c.peer.global.exec('BEGIN IMMEDIATE'); c.peer.global.exec('ROLLBACK');
 });
+
+// The peer may commit immediately after the initial unlocked same-command read,
+// before any alias check. A matching explicit task must still be a lawful retry.
+function afterInitialCommandRead(broker, action) {
+  const prepare = broker.global.prepare.bind(broker.global); let injected = false;
+  broker.global.prepare = function(sql) {
+    const statement = prepare(sql);
+    if (injected || sql !== 'SELECT * FROM command_queue WHERE command_id = ?') return statement;
+    return new Proxy(statement, { get(target, name) {
+      if (name !== 'get') {
+        const value = Reflect.get(target, name); return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return (...args) => {
+        const result = target.get(...args);
+        if (!injected) { injected = true; action(); }
+        return result;
+      };
+    } });
+  };
+  return () => injected;
+}
+for (const deferred of [false, true]) for (const atCap of [false, true]) {
+  test(`early same-command read interleaving ${deferred ? 'deferred' : 'sync'} explicit task retry stays idempotent with atCap=${atCap}`, t => {
+    const c = fixture(t, deferred);
+    if (atCap) c.h.broker.execute(c.req('early-existing', 'early-existing-task'), c.opts);
+    const request = c.req('early-identical', 'early-task'); let before, accepted;
+    const injected = afterInitialCommandRead(c.h.broker, () => {
+      accepted = c.peer.execute(request, c.opts); before = snapshot(c.h, c.peerAdapter);
+    });
+    const retry = c.h.broker.execute(request, c.opts);
+    assert.equal(injected(), true); assert.equal(retry.deduped, true);
+    assert.equal(retry.task_id, accepted.task_id); assert.equal(retry.generation, accepted.generation);
+    assert.deepEqual(snapshot(c.h, c.peerAdapter), before);
+  });
+}

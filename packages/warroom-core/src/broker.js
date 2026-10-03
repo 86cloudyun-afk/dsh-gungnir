@@ -125,13 +125,6 @@ export class Broker {
       return this._acknowledgeCommand(existing, req, { deferDispatch, parent });
     }
 
-    // Both identifiers are accepted by task APIs and adapters. Keep that namespace unique
-    // before consuming approval, reserving rate, persisting registration or dispatching.
-    const collision = this.global.prepare(`SELECT command_id FROM command_queue
-      WHERE task_id = ? OR command_id = ? OR task_id = ? LIMIT 1`)
-      .get(task_id, task_id, req.command_id);
-    if (collision) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task or command identity is already bound');
-
     // 命令先持久化，后派发（ADR-003 D1：派发幂等）
     let generation, contract;
     this.global.exec('BEGIN IMMEDIATE');
@@ -144,6 +137,8 @@ export class Broker {
       this.global.exec('COMMIT');
       return result;
     }
+    // Resolve the common task/command namespace only after same-command retries,
+    // under this writer lock, before any approval, rate reservation or dispatch.
     const racedAlias = this.global.prepare(`SELECT command_id FROM command_queue
       WHERE task_id = ? OR command_id = ? OR task_id = ? LIMIT 1`)
       .get(task_id, task_id, req.command_id);
