@@ -15,7 +15,7 @@
 | ADR-002（数据与证据契约） | 6/6 闭环 |
 | ADR-003（Adapter 生命周期） | 9/9 闭环 |
 | 本次授权边界修复 | 离线定向与安全回归、schema、preset、故障矩阵、生成文档、自审；真实执行器、网络探针及原生宿主验收未运行（见 [ACCEPTANCE](ACCEPTANCE.md)） |
-| 本地六闸 | 当前目录 858 例；本次外部 preload 下离线六闸均 exit 0：822 pass /0 fail /36 范围 skip；36 工具 /21 场景矩阵 /文档与契约同步 /自审通过 |
+| 本地六闸 | 当前目录 870 例；本次外部 preload 下离线六闸均 exit 0：834 pass /0 fail /36 范围 skip；36 工具 /21 场景矩阵 /文档与契约同步 /自审通过 |
 | CI 真跑 job | 历史冻结记录：`fence`、`drill`、`native-host`、`test` 皆绿；本次精确 head 的远端结果见原 PR，不沿用历史结论 |
 | 端到端演练 | `node scripts/executor-drill.mjs` → 全链路通过（11 步）；`--mode bridge` 亦通过 |
 | 契约自检 | `node scripts/conformance.mjs` → 8/8（且对真实桥接 adapter 亦通过） |
