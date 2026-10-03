@@ -3,8 +3,6 @@
 > 生成时间：2026-10-02 · 审计范围：WARROOM-FRAMEWORK v1.4 §8 十二项 + ADR-001/002/003 验收节
 > 汇总口径：**只认可复跑的仓库内命令**；推不出来的一律写"未闭环"。
 
-本次 #163/#164/#167 防御性整合及 CI 修复的本机 guarded 离线初测：621 通过、0 失败、18 跳过，六闸通过；惰性 Node 诊断夹具已运行。下表实机、CI、性能和端到端结论保留为既有 v0.1 历史记录，未重新认证本次 tree；真实目标执行器、资源探针及云/服务器最终验收未运行。当前测试目录计数包含跳过项，并以本次六闸日志的总数核对；远端 standard/native 的通过与跳过数分别记录，不沿用本机 guarded 数值。
-
 ## 一、一次性结论
 
 | 项 | 结果 |
@@ -13,7 +11,7 @@
 | ADR-001（权限与执行边界） | 5/5 闭环（含桶 A 真实容器验收，由 CI `fence` job 真跑） |
 | ADR-002（数据与证据契约） | 6/6 闭环 |
 | ADR-003（Adapter 生命周期） | 9/9 闭环 |
-| 本地六闸 | 本次 guarded 离线六闸通过（639 例目录：621 通过、18 跳过 / 36 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
+| 本地六闸 | `node scripts/ci.mjs --quiet` → **全部通过**（590 例测试 / 37 工具 / 21 场景矩阵 / 文档与契约同步 / 自审） |
 | CI 真跑 job | `fence`（真实容器围栏）、`drill`（跨进程执行层演练）、`native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）、`test` → 皆绿 |
 | 端到端演练 | `node scripts/executor-drill.mjs` → 全链路通过（11 步）；`--mode bridge` 亦通过 |
 | 契约自检 | `node scripts/conformance.mjs` → 8/8（且对真实桥接 adapter 亦通过） |
@@ -51,7 +49,7 @@
 
 - **编排层代码**：`packages/*`（shared-types / warroom-core / warroom-tools / warroom-plugin）
 - **CLI**：`bin/warroom.mjs`（30+ 子命令，见 [QUICKSTART.md](QUICKSTART.md) 一图流）
-- **工具**：36 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
+- **工具**：37 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
 - **预设与角色**：`presets/warroom.preset.json` + `presets/roles/{commander,recon,chain}.md`
 - **契约**：`docs/adr/*`（四份 ADR）、`docs/dashboards.schema.json`（看板字段）、`docs/tools.schema.json`
 - **可读文档**：QUICKSTART / ACCEPTANCE / FAULT-MATRIX / DSH-EXECUTOR(-IMPL) / CI-INTEGRATION / BACKUP / MERGE-REVIEW-1..16

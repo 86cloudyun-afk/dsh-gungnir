@@ -1,12 +1,14 @@
 # 验收对照表（v0.1 · 2026-10-02）
 
+## GUNGNIR 对话战图交付（2026-10-03）
+
+Dashboard 定向测试 **41/41**。临时 SQLite 与 Chrome 通过 21/261 节点、桌面/窄屏、对话双向定位、路线/任务引用、折叠与错误清空验证；当前安装的 DSH 0.2.0-rc.2 在独立临时 HOME/cwd 中通过实际 Client 页签、会话冷读、opaque iframe 和认证/作用域拒绝验证。两轮浏览器均无页面错误，事实库与全局库哈希未变。测试会话和数据库均为合成夹具；不改变既有生产 `HOST_VERIFIED` 记录。复现命令和截图见 [战图验收记录](dashboard/validation.md)，接入说明见 [使用指南](dashboard/usage.md)。
+
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
-本次 #163/#164/#167 防御性整合及 CI 修复只完成本机离线初测（621 通过、0 失败、18 跳过；六闸通过），并增加 [重派授权边界回归](../test/redispatch-auth.test.js)、[通知确认竞态回归](../test/host-runner.test.js) 和 [后台观察能力拒绝](../test/host-observation-admission.test.js)。惰性 Node 诊断夹具已运行；[CI 修复验证](VALIDATION-STANDBY-CI-REPAIR-2026-10-02.md) 记录原远端失败。下述既有实机/CI 状态是历史记录；本次真实目标执行器、资源探针及云/服务器最终验收未运行。本修复不扩大工具目录，模型授权创建边界的独立修复仍见 PR #164。
-
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**639 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**590 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -33,7 +35,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 
 | 验收项 | 证据 | 状态 |
 |---|---|---|
-| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（36 `warroom_*`，0 内核工具），非提示词拒绝 |
+| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（37 `warroom_*`，0 内核工具），非提示词拒绝 |
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
@@ -69,7 +71,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 | 缺口 | 影响 | 计划 |
 |---|---|---|
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
-| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（36 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
+| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（37 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
 可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
@@ -154,26 +156,8 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：639 例（`node --test`）
+- 测试：590 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
-- 工具：36 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：fact=6 / global=9（**按 label 计算目标版本**；高版本库拒绝打开）
+- 工具：37 个（schema 严格校验，DSH 挂载要求）
+- schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）
-
-## Proposed ADR-005 本机离线初测
-
-| 行为 | 证据 | 范围 |
-|---|---|---|
-| 派单先登记、立即 queued；宿主首次派发；预算/批准失效拒绝 | `test/host-tasks.test.js` | 惰性 adapter，无真实模型/目标 |
-| 完成源代际/游标、重复乱序、丢通知重启、取消/撤销不复活 | `test/host-runner.test.js` | 服务/SQLite 离线边界 |
-| 忙闲父会话、用户消息优先、通知接受后丢确认去重、身份失配 | `test/host-delivery.test.js` | 原生 API 形状的持久日志装置，非模型运行验收 |
-| 跨进程惰性 worker、应答器持久领取、重启不重执行、资源不假停 | `test/host-responder.test.js` | 临时目录与无副作用 executor |
-| CLI wave 与允许集/deny 保持固定安全基线 | `test/wave-cli.test.js`、`test/dsh-toolpolicy.test.js`、`test/dsh-mount.test.js` | 整合后的固定36工具与完整 schema；模型自授权入口已排除 |
-
-Mac 不是最终验收平台；真实 DSH 会话与模型、云/服务器、真实资源停止、部署、发布均未运行。
-上游变基风险见 [兼容记录](UPSTREAM-COMPATIBILITY-2026-10-02.md)。完整本机计数及环境失败以交付测试记录为准，
-本节不把初测或环境跳过标成最终验收通过。
-原 #163 旧候选的历史结果见 [原本机验证记录](VALIDATION-PARENT-STANDBY-2026-10-02.md)：六闸通过，497 通过／0 失败／6 跳过；
-其独立复审原 8 项重要问题已定向闭环，不认证当前整合 tree；真实运行范围仍未验证。
-
-当前整合候选的新离线证据与明确未运行项见 [整合验证](VALIDATION-STANDBY-INTEGRATION-2026-10-02.md)；原 #163 旧基线的503/497与8项关闭记录不能认证新 tree。

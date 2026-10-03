@@ -181,3 +181,15 @@ test('宿主检测按端口收敛：别的 DSH_HOME 下同名 profile 的宿主�
     child.kill('SIGKILL');
   }
 });
+
+test('自检报告**有效**适配器（读家目录配置，而不是标志默认值）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-deploy-adapter-'));
+  const profile = join(home, 'profiles', 'web');
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(profile)},{recursive:true})`]);
+  execFileSync('node', ['-e', `require('node:fs').mkdirSync(${JSON.stringify(join(home, 'warroom'))},{recursive:true})`]);
+  writeFileSync(join(home, 'warroom', 'warroom.json'), JSON.stringify({ adapterKind: 'bridge' }));
+  const out = execFileSync('node', ['scripts/deploy-dsh.mjs', '--check', '--home', home],
+    { encoding: 'utf8', env: { ...nodeEnv(), DSH_PORT: '1' } });
+  assert.match(out, /有效 adapter=bridge（来源：.*warroom\.json）/);
+  assert.doesNotMatch(out, /有效 adapter=fake/);
+});
