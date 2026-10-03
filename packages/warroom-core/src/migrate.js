@@ -4,12 +4,14 @@
 //   · 库版本 > 代码 SCHEMA_VERSION → 拒绝打开（防降级写坏数据）；
 //   · 迁移按版本号升序执行（数组顺序无关）。
 import { SCHEMA_VERSION } from './version.js';
+import { TASK_LEDGER_DDL } from './task-ledger.js';
 
 const META_KEY = 'schema_version';
 export const ERR_SCHEMA_NEWER = 'E_SCHEMA_NEWER_THAN_CODE';
 
 /** 迁移清单：version = 目标版本，labels 限定作用的库，up(db) 执行该步变更。 */
 export const MIGRATIONS = [
+  { version: 9, labels: ['global'], up(db) { db.exec(TASK_LEDGER_DDL); } },
   {
     version: 2,
     labels: ['global'],

@@ -21,6 +21,8 @@ process.stdin.on('end', () => {
   const c = job.contract ?? {};
   const wantsContainer = (c.resources ?? []).includes('container');
   const receipt = {
+    generation: c.generation,
+    external_id: job.external_id,
     members: [{
       entity_type: role === 'chain' ? 'chain' : 'asset',
       source_id: `${job.external_id}-${role}`,

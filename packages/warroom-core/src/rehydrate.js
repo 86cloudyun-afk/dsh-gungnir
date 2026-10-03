@@ -13,13 +13,16 @@ export function rehydrate(broker, adapter = broker.adapter) {
   if (typeof adapter.hydrate !== 'function') return { hydrated: 0, drifted: 0 };
   const placeholders = OPEN_STATES.map(() => '?').join(',');
   const rows = broker.global
-    .prepare(`SELECT command_id, contract, state FROM command_queue WHERE state IN (${placeholders})`)
+    .prepare(`SELECT c.command_id, c.contract, c.state FROM command_queue c
+      LEFT JOIN task_owners o USING(command_id)
+      WHERE c.state IN (${placeholders}) AND (o.command_id IS NULL OR o.dispatch_attempted = 1)`)
     .all(...OPEN_STATES);
   let hydrated = 0;
   let drifted = 0;
   for (const r of rows) {
     const contract = JSON.parse(r.contract);
     const task = adapter.hydrate(r.command_id, contract, r.state);
+    if (!task) continue;
     hydrated += 1;
     // 漂移：adapter 侧与账本状态不一致 → 交由 reconcile 定论，这里只计数
     const st = adapter.status(task?.task_id ?? contract.task_id);
