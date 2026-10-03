@@ -8,7 +8,7 @@ Dashboard 定向测试 **41/41**。临时 SQLite 与 Chrome 通过 21/261 节点
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**589 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**606 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -94,6 +94,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 喷洒矩阵（断点/扩散防护） | 已试过/已锁定不进 ready；锁定跨服务拦截 | `test/spray-matrix.test.js` | ✅ |
 | 效率视图（档位 + 返工率） | by_tier 派生指标；重派计入返工率 | `test/efficiency.test.js` | ✅ |
 | 执行器插件（fail-closed） | 未配置不写假回执；三方端到端 | `test/executor-plugin.test.js`、`test/executor-guide.test.js` | ✅ |
+| 可信 argv 与字面任务替换 | 词内/相邻引号、UNC 反斜杠、先解析后一次替换、固定可执行文件、结构性错误；惰性夹具验收 | `test/executor-cmdline.test.js`、`test/executor-parser-regressions.test.js`、`test/executor-impl-doc.test.js` | ✅；真实 Windows/DSH/服务器待验 |
 | 性能门（扩展） | 审计/JSON 报告/矩阵在大 N 下过阈值 | `test/bench.test.js` | ✅ |
 | stealth 抖动与漂移 | 区间内随机；同小时稳定、跨小时变化；门闸按本次要求间隔拒绝（带 retry_after_ms） | `test/stealth-jitter.test.js` | ✅ |
 | 体检（doctor） | 空 home 不报错、有数据全绿 | `test/doctor.test.js` | ✅ |
@@ -156,7 +157,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：589 例（`node --test`）
+- 测试：606 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：37 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）

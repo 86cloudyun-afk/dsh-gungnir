@@ -27,6 +27,24 @@ node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge" \
 node scripts/executor-drill.mjs --mode bridge    # 用内置示例执行器，验证桥本身
 ```
 
+## 二·参数配置与字面替换
+
+`GUNGNIR_EXECUTOR_CMD` 与 `GUNGNIR_DSH_TOOL_CMD` 使用同一 argv 解析器；推荐用 JSON 字符串数组表示复杂路径。数组必须非空，每项为非空字符串；可执行文件不能为空白，所有参数禁止 NUL。非法 JSON 不回退为普通分词。
+
+普通写法在引号外按空白分词；单双引号可出现在词内，相邻片段拼成一个参数，例如 `--label="hello world"` 得到 `--label=hello world`，`'a'"b"c` 得到 `abc`。引号内空白原样保留，空引号可表示空参数。引号内只有反斜杠紧接当前引号会转义该引号；其它反斜杠（包括连续反斜杠、UNC 前缀与 `\n` 文字）全部原样保留。引号外反斜杠不转义空白；`$HOME`、`;`、`|` 等没有 shell 含义。未闭合引号明确报错。
+
+连续反斜杠紧接当前引号时，普通写法明确报歧义错误（避免把路径分隔符与引号转义猜成另一种含义）。需要在关闭引号前保留反斜杠、字面引号或复杂转义时，使用 JSON argv 消除歧义；JSON 的转义规则与普通写法不同。例如以下配置文本的第二项是两个前导反斜杠的 UNC 路径：
+
+```json
+["node", "\\\\server\\share\\folder name"]
+```
+
+示例派单脚本先解析可信配置，再对每个参数一次性替换 `{role}`、`{intent}`、`{action_class}`、`{targets}`、`{external_id}`。可执行文件禁止占位符，不支持的命名占位符明确报错。job/contract 必须为对象，字段须为字符串，targets 须为字符串列表（按既有规则用逗号连接）。缺省 role/intent 为 `recon`（intent 优先沿用 role），action_class 为 `readonly`，targets/external_id 为空；缺失或 null 沿用这些既有默认值。
+
+任务字段中的空白、引号、反斜杠、Unicode、换行、其它占位符和美元符号只作为字面数据，替换后不再分词、解析 JSON 或重复替换，空值保留原参数位置。示例与桥接调用仍使用 `execFile`，不经过 shell。此保证只约束 argv 结构；下游程序仍可按自己的规则解释前导 `-` 等参数，本修复不自动插入 `--` 或改写选项。参数解析器只报告结构性错误，示例派单脚本只报告结构性原因/退出标量，不回显任务 argv 或子进程输出；桥接执行器既有输出诊断未调整。调用超时和输出缓冲上限保持原值。
+
+回归命令：`node --test test/executor-cmdline.test.js test/executor-parser-regressions.test.js test/executor-impl-doc.test.js`，只用惰性 Node argv 记录夹具，不证明真实 Windows/DSH/服务器验收。
+
 ## 二·补｜真执行器：`executors/tool-runner.mjs`（已在仓库里）
 
 不想自己写执行器时，用这个：它把桥的 job 变成**真工具调用**（走操作员既有工具链）。
