@@ -11,6 +11,7 @@
 // 执行器崩溃/输出非法 → 抛错，主控侧表现为任务 unknown/unresolved，而不是完成。
 import { execFile } from 'node:child_process';
 import { parseCmdline } from './parse-cmdline.mjs';
+import { assertSuccessfulExecutorResult } from './executor-receipt.mjs';
 
 function runCommand(cmdline, job, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
@@ -35,6 +36,8 @@ export default {
       throw new Error('未配置 GUNGNIR_EXECUTOR_CMD：拒绝伪造回执（fail-closed）');
     }
     const out = await runCommand(cmdline, job);
+    // Do not erase an explicit capability/incomplete report while normalizing arrays.
+    assertSuccessfulExecutorResult(out);
     if (!out || !Array.isArray(out.members)) throw new Error('executor 回执缺少 members 数组');
     if (typeof out.generation !== 'string' || out.generation !== job.contract?.generation) {
       throw new Error('executor 回执 source generation 不匹配或缺失');
@@ -44,7 +47,7 @@ export default {
       ...(out.stop_request_id === undefined ? {} : { stop_request_id: out.stop_request_id }),
       ...(out.external_id === undefined ? {} : { external_id: out.external_id }),
       members: out.members,
-      resources: Array.isArray(out.resources) ? out.resources : [],
+      resources: out.resources,
     };
   },
 };
