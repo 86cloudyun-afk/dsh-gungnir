@@ -1,0 +1,21 @@
+{
+  "name": "@gungnir/warroom-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/dsh-entry.mjs",
+    "./snapshot": "./src/snapshot.js",
+    "./demo": "./src/demo.js",
+    "./client": "./src/client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-slots"]
+    }
+  },
+  "scripts": {
+    "test": "node --test ../../test/dashboard-snapshot.test.js ../../test/dashboard-graph.test.js ../../test/dashboard-server.test.js ../../test/dashboard-dsh.test.js ../../test/dashboard-client.test.js ../../test/dashboard-transport.test.js"
+  }
+}
