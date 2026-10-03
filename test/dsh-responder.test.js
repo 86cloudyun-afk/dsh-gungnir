@@ -65,10 +65,18 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
     assert.equal(col.accepted, true);
     assert.equal(broker._eng(eng.engagement_id).store.effectiveCount(), 1);
 
-    // 停止语义：任务**已完成**时 cancel 是幂等终态（返回 done 属正常；在飞停止见下一个测试）
-    await waitFor(() => (adapter.manifestOf(ex.task_id) ?? []).every((p) => p.check() === true));
+    // facts 到达不代表资源已停止，且派发时的 running 账本不会随 facts 自动结项。
+    // 先发停止请求：跨进程证明尚未到达时 unresolved 正常；最终仍须逐项实测。
+    const requested = broker.cancel(eng.engagement_id, ex.task_id, 'test');
+    assert.ok(['unresolved', 'confirmed_stopped', 'done'].includes(requested.state));
+    if (requested.state !== 'done') {
+      assert.equal(await waitFor(() => {
+        const manifest = adapter.manifestOf(ex.task_id) ?? [];
+        return manifest.length > 0 && manifest.every((p) => p.check() === true);
+      }), true, '停止请求后必须收到非空清单的逐项停止证明');
+    }
     const c2 = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.ok(['confirmed_stopped', 'done'].includes(c2.state), `已完成任务的 cancel 实得 ${c2.state}`);
+    assert.ok(['confirmed_stopped', 'done'].includes(c2.state), `停止请求后的 cancel 必须终态，实得 ${c2.state}`);
   } finally {
     child.kill('SIGTERM');
   }
