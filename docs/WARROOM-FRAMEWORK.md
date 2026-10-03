@@ -108,6 +108,8 @@ reconcile(task_id)             -> final_state
 
 状态枚举：非终态 `queued / running / cancel_requested / unknown`；挂起 `unresolved`；
 终态 `done / partial / failed / cancelled / confirmed_stopped`。
+`done` 只表示「活干完了」，**不**表示资源已停：完成时清单里仍有活资源会另记 `resources_outstanding`；
+取消请求对终态任务同样有效——清单里还有活资源时，它会发出停止动作并逐项证实（ADR-009）。
 **资源清单逐项证实**：dispatch 登记任务持有的全部资源，运行中增量登记；confirmed_stopped
 要求清单逐项探针通过，任一未证实 → unresolved。generation 只在同任务执行尝试间比较。
 v0.1 唯一 adapter：redteam-mode。

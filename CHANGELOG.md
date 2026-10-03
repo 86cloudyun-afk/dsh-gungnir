@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixed
+- **终态取消不再是空操作（ADR-009）**：`cancel()` 原先对终态任务直接返回 `{terminal:true}` ——
+  `command: 'nohup ./x &'` 这类「干完就退出、留下后台进程」的任务，资源永远收不了口（实测：`sleep 300 & echo started`
+  → 执行器报 done + 子进程仍在跑 → 取消回一句「已结束」，谁也没去停）。现在先看清单：已收口 → 保持原语义；
+  还有活资源 → 记 `cancel_after_terminal`、重新打开取消流程、**全项证实 → `confirmed_stopped`，未证实 → `unresolved`**
+- **完成结论不再掩盖活资源**：任务以 `done` 落定时若清单里仍有未证实停止的资源，除 `settle` 外另记
+  `resources_outstanding`（含 live 资源 id），`settle()` 返回值带 `live`；`done` 的语义本身不变
+  （仍只表示「活干完了」，ADR-003 D4 原样）
+- **同步取消能证实了**：同步路径补 `request_id`（应答器据此判定停止证据是否 fresh），
+  `FileBridgeDriver.stopRole` 改为等**新发布**（`event_seq` 前进）而不是读到早就存在的旧状态文件——
+  在此之前，取消后立刻探针拿到的还是取消前的证据，只能落 `unresolved`
 - **目标返回文本不再成为任务证据（ADR-008）**：证据协议行原先在**任何** stdout 里都被承认，于是靶标页面写一行
   `GUNGNIR_MEMBER: {"entity_type":"shell",…}`，`http_get` 抓一下就把它当**战果**送进账本（`shell`/`chain`/`credential`
   正是判定战果与控制面状态的那几类事实）——实测复现。现在：证据行只从**操作员命令**的 stdout 收（内置抓取模板的
