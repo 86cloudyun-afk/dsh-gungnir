@@ -172,6 +172,7 @@ export class Broker {
   cancel(engagement_id, taskIdOrCommandId, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    this._assertCommandOwned(cmd, engagement_id);
     if (isTerminal(cmd.state)) return { task_id: cmd.task_id, state: cmd.state, terminal: true };
 
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?')
@@ -214,6 +215,7 @@ export class Broker {
     validateReceipt(receipt);
     const cmd = this._findCommand(task_id);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${task_id} not found`);
+    this._assertCommandOwned(cmd, engagement_id);
     const { store } = this._eng(engagement_id);
     const instance = this.adapter.instanceId ?? 'adapter-1';
     if (receipt.generation !== cmd.generation) {
@@ -231,9 +233,7 @@ export class Broker {
   recordMetrics(engagementId, commandId, { tokens_in = 0, tokens_out = 0, wall_time_ms = 0, verified_facts = 0, role = null, model_tier = null } = {}) {
     const cmd = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(commandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `command ${commandId} not found`);
-    if (cmd.engagement_id !== engagementId) {
-      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
-    }
+    this._assertCommandOwned(cmd, engagementId);
     this.global.prepare(`INSERT INTO task_metrics
       (command_id, engagement_id, task_id, role, model_tier, tokens_in, tokens_out, wall_time_ms, verified_facts, ts)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -643,6 +643,7 @@ export class Broker {
   settle(engagementId, taskIdOrCommandId) {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     const runtime = this.adapter.status(cmd.task_id);
     const terminal = ['done', 'partial', 'failed', 'cancelled', 'confirmed_stopped'];
     if (!runtime || !terminal.includes(runtime.state)) {
@@ -665,6 +666,7 @@ export class Broker {
   heartbeat(engagementId, taskIdOrCommandId, { note = null } = {}) {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     if (isTerminal(cmd.state)) {
       throw warroomError(ERR.E_INVALID_TRANSITION,
         `任务已处于终态 ${cmd.state}，无需心跳`);
@@ -862,6 +864,12 @@ export class Broker {
     return this.global.prepare('SELECT * FROM command_queue WHERE task_id = ? OR command_id = ?')
       .get(idOrCommand, idOrCommand);
   }
+  /** 命令战役归属：caller 传入的 engagement_id 必须与队列绑定一致（ADR-001 副作用通道闭合）。 */
+  _assertCommandOwned(cmd, engagementId) {
+    if (cmd.engagement_id !== engagementId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
+    }
+  }
   _setCommandState(command_id, state) {
     if (!ALL_TASK_STATES.includes(state)) throw new Error(`bad state ${state}`);
     const cur = this.global.prepare('SELECT state FROM command_queue WHERE command_id = ?').get(command_id);
@@ -875,6 +883,7 @@ export class Broker {
   status(engagementId, taskIdOrCommand) {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     const runtime = this.adapter.status(cmd.task_id);
     const manifest = (this.adapter.manifestOf(cmd.task_id) ?? [])
       .map((m) => ({ id: m.id, kind: m.kind, confirmed_stopped: m.check() }));
@@ -892,6 +901,7 @@ export class Broker {
   reconcile(engagementId, taskIdOrCommand) {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     if (!['unknown', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_RECONCILABLE, `状态 ${cmd.state} 无需对账`);
     }
@@ -914,9 +924,7 @@ export class Broker {
   redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
-    if (cmd.engagement_id !== engagementId) {
-      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
-    }
+    this._assertCommandOwned(cmd, engagementId);
     if (!['failed', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
     }
