@@ -13,6 +13,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createWarroomService } from './service.js';
 import { dshTools, TOOL_NAMES } from './tools.js';
+import { createHostDelivery } from './host-delivery.js';
+export { createHostDelivery } from './host-delivery.js';
 
 /**
  * 作用域内要拒绝的通用工具（前缀通配在 DSH 侧不受支持，因此逐一列出）。
@@ -47,7 +49,7 @@ export function toToolDefinition(tool) {
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value ?? null, null, 2) }],
     },
-    execute: async (args) => json(await tool.execute(args ?? {})),
+    execute: async (args, exec) => json(await tool.execute(args ?? {}, exec)),
   };
 }
 
@@ -93,7 +95,8 @@ export function loadToolPolicy(config = {}) {
  */
 export function apply(ctx, config = {}) {
   const home = resolveWarroomHome(config);
-  const service = createWarroomService({ home, adapterKind: config.adapterKind ?? null });
+  const service = createWarroomService({ home, adapterKind: config.adapterKind ?? null,
+    hostDelivery: createHostDelivery(ctx), autoStart: false });
   const disposers = [];
   const registered = [];
 
@@ -183,11 +186,11 @@ export function apply(ctx, config = {}) {
   }
 
   if (typeof ctx?.on === 'function') {
-    ctx.on('dispose', () => {
+    ctx.on('dispose', async () => {
       for (const dispose of disposers.reverse()) {
         try { dispose(); } catch { /* 卸载失败不阻断 */ }
       }
-      try { service.broker.global.close(); } catch { /* 同上 */ }
+      try { await service.dispose(); } catch { /* 同上 */ }
     });
   }
   // 预设内服务必须发布在 **isolate realm**，否则泄漏进 root realm：
@@ -198,6 +201,7 @@ export function apply(ctx, config = {}) {
     disposers.push(ctx.isolate('warroom').provide('warroom', service));
   }
 
+  service.tasks?.start();
   return { ...service, registered, restrictStatus, gateStatus, failClosed, allowlistSize: allow ? allow.size : null };
 }
 
