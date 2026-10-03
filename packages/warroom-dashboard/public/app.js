@@ -2,30 +2,13 @@ import { layoutGraph, focusedSubgraph, collapseEvidence, collapseEvidenceGraph, 
 import { requestData } from './transport.js';
 
 const $ = (selector) => document.querySelector(selector);
-const state = { snapshot: null, selection: null, selectedId: null, engagement: '', session: '', demo: false, sessions: [], engagementError: null, sessionError: null, generation: 0, controller: null, full: false, collapsed: false };
+const state = { snapshot: null, selection: null, selectedId: null, engagement: '', session: '', demo: false, engagements: [], sessions: [], engagementError: null, sessionError: null, generation: 0, controller: null, full: false, collapsed: false };
 const layerNames = ['L0 · 入口 / 跳板', 'L1 · 资产', 'L2 · 证据', 'L3 · 链路', 'L4 · 结论'];
 
 boot().catch(showError);
 
 async function boot() {
   bindControls();
-  setStatus('正在读取战役、会话与快照…');
-  const [engagementResponse, sessionResponse] = await Promise.allSettled([requestData('/api/engagements'), requestData('/api/sessions')]);
-  const engagements = engagementResponse.status === 'fulfilled' ? listFrom(engagementResponse.value, ['engagements', 'items']) : [];
-  const sessions = sessionResponse.status === 'fulfilled' ? listFrom(sessionResponse.value, ['sessions', 'items']) : [];
-  state.sessions = sessions;
-  state.engagementError = engagementResponse.status === 'rejected' ? engagementResponse.reason : null;
-  state.sessionError = sessionResponse.status === 'rejected' ? sessionResponse.reason : null;
-  fillSelect($('#engagement-select'), engagements, 'engagement_id', 'name', '没有可用战役');
-  fillSelect($('#session-select'), sessions, 'id', 'title', sessions.length ? '未选择会话 / 对话未接入' : '对话未接入', true);
-  if (engagements.length) {
-    state.engagement = idOf(engagements[0], 'engagement_id', 'id');
-    $('#engagement-select').value = state.engagement;
-  }
-  if (sessions.length === 1) {
-    state.session = idOf(sessions[0], 'id');
-    $('#session-select').value = state.session;
-  }
   await refresh({ initial: true });
 }
 
@@ -78,6 +61,25 @@ async function refresh({ reset = false, initial = false } = {}) {
   }
   setStatus('正在读取快照…');
   $('#global-error').hidden = true;
+  if (!state.demo) {
+    const [engagementResponse, sessionResponse] = await Promise.allSettled([requestData('/api/engagements', { signal: controller.signal }), requestData('/api/sessions', { signal: controller.signal })]);
+    if (generation !== state.generation) return;
+    const engagements = engagementResponse.status === 'fulfilled' ? listFrom(engagementResponse.value, ['engagements', 'items']) : state.engagements;
+    const sessions = sessionResponse.status === 'fulfilled' ? listFrom(sessionResponse.value, ['sessions', 'items']) : state.sessions;
+    state.engagements = engagements;
+    state.sessions = sessions;
+    state.engagementError = engagementResponse.status === 'rejected' ? engagementResponse.reason : null;
+    state.sessionError = sessionResponse.status === 'rejected' ? sessionResponse.reason : null;
+    fillSelect($('#engagement-select'), engagements, 'engagement_id', 'name', '没有可用战役');
+    fillSelect($('#session-select'), sessions, 'id', 'title', sessions.length ? '未选择会话 / 对话未接入' : '对话未接入', true);
+    if (engagementResponse.status === 'fulfilled' && !engagements.some((item) => idOf(item, 'engagement_id', 'id') === state.engagement)) {
+      state.engagement = engagements.length ? idOf(engagements[0], 'engagement_id', 'id') : '';
+    }
+    if (sessionResponse.status === 'fulfilled' && !sessions.some((item) => idOf(item, 'id') === state.session)) state.session = '';
+    if (initial && sessions.length === 1) state.session = idOf(sessions[0], 'id');
+    $('#engagement-select').value = state.engagement;
+    $('#session-select').value = state.session;
+  }
   if (state.engagementError && !state.demo) {
     state.snapshot = null;
     state.selectedId = null;
