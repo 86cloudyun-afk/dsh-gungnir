@@ -30,9 +30,10 @@
 // GUNGNIR_MAX_REQUESTS 控制（默认 200）；原始输出落盘到 GUNGNIR_ARTIFACT_DIR
 // （默认 <home>/artifacts/<external_id>/）供人工复核。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { createHash, randomBytes } from 'node:crypto';
 
 const sha = (s) => `sha256:${createHash('sha256').update(String(s)).digest('hex')}`;
 const isLocalTarget = (t) => /^(127\.|localhost|::1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(String(t ?? ''));
@@ -101,32 +102,91 @@ function readStdin() {
  * 实测一条 echo 级别的命令要 ~30 秒（测试因此卡死），而且把执行层耦合到交互式环境。
  * 需要工具链环境时**显式**给 `GUNGNIR_TOOLS_ENV=/path/to/tools/env.sh`（或 opts.toolsEnv）。
  */
+/**
+ * 进程组是否仍有存活成员（**实测**，不是声明）：组空 → false。
+ * 命令一律以 `detached` 起，成为独立进程组的组长（pgid = pid），这样后台子进程可被点名与清点。
+ */
+export function groupAlive(pgid) {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) return false;
+  try { process.kill(-pgid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+/** 进程组内仍存活的成员（pid + 命令行），用于把它们**列进资源清单**而不是假装没发生。 */
+export function groupMembers(pgid) {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) return [];
+  try {
+    const pids = spawnSync('pgrep', ['-g', String(pgid)], { encoding: 'utf8', timeout: 5_000 }).stdout ?? '';
+    const list = pids.split('\n').map((s) => s.trim()).filter((s) => /^\d+$/.test(s) && Number(s) !== process.pid);
+    if (list.length === 0) return [];
+    const ps = spawnSync('ps', ['-o', 'pid=,args=', '-p', list.join(',')], { encoding: 'utf8', timeout: 5_000 }).stdout ?? '';
+    return ps.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const m = /^(\d+)\s+(.*)$/.exec(l);
+      return m ? { pid: Number(m[1]), cmd: m[2] } : null;
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * 组状态实测：刚退出的进程会有一小段僵尸窗口（还没被 reap），
+ * 直接判定会把"其实已经清干净"报成还活着——给它几十毫秒，再下结论。
+ */
+export function groupStatus(pgid) {
+  if (!groupAlive(pgid)) return { alive: false, survivors: [] };
+  for (let i = 0; i < 5 && groupAlive(pgid); i += 1) sleepMs(20);
+  if (!groupAlive(pgid)) return { alive: false, survivors: [] };
+  return { alive: true, survivors: groupMembers(pgid) };
+}
+
+/** 命令收尾：超时/信号时把整个进程组清掉（失败的步骤不该留下无主残留）。 */
+function reapGroup(pgid) {
+  if (!groupAlive(pgid)) return false;
+  try { process.kill(-pgid, 'SIGKILL'); } catch { /* 竞态：刚好自己退了 */ }
+  for (let i = 0; i < 10 && groupAlive(pgid); i += 1) sleepMs(20);
+  return groupAlive(pgid);
+}
+
 export function runTool(cmd, { artifactDir, env = {}, timeoutMs = 300_000, id = 'cmd', log = null, toolsEnv = null, cleanProxyEnv = true } = {}) {
   const envFile = toolsEnv ?? process.env.GUNGNIR_TOOLS_ENV ?? null;
-  const script = envFile && existsSync(envFile)
+  const body = envFile && existsSync(envFile)
     ? `source ${JSON.stringify(envFile)} >/dev/null 2>&1; ${cmd}`
     : cmd;
+  // 输出走**文件**而不是管道：管道会被后台子进程继承，spawnSync 就会一直等到管道关闭
+  // （实测 `sleep 3 & echo hi` 让执行器白等 3 秒，等到子进程自己退了还报 stopped:true —— 一条假停止证明）。
+  const dir = artifactDir ?? mkdtempSync(join(tmpdir(), 'wr-run-'));
+  mkdirSync(dir, { recursive: true });
+  const outPath = join(dir, `${id}.stdout.txt`);
+  const errPath = join(dir, `${id}.stderr.txt`);
+  // 注意 `{` / `}` 各占一行：命令以 `#` 注释结尾时，行内的 `}` 会被一起注释掉（真机踩到过语法错误）
+  const script = `{\n${body}\n} > ${JSON.stringify(outPath)} 2> ${JSON.stringify(errPath)}`;
   const base = { ...process.env };
   if (cleanProxyEnv) {
     // 目标流量必须显式指定出口：环境里的代理变量会造成"静默回落本机出口"或与 -x 打架
     for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'NO_PROXY']) delete base[k];
   }
   const r = spawnSync('bash', ['-c', script], {
-    encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024,
+    encoding: 'utf8', timeout: timeoutMs,
     env: { ...base, ...env },
+    stdio: ['ignore', 'ignore', 'ignore'],   // 输出在文件里，不占管道
+    // detached：独立进程组（pgid = 子进程 pid）。不这样起，命令留下的后台子进程既点不到名，
+    // 也无法给出"到底停没停"的实测结论——只能靠一句 stopped:true 蒙过去（真机踩过的假停止证明）。
+    detached: true,
   });
-  const stdout = r.stdout ?? '';
-  const stderr = r.stderr ?? '';
-  if (artifactDir) {
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(join(artifactDir, `${id}.stdout.txt`), stdout, 'utf8');
-    writeFileSync(join(artifactDir, `${id}.stderr.txt`), stderr, 'utf8');
-  }
-  if (log) log.push({ id, cmd, exit: r.status, bytes: stdout.length });
+  const readOut = (f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
+  const stdout = readOut(outPath);
+  const stderr = readOut(errPath);
+  const pgid = Number.isSafeInteger(r.pid) && r.pid > 0 ? r.pid : null;
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  const signaled = r.signal ?? null;
+  if (timedOut || signaled) reapGroup(pgid);   // 失败步骤清组：不留无主残留
+  if (log) log.push({ id, cmd, exit: r.status, pgid, bytes: stdout.length });
   // 超时/信号/非零：如实上报（不把失败当成功）；信号杀（SIGKILL/OOM）不是"正常退出"
   return {
-    ok: r.status === 0, exit: r.status, signal: r.signal ?? null,
-    stdout, stderr, timedOut: r.error?.code === 'ETIMEDOUT',
+    ok: r.status === 0, exit: r.status, signal: signaled, pgid,
+    stdout, stderr, timedOut,
+    // 命令自己退了不等于它的进程组空了：后台子进程照实回报
+    ...groupStatus(pgid),
   };
 }
 
@@ -194,21 +254,42 @@ export function parseHttp(text) {
 
 /**
  * 显式证据协议：操作员的命令可以在 stdout 里逐行写
- *   `GUNGNIR_MEMBER: {"entity_type":"session","source_id":"…","payload":{…}}`
- * 执行器**原样**把它变成事实成员（`content_hash` 按规范化内容**重算**，不采信自报值——
- * 键序/自报值不同会让同一条证据变成两条互相隔离的冲突事实）。
- * 只认这几种实体类型，字段不全的行直接忽略——**不推断、不脑补**。
+ *   `GUNGNIR_MEMBER <nonce>: {"entity_type":"session","source_id":"…","payload":{…}}`
+ * 执行器把它变成事实成员（`content_hash` 按规范化内容**重算**，不采信自报值）。
+ *
+ * **为什么必须带 nonce**：命令的 stdout 里会流过**目标可控的文本**（`curl` 一个页面、
+ * `nuclei` 打印目标字段、操作员脚本回显响应体）。不带凭据的话，目标页面里写一行同样格式的文本
+ * 就能把自己塞进账本当"战果"（实测：`http_get` 抓一个含该行的页面 → 账本多出一条 `shell` 事实）。
+ * nonce 由执行器**每单随机生成**、只放进命令环境变量（`GUNGNIR_EVIDENCE_NONCE`），目标无从得知。
+ * 显式 `contract.trusted_stdout: true` 才接受不带 nonce 的旧写法（用于 stdout 不经目标的自有脚本）。
+ *
+ * 只认这几种实体类型，字段不全/凭据不符的行直接忽略——**不推断、不脑补**。
  */
-export const EVIDENCE_PREFIX = 'GUNGNIR_MEMBER:';
+export const EVIDENCE_PREFIX = 'GUNGNIR_MEMBER';
 const MEMBER_TYPES = new Set(['asset', 'domain', 'vuln', 'credential', 'session', 'shell', 'chain', 'artifact']);
 
-export function parseEvidence(text) {
+export function parseEvidence(text, { nonce = null, allowUnsigned = false } = {}) {
   const out = [];
+  const rejected = [];
   for (const raw of String(text ?? '').split('\n')) {
-    const at = raw.indexOf(EVIDENCE_PREFIX);
-    if (at < 0) continue;
+    const at = raw.indexOf(`${EVIDENCE_PREFIX} `);
+    const legacy = at >= 0 ? -1 : raw.indexOf(`${EVIDENCE_PREFIX}:`);
+    if (at < 0 && legacy < 0) continue;
+    let body = null;
+    if (at >= 0) {
+      const rest = raw.slice(at + EVIDENCE_PREFIX.length + 1);
+      const sep = rest.indexOf(':');
+      const tag = sep >= 0 ? rest.slice(0, sep).trim() : '';
+      if (!nonce || tag !== nonce) { rejected.push(tag || '(无凭据)'); continue; }
+      body = rest.slice(sep + 1).trim();
+    } else if (allowUnsigned) {
+      body = raw.slice(legacy + EVIDENCE_PREFIX.length + 1).trim();
+    } else {
+      rejected.push('(无凭据)');
+      continue;
+    }
     let j;
-    try { j = JSON.parse(raw.slice(at + EVIDENCE_PREFIX.length).trim()); } catch { continue; }
+    try { j = JSON.parse(body); } catch { continue; }
     const type = String(j?.entity_type ?? j?.type ?? '');
     const src = String(j?.source_id ?? j?.source ?? '').trim();
     if (!MEMBER_TYPES.has(type) || !src) continue;
@@ -221,6 +302,7 @@ export function parseEvidence(text) {
       payload,
     });
   }
+  out.rejected = rejected.length;   // 被拒行数（目标注入的可观测面：写进 _debug 与产物日志）
   return out;
 }
 
@@ -354,7 +436,9 @@ export function capabilitiesSnapshot() {
     protocol: 'gungnir-executor/1',
     actions: Object.fromEntries(Object.entries(CAPABILITIES).map(([k, v]) => [k, { ...v, aliases: [...v.aliases] }])),
     roles: { recon: 'recon', assess: 'nuclei_scan', vuln: 'vuln', exploit: 'exploit', internal: 'internal', chain: 'chain' },
-    evidence_protocol: `${EVIDENCE_PREFIX} {"entity_type":…,"source_id":…,"payload":…}`,
+    evidence_protocol: `${EVIDENCE_PREFIX} <nonce>: {"entity_type":…,"source_id":…,"payload":…}`
+      + '（nonce 在命令环境变量 GUNGNIR_EVIDENCE_NONCE 里；不带凭据的行不进账本）',
+    resources_semantics: '每条命令一个进程组；组内仍有存活成员时 stopped:false 并逐个子进程列出（不代填停止证明）',
     limits: { max_steps: MAX_STEPS, default_exec_timeout_ms: TIMEOUTS.exec, max_exec_timeout_ms: maxExecTimeout() },
   };
 }
@@ -578,10 +662,19 @@ export async function runJob(job, opts = {}) {
     ? { ALL_PROXY: goProxy, HTTP_PROXY: goProxy, HTTPS_PROXY: goProxy, all_proxy: goProxy, http_proxy: goProxy, https_proxy: goProxy }
     : {};
   const members = [];
+  const resources = [];
+  // 证据凭据：每单随机，只进命令环境变量。目标无从得知 → 它回显的同格式文本进不了账本。
+  const evidenceNonce = randomBytes(16).toString('hex');
+  const trustStdout = contract.trusted_stdout === true;
+  const evidence = { accepted: 0, rejected: 0 };
   for (const step of plan.commands) {
-    const r = runTool(step.cmd, { artifactDir, env, timeoutMs: step.timeoutMs, id: step.id, log });
+    const operator = step.artifact === true;   // 只有操作员给的命令能申报证据
+    const r = runTool(step.cmd, {
+      artifactDir, env: operator ? { ...env, GUNGNIR_EVIDENCE_NONCE: evidenceNonce } : env,
+      timeoutMs: step.timeoutMs, id: step.id, log,
+    });
 
-    // 超时 = 证据不完整：如实抛错（产物仍在 artifactDir，错误里给出路径）
+    // 超时 = 证据不完整：如实抛错（进程组已在 runTool 里清掉；产物仍在 artifactDir，错误里给出路径）
     if (r.timedOut) {
       throw new Error(`命令超时（${step.id}，${step.timeoutMs}ms）：证据不完整，主控应记 unknown；`
         + `已落盘的原始输出：${join(artifactDir, `${step.id}.stdout.txt`)}`);
@@ -596,8 +689,13 @@ export async function runJob(job, opts = {}) {
       throw new Error(`工具 ${step.tool} 执行失败（exit=${r.exit}）：${r.stderr.slice(0, 300)}`);
     }
 
-    // 解析：显式证据协议行永远先收（操作员自己申报的事实）；再按步骤声明的格式解析
-    members.push(...parseEvidence(r.stdout));
+    // 证据申报：只从操作员命令收，且必须带本单 nonce（内置抓取模板的 stdout 是**目标可控文本**）
+    if (operator) {
+      const ev = parseEvidence(r.stdout, { nonce: evidenceNonce, allowUnsigned: trustStdout });
+      members.push(...ev);
+      evidence.accepted += ev.length;
+      evidence.rejected += ev.rejected ?? 0;
+    }
     if (step.parse === 'http') members.push(...parseHttp(r.stdout));
     else if (step.parse === 'domains') members.push(...parseDomains(r.stdout, targets[0]));
     else if (step.parse === 'assets') members.push(...parseAssets(r.stdout));
@@ -605,11 +703,18 @@ export async function runJob(job, opts = {}) {
 
     // 操作员命令：无论成败都留一条 artifact 事实（命令确实跑过 + 退出码 + 输出哈希 + 落盘路径）。
     // 非零退出**不抛错**（那是被派命令的真实结果，属证据不是故障）；超时已在上文抛出。
-    if (step.artifact === true) {
+    if (operator) {
       members.push(artifactMember({
         id: step.id, action: contract.action ?? role, cmd: step.cmd,
         exit: r.exit, stdout: r.stdout, stderr: r.stderr, timedOut: false, artifactDir,
       }));
+    }
+
+    // 资源清单按**实测**报：命令自己退了不等于它的进程组空了——后台子进程要点名列出，
+    // 否则主控拿一份"stopped: true"的清单去判定 confirmed_stopped（假停止证明，真机踩过）。
+    resources.push({ id: step.id, kind: 'process', stopped: !r.alive, pgid: r.pgid });
+    for (const s of r.survivors ?? []) {
+      resources.push({ id: `${step.id}-child-${s.pid}`, kind: 'process', stopped: false, pid: s.pid, cmd: String(s.cmd).slice(0, 200) });
     }
   }
 
@@ -619,11 +724,14 @@ export async function runJob(job, opts = {}) {
     ...(typeof contract.generation === 'string' ? { generation: contract.generation } : {}),
     external_id: externalId,
     members,
-    resources: [{ id: `${externalId}-runner`, kind: 'process', stopped: true }],
+    resources,
     _debug: {
       role, targets, addressables: addrs, artifactDir, steps: log,
       exit: exitSocks ? 'via-socks' : 'direct-local',
       action: capabilityOf(contract.action ?? role) ?? null, capabilities: Object.keys(CAPABILITIES),
+      // 证据申报的可观测面：accepted = 入库条数，rejected = 凭据不符被丢掉的条数（目标注入的痕迹）
+      evidence: { ...evidence, trusted_stdout: trustStdout, nonce_env: 'GUNGNIR_EVIDENCE_NONCE' },
+      survivors: resources.filter((r) => r.stopped === false).map((r) => r.id),
     },
   };
 }

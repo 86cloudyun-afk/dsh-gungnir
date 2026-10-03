@@ -1,6 +1,7 @@
 # ADR-006 执行层能力面（capability surface）
 
 - 状态：Accepted（操作员裁定 2026-10-03）
+- 修订记录：D4（证据协议）由 [ADR-008](ADR-008-evidence-provenance-and-resource-manifest.md) 收紧——证据行须带本单 nonce、内置抓取模板不再解析证据行；本 ADR 其余决策不变。
 - 关联：ADR-001（权限与执行边界 D1/D2/D3/D5）、ADR-002（数据与证据契约）、
   [DSH-EXECUTOR-IMPL.md](../DSH-EXECUTOR-IMPL.md)、`executors/tool-runner.mjs`
 
