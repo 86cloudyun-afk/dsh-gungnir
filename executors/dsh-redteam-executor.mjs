@@ -4,24 +4,19 @@
 // 配置方式（env）：
 //   GUNGNIR_EXECUTOR_CMD="/path/to/executor --json"   执行器命令（读取 stdin 的 job JSON，输出回执 JSON）
 // 输出格式（stdout，JSON）：
-//   { "members": [...], "resources": [{"id":"…","kind":"session|container|process|port","stopped":false}] }
+//   { "generation":"...", "members": [...], "resources": [{"id":"…","kind":"session|container|process|port","stopped":false}] }
+//   实际停止证明可含源确认的 stop_request_id；缺确认保持 unresolved，适配层不得代填。
 //
 // 设计约束（fail-closed）：未配置 = 明确失败，绝不返回"看起来成功"的假回执；
 // 执行器崩溃/输出非法 → 抛错，主控侧表现为任务 unknown/unresolved，而不是完成。
 import { execFile } from 'node:child_process';
 import { parseCmdline } from './parse-cmdline.mjs';
 
-function runCommand(cmdline, job, timeoutMs = Number(process.env.GUNGNIR_EXECUTOR_TIMEOUT_MS ?? 900000)) {
+function runCommand(cmdline, job, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = parseCmdline(cmdline, 'GUNGNIR_EXECUTOR_CMD');
     const child = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        // 原因必须可诊断：退出码/信号 + stderr 与 stdout 尾部
-        // （真机踩过：这里只带 err.message，stderr 为空时空话一条 → 指挥层无从判断该改什么）
-        const why = err.killed || err.signal ? `killed(${err.signal ?? 'timeout'})` : `exit=${err.code}`;
-        const tail = `${String(stderr ?? '').slice(-400)}${stdout ? ' | stdout:' + String(stdout).slice(-200) : ''}`.trim();
-        return reject(new Error(`executor 执行失败：${why}；${tail || '（子进程无输出）'}`));
-      }
+      if (err) return reject(new Error(`executor 执行失败（exit=${err.code ?? 'unknown'}, killed=${Boolean(err.killed)}, signal=${err.signal ?? 'none'}）：${err.message}; stderr=${stderr?.slice(0, 500)}`));
       try {
         resolve(JSON.parse(stdout));
       } catch (e) {
@@ -41,7 +36,13 @@ export default {
     }
     const out = await runCommand(cmdline, job);
     if (!out || !Array.isArray(out.members)) throw new Error('executor 回执缺少 members 数组');
+    if (typeof out.generation !== 'string' || out.generation !== job.contract?.generation) {
+      throw new Error('executor 回执 source generation 不匹配或缺失');
+    }
     return {
+      generation: out.generation,
+      ...(out.stop_request_id === undefined ? {} : { stop_request_id: out.stop_request_id }),
+      ...(out.external_id === undefined ? {} : { external_id: out.external_id }),
       members: out.members,
       resources: Array.isArray(out.resources) ? out.resources : [],
     };

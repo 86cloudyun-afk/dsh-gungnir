@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runMigrations } from './migrate.js';
+import { TASK_LEDGER_DDL } from './task-ledger.js';
 
 export const FACT_DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -146,6 +147,7 @@ export function openGlobalDb(home) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
   applyDdl(db, GLOBAL_DDL);
+  applyDdl(db, TASK_LEDGER_DDL);
   runMigrations(db, 'global');
   return db;
 }

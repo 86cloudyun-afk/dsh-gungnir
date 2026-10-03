@@ -17,7 +17,7 @@ function writeJob(root, id, extra = {}) {
   mkdirSync(join(root, 'outbox'), { recursive: true });
   writeFileSync(join(root, 'outbox', `${id}.job.json`), JSON.stringify({
     protocol: 'gungnir-bridge/1', external_id: id, role: 'recon',
-    contract: { resources: [], fake_members: [], ...extra },
+    contract: { generation: '1:1:1', resources: [], fake_members: [], ...extra },
   }));
 }
 
@@ -40,6 +40,7 @@ export default {
   name: 'test-exec',
   async run(job) {
     return {
+      generation: job.contract.generation,
       members: [{ entity_type: 'vuln', source_id: job.external_id + '-v', revision_no: 1,
                   content_hash: 'h', payload: { note: '来自自定义执行器' } }],
       resources: [{ id: job.external_id + '-port', kind: 'port', port: 1, stopped: true }],
@@ -60,10 +61,9 @@ test('dsh-redteam 执行器未配置 → 失败且不写假回执（fail-closed�
   const r = runResponder(root, ['--executor', 'executors/dsh-redteam-executor.mjs'], { GUNGNIR_EXECUTOR_CMD: '' });
   assert.equal(r.status, 0, '单次模式下错误不致命，但要留痕');
   assert.match(r.stderr + r.stdout, /未配置 GUNGNIR_EXECUTOR_CMD|job-error/);
-  // 不变式（比"没有状态文件"更精确）：状态必须显式 failed，且**绝不写事实**
-  const st = JSON.parse(readFileSync(join(root, 'inbox', 'f1.status.json'), 'utf8'));
-  assert.equal(st.state, 'failed', '必须显式落 failed，而不是静默');
-  assert.notEqual(st.state, 'done');
+  // Legacy --once 留错误和领取记录；不得把不确定执行伪装成已证实 failed。
+  assert.equal(existsSync(join(root, 'inbox', 'f1.status.json')), false);
+  assert.equal(existsSync(join(root, 'claims', 'f1.json')), true);
   assert.equal(existsSync(join(root, 'inbox', 'f1.facts.json')), false, '不得写事实（不假装成功）');
 });
 
@@ -76,6 +76,7 @@ process.stdin.on('data', (d) => { buf += d; });
 process.stdin.on('end', () => {
   const job = JSON.parse(buf);
   process.stdout.write(JSON.stringify({
+    generation: job.contract.generation,
     members: [{ entity_type: 'asset', source_id: job.external_id + '-a', revision_no: 1, content_hash: 'h', payload: {} }],
     resources: [],
   }));

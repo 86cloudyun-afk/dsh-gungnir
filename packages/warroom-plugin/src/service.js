@@ -10,6 +10,7 @@ import { RedteamModeAdapter, LocalRedteamDriver } from '../../warroom-core/src/a
 import { DshRedteamDriver } from '../../warroom-core/src/adapters/dsh-bridge.js';
 import { rehydrate } from '../../warroom-core/src/rehydrate.js';
 import { loadConfig } from '../../warroom-core/src/config.js';
+import { HostTaskRunner } from './host-tasks.js';
 
 export const SERVICE_NAME = 'warroom';
 
@@ -22,7 +23,7 @@ export function makeAdapter(kind = 'fake', opts = {}) {
   switch (k) {
     case 'bridge':
       return new RedteamModeAdapter({
-        driver: new DshRedteamDriver({ root: opts.bridgeRoot ?? join(opts.home ?? '.', 'dsh-bridge'), ...opts.driver }),
+        driver: new DshRedteamDriver({ root: opts.bridgeRoot ?? join(opts.home ?? '.', 'dsh-bridge'), background: opts.background ?? false, ...opts.driver }),
       });
     case 'local':
       return new RedteamModeAdapter({ driver: new LocalRedteamDriver() });
@@ -40,11 +41,11 @@ export function makeAdapter(kind = 'fake', opts = {}) {
  * 工厂：创建 GUNGNIR 服务（host 平面）。
  * @param {{home:string, adapterKind?:string, adapter?:object}} opts
  */
-export function createWarroomService({ home, adapterKind = null, adapter } = {}) {
+export function createWarroomService({ home, adapterKind = null, adapter, hostDelivery = null, autoStart = true } = {}) {
   if (!home) throw new Error('createWarroomService 需要 home');
   const cfg = loadConfig(home);
   const kind = adapterKind ?? cfg.adapterKind;
-  const broker = new Broker({ home, adapter: adapter ?? makeAdapter(kind, { home }) });
+  const broker = new Broker({ home, adapter: adapter ?? makeAdapter(kind, { home, background: !!hostDelivery }) });
   const jumps = new JumphostManager({
     globalDb: broker.global,
     getFactStore: (id) => broker._eng(id).store,
@@ -54,7 +55,16 @@ export function createWarroomService({ home, adapterKind = null, adapter } = {})
   const recovered = rehydrate(broker);
   // 聚合视图（只读）：工具与 CLI 共用
   const aggregateViewOf = ({ sessionsDbPath = null } = {}) => aggregateView({ home, sessionsDbPath });
-  return { broker, jumps, recovered, home, aggregateView: aggregateViewOf };
+  const tasks = hostDelivery ? new HostTaskRunner({ broker, delivery: hostDelivery }) : null;
+  if (tasks && autoStart) tasks.start();
+  let closing;
+  const dispose = () => closing ??= (async () => {
+    await tasks?.dispose();
+    for (const eng of broker.engagements.values()) eng.db.close();
+    broker.knowledge.db.close();
+    broker.global.close();
+  })();
+  return { broker, jumps, recovered, home, tasks, dispose, aggregateView: aggregateViewOf };
 }
 
 /** cordis 形态的插件入口：向宿主注册服务（若宿主支持），并返回服务实例。 */
@@ -63,9 +73,7 @@ export function apply(ctx, config = {}) {
   const service = createWarroomService({ home, adapterKind: config.adapterKind ?? 'fake' });
   if (typeof ctx?.provide === 'function') ctx.provide(SERVICE_NAME, service);
   if (typeof ctx?.on === 'function') {
-    ctx.on('dispose', () => {
-      try { service.broker.global.close(); } catch { /* 关闭失败不阻断卸载 */ }
-    });
+    ctx.on('dispose', () => service.dispose());
   }
   return service;
 }

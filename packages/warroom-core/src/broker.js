@@ -26,6 +26,7 @@ import { backupHome } from './maintenance.js';
 import { redactDeep } from './redactor.js';
 import { exportReport as exportReportFile, buildReport, verifyReportAgainstStore } from './report.js';
 import { exportEvidence } from './evidence.js';
+import { validateParent } from './task-ledger.js';
 
 const now = () => new Date().toISOString();
 
@@ -84,7 +85,15 @@ export class Broker {
   }
 
   // ── 执行（唯一副作用通道）────────────────────────────────────────────────────
-  execute(req = {}) {
+  execute(req = {}, { deferDispatch = false, parent } = {}) {
+    if (deferDispatch) {
+      validateParent(parent);
+      // Deferred work has no public collect fallback: refuse before any durable registration or reservation.
+      if (typeof this.adapter.observe !== 'function' || this.adapter.supportsBackgroundObservation === false) {
+        throw Object.assign(new Error('adapter does not support host background observation'),
+          { code: 'E_HOST_OBSERVATION_UNSUPPORTED' });
+      }
+    }
     // 契约形态 → broker 预分配 task_id → 四元组全量校验（ADR-001 D2）
     validateContract(req.contract);
     // command_id 是派发幂等键（ADR-003 D1）：先持久化后派发、可按 ID 找回。
@@ -110,6 +119,25 @@ export class Broker {
       manual_approval_token: req.manual_approval_token,
     });
 
+    // An idempotent request consumes no second reservation or approval.
+    const existing = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
+    if (existing) {
+      if (existing.engagement_id !== req.engagement_id) {
+        throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command belongs to another engagement');
+      }
+      const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(existing.command_id);
+      if ((deferDispatch && (!owner || owner.parent_session_id !== parent.session_id ||
+          owner.parent_created_at !== parent.created_at)) || (!deferDispatch && owner)) {
+        throw Object.assign(new Error('command belongs to another parent dispatch path'), { code: 'E_PARENT_IDENTITY' });
+      }
+      if (owner && !owner.registration_ready) {
+        throw Object.assign(new Error(`registration incomplete for ${existing.command_id}; host review required`),
+          { code: 'E_REGISTRATION_INCOMPLETE', task_id: existing.task_id, generation: existing.generation });
+      }
+      return { command_id: req.command_id, task_id: existing.task_id, state: existing.state,
+        generation: existing.generation, deduped: true };
+    }
+
     // 节奏闸（ADR-002 D10 / 框架 §4）：并发 / wire 预算 / 最小间隔
     this._checkRhythm({ engagementId: req.engagement_id, rhythm: row.rhythm, contract: req.contract, store });
 
@@ -123,19 +151,21 @@ export class Broker {
     const contract = { ...req.contract, task_id, generation, engagement_id: req.engagement_id };
 
     // 命令先持久化，后派发（ADR-003 D1：派发幂等）
-    const existing = this.global
-      .prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
-    if (existing) {
-      return {
-        command_id: req.command_id, task_id: existing.task_id, state: existing.state,
-        generation: existing.generation, deduped: true,
-      };
-    }
+    this.global.exec('BEGIN IMMEDIATE');
+    try {
     this.global.prepare(`INSERT INTO command_queue
       (command_id, engagement_id, task_id, contract, state, generation, attempt, ts)
       VALUES (?, ?, ?, ?, 'queued', ?, 1, ?)`).run(
       req.command_id, req.engagement_id, task_id, JSON.stringify(contract), generation, now()
     );
+    if (deferDispatch) {
+      this.global.prepare(`INSERT INTO task_owners
+        (command_id, parent_session_id, parent_created_at, auth_version, approval_id)
+        VALUES (?, ?, ?, ?, ?)`).run(req.command_id, parent.session_id, parent.created_at,
+          req.auth_version, req.manual_approval_token ?? null);
+    }
+    this.global.exec('COMMIT');
+    } catch (e) { this.global.exec('ROLLBACK'); throw e; }
     store.appendGateLog({
       decision: 'allow', code: 'BROKER_EXECUTE',
       detail: `class=${contract.action_class}`,
@@ -145,6 +175,11 @@ export class Broker {
     // 计量：tool_calls 每次执行 +1；wire_requests 由契约声明（ADR-002 D10）
     store.recordRate({ target: contract.targets[0], kind: 'tool', amount: 1 });
     if (contract.wire_cost) store.recordRate({ target: contract.targets[0], kind: 'wire', amount: contract.wire_cost });
+
+    if (deferDispatch) {
+      this.global.prepare('UPDATE task_owners SET registration_ready = 1 WHERE command_id = ?').run(req.command_id);
+      return { command_id: req.command_id, task_id, generation, state: 'queued' };
+    }
 
     try {
       const r = this.adapter.dispatch(req.command_id, contract);
@@ -168,12 +203,75 @@ export class Broker {
     }
   }
 
+  /** Host scheduler's first dispatch only. A lost attempt is never retried. */
+  dispatchQueued(command_id) {
+    const cmd = this._findCommand(command_id);
+    const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(command_id);
+    if (!cmd || !owner || cmd.state !== 'queued' || owner.cancel_requested) return;
+    if (owner.dispatch_attempted || !owner.registration_ready) {
+      this._setCommandState(command_id, 'unknown');
+      return;
+    }
+    const contract = JSON.parse(cmd.contract);
+    try {
+      this.assertHostAuthorization(cmd, owner);
+      if ((contract.wire_cost ?? 0) > 0) this.assertEgressVerified(cmd.engagement_id);
+    } catch (e) {
+      // Leave a durable nonterminal cancellation for the host's atomic stop/outbox path.
+      this.cancel(cmd.engagement_id, cmd.task_id, 'dispatch gate invalid');
+      this._gate(cmd.engagement_id, 'dispatch_revoked', { task_id: cmd.task_id, code: e.code });
+      return;
+    }
+    this.global.prepare('UPDATE task_owners SET dispatch_attempted = 1 WHERE command_id = ?').run(command_id);
+    try {
+      const r = this.adapter.dispatch(command_id, contract);
+      const state = r?.state === 'running' ? 'running' : 'queued';
+      this._setCommandState(command_id, state);
+    } catch (e) {
+      this._setCommandState(command_id, 'unknown');
+      this._gate(cmd.engagement_id, 'dispatch_unknown', { task_id: cmd.task_id, code: e.code ?? 'ADAPTER_ERROR' });
+    }
+  }
+
+  assertHostAuthorization(cmd, owner) {
+    const { row, auth } = this._auth(cmd.engagement_id);
+    if (!ACTION_CLASS.includes(auth.action_class_limit)) {
+      throw warroomError(ERR.E_GATE_CLASS_EXCEEDS_LIMIT, 'authorization action_class_limit invalid');
+    }
+    const nowMs = this._nowMs();
+    const start = Date.parse(auth.window_start), end = Date.parse(auth.window_end);
+    if (![nowMs, start, end].every(Number.isFinite) || start > end) {
+      throw warroomError(ERR.E_GATE_WINDOW_CLOSED, 'authorization window or clock invalid');
+    }
+    checkAgainstAuth({ auth: { ...auth, auth_version: row.auth_version }, auth_version: owner.auth_version,
+      nowMs, contract: JSON.parse(cmd.contract), manual_approval_token: owner.approval_id });
+    if (JSON.parse(cmd.contract).action_class === 'destructive') {
+      const approval = this.global.prepare('SELECT * FROM approvals WHERE approval_id = ?').get(owner.approval_id);
+      if (!approval || approval.engagement_id !== cmd.engagement_id || Date.parse(approval.expires_at) <= this._nowMs()) {
+        throw warroomError(ERR.E_APPROVAL_EXPIRED, 'queued host approval expired or unavailable');
+      }
+    }
+  }
+
   // ── 取消与证实（ADR-003 D4：资源清单逐项证实，账本不算证明）──────────────────
   cancel(engagement_id, taskIdOrCommandId, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
     this._assertCommandOwned(cmd, engagement_id);
     if (isTerminal(cmd.state)) return { task_id: cmd.task_id, state: cmd.state, terminal: true };
+
+    const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(cmd.command_id);
+    if (owner) {
+      this.global.exec('BEGIN IMMEDIATE');
+      try {
+        this.global.prepare('INSERT OR IGNORE INTO task_cancellations (command_id, generation, request_id) VALUES (?, ?, ?)')
+          .run(cmd.command_id, cmd.generation, randomUUID());
+        this.global.prepare('UPDATE task_owners SET cancel_requested = 1 WHERE command_id = ?').run(cmd.command_id);
+        this.global.prepare("UPDATE command_queue SET state = 'cancel_requested' WHERE command_id = ?").run(cmd.command_id);
+        this.global.exec('COMMIT');
+      } catch (e) { this.global.exec('ROLLBACK'); throw e; }
+      return { task_id: cmd.task_id, state: 'cancel_requested' };
+    }
 
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?')
       .run('cancel_requested', cmd.command_id);
@@ -212,12 +310,32 @@ export class Broker {
 
   // ── 收集（成员级幂等 + 代际隔离，ADR-002 D5 / ADR-003 D6）────────────────────
   collect(engagement_id, task_id, receipt) {
+    return this.#collect(engagement_id, task_id, receipt);
+  }
+
+  /** Host-only ingestion; this method has no model-visible tool or trusted argument. */
+  collectHostObservation(engagement_id, task_id, event) {
+    return this.#collect(engagement_id, task_id, event.receipt, event);
+  }
+
+  #collect(engagement_id, task_id, receipt, event = null) {
     validateReceipt(receipt);
     const cmd = this._findCommand(task_id);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${task_id} not found`);
     this._assertCommandOwned(cmd, engagement_id);
     const { store } = this._eng(engagement_id);
     const instance = this.adapter.instanceId ?? 'adapter-1';
+    const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(cmd.command_id);
+    if (owner) {
+      if (!event || !owner.registration_ready || !owner.dispatch_attempted || isTerminal(cmd.state) ||
+          !['done', 'partial'].includes(event.state) || event.generation !== cmd.generation ||
+          !Number.isSafeInteger(event.event_seq) || event.event_seq <= owner.last_event_seq) {
+        return { accepted: false, quarantined: 'host_observation' };
+      }
+      let authorized = !owner.cancel_requested;
+      try { this.assertHostAuthorization(cmd, owner); } catch { authorized = false; }
+      if (!authorized) return { accepted: false, quarantined: 'authorization' };
+    }
     if (receipt.generation !== cmd.generation) {
       store.quarantineStaleGeneration({ adapterInstance: instance, members: receipt.members, generation: receipt.generation });
       this._gate(engagement_id, 'collect', { task_id: cmd.task_id, accepted: false, quarantined: 'generation' });
@@ -644,6 +762,9 @@ export class Broker {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
     this._assertCommandOwned(cmd, engagementId);
+    if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
+      return { settled: isTerminal(cmd.state), task_id: cmd.task_id, ledger_state: cmd.state, host_observed: true };
+    }
     const runtime = this.adapter.status(cmd.task_id);
     const terminal = ['done', 'partial', 'failed', 'cancelled', 'confirmed_stopped'];
     if (!runtime || !terminal.includes(runtime.state)) {
@@ -884,6 +1005,14 @@ export class Broker {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
     this._assertCommandOwned(cmd, engagementId);
+    if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
+      // The durable ledger remains authoritative before dispatch and after terminal reload.
+      const resources = this.global.prepare('SELECT resource_id, kind FROM task_resources WHERE command_id = ? AND generation = ?')
+        .all(cmd.command_id, cmd.generation);
+      return { task_id: cmd.task_id, command_id: cmd.command_id, engagement_id: cmd.engagement_id,
+        ledger_state: cmd.state, attempt: cmd.attempt, generation: cmd.generation,
+        runtime_state: null, manifest: resources.map((r) => ({ id: r.resource_id, kind: r.kind, confirmed_stopped: null })) };
+    }
     const runtime = this.adapter.status(cmd.task_id);
     const manifest = (this.adapter.manifestOf(cmd.task_id) ?? [])
       .map((m) => ({ id: m.id, kind: m.kind, confirmed_stopped: m.check() }));
@@ -902,6 +1031,9 @@ export class Broker {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
     this._assertCommandOwned(cmd, engagementId);
+    if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
+      return { task_id: cmd.task_id, state: cmd.state, host_observed: true };
+    }
     if (!['unknown', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_RECONCILABLE, `状态 ${cmd.state} 无需对账`);
     }
@@ -925,6 +1057,9 @@ export class Broker {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
     this._assertCommandOwned(cmd, engagementId);
+    if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
+      throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, 'host-owned task requires a fresh authorized command, never automatic redispatch');
+    }
     if (!['failed', 'unresolved'].includes(cmd.state)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, `状态 ${cmd.state} 不允许重派（先 reconcile）`);
     }
