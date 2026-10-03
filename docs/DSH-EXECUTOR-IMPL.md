@@ -54,7 +54,7 @@ echo '{"adapterKind":"bridge"}' > <WARROOM_HOME>/config.json
 | `vuln` | 给了 `template`/`tags`/`severity` 走定点 nuclei；给了 `command` 就按命令跑 | `vuln` / `artifact` |
 | `http_get` | `curl -sS -i -m 20 -x <socks> …`（显式 `-x`，只发 1 个请求） | `asset` |
 | `exec` | `contract.command`（或 `argv` 数组）经非登录 `bash -c` 执行 | `artifact` |
-| `exploit` | 同上（命令由操作员给出；destructive 由 broker 门闸要人工批准令牌） | `session` / `credential` / `artifact` |
+| `exploit` | 同上（命令由操作员给出；destructive 由 broker 门闸要**绑定动作 + 靶标**的人工批准令牌） | `session` / `credential` / `artifact` |
 | `internal` | 同上（横向/提权用 netexec、impacket、msf 任选） | `session` / `credential` / `asset` / `artifact` |
 | `chain` | `contract.steps` 顺序执行（≤12 步），任一步失败即停 | `chain` / `artifact` |
 
@@ -84,6 +84,10 @@ GUNGNIR_MEMBER: {"entity_type":"session","source_id":"ssh:10.0.0.5:root","payloa
 `artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——**非零退出是被派命令的真实结果，不是执行层故障**；
 **超时与被信号杀（SIGKILL/OOM）才作为错误抛出**（证据不完整，主控记 `unknown`）。内置工具模板
 （subfinder/httpx/nuclei/curl）仍按老规矩：非零退出即失败，绝不伪造事实。
+
+**档位绑定**：契约声明的 `action_class` **不得弱于**动作自身的档位（`http_get`/`recon` = readonly，
+`nuclei_scan`/`vuln`/`exec`/`internal`/`chain` = active，`exploit` = destructive）；`exploit` 必须显式声明
+`action_class=destructive`，否则执行层直接拒绝（用 `active` 标签套 destructive 动作 = 绕过人工批准的旁路）。
 
 > 秘密别写进 argv：产物目录（stdout/stderr 原文）与执行日志按原样留档，凭据用环境变量引用（`$TOKEN`）。
 

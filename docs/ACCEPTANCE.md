@@ -9,7 +9,7 @@
 `offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**725 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**743 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -106,6 +106,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
 | 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
 | 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
+| 批准与动作绑定 | 批准指纹（动作 + 靶标，**含端口/路径/scheme**）不符即拒；裸批准/死令牌在签发或消费处拒；**一律一次性** + CAS 原子消费 + 记真实 command_id；宿主派发前复核；`allowed_means` 手段校验（按 `action`/`role`/`intent` 最强一方）；执行层拒绝「声明档位弱于动作档位」的契约 | `test/approval-binding.test.js`、`test/gate-controls.test.js` | ✅ |
 | 执行层能力面配齐 | 八个动作（http_get/recon/nuclei_scan/vuln/exec/exploit/internal/chain）全部有真实命令计划；文档承诺 == 注册表（双向断言）；缺字段精确报缺；`--capabilities` 可现查；操作员命令留 artifact 事实（退出码/输出哈希/落盘路径） | `test/tool-runner.test.js` | ✅ |
 | 蓝队视图 IOC 前置 | 整段搬迁且段集合不变 | `test/ioc-report.test.js` | ✅ |
 | HTML 窄屏适配 | 表格滚动容器 + 媒体查询；零外部资源 | `test/report-html.test.js` | ✅ |
@@ -158,8 +159,8 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：725 例（`node --test`）
+- 测试：743 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
+- schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）

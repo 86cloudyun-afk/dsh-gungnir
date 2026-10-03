@@ -37,13 +37,19 @@ import { createHash } from 'node:crypto';
 const sha = (s) => `sha256:${createHash('sha256').update(String(s)).digest('hex')}`;
 const isLocalTarget = (t) => /^(127\.|localhost|::1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(String(t ?? ''));
 
-/** URL/裸主机 → 主机名（出口判定按主机，不按整条 URL）；file:// 之类无主机的返回 null。 */
+/**
+ * URL/裸主机 → 主机名（出口判定按主机，不按整条 URL）；file:// 之类无主机的返回 null。
+ * 与 core 的 `gates.js:hostOf` 同口径：带 scheme 的 URL、协议相对 `//host/x`、裸 IPv6 `[::1]:8080` 都认。
+ */
 export function hostOf(value) {
   const s = String(value ?? '').trim();
   if (!s) return null;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
-    try { const h = new URL(s).hostname; return h ? h.replace(/^\[|\]$/g, '') : null; } catch { return null; }
+  const asUrl = s.startsWith('//') ? `http:${s}` : (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : null);
+  if (asUrl) {
+    try { const h = new URL(asUrl).hostname; return h ? h.replace(/^\[|\]$/g, '') : null; } catch { return null; }
   }
+  const v6 = /^\[([^\]]+)\](?::\d+)?$/.exec(s);
+  if (v6) return v6[1].toLowerCase();
   const host = s.replace(/[/?#].*$/, '').replace(/^.*@/, '').split(':')[0].trim();
   return host || null;
 }
@@ -326,6 +332,9 @@ export const CAPABILITIES = Object.freeze({
   },
 });
 
+/** tier 强弱次序：声明档位**不得弱于**动作自身的档位（否则契约自相矛盾，拒绝执行）。 */
+export const TIER_ORDER = Object.freeze({ readonly: 0, active: 1, destructive: 2 });
+
 const ALIASES = new Map(Object.entries(CAPABILITIES).flatMap(([k, v]) => [[k, k], ...(v.aliases ?? []).map((a) => [a, k])]));
 
 /** 动作名（含别名）→ 能力键；未知动作返回 null。 */
@@ -363,7 +372,7 @@ export function capabilitiesSnapshot() {
 export function planCommands(role, targets, {
   maxRequests = 200, action = null, url = null, method = 'GET', exit = null,
   command = null, argv = null, template = null, tags = null, severity = null,
-  steps = null, timeoutMs = null,
+  steps = null, timeoutMs = null, actionClass = null,
 } = {}) {
   const t0 = targets?.[0];
   const targetUrl = url ?? (t0 ? (String(t0).startsWith('http') ? t0 : `https://${t0}`) : null);
@@ -379,6 +388,28 @@ export function planCommands(role, targets, {
       commands: [],
       reason: `动作 ${JSON.stringify(rawAction ?? role)} 无法识别（fail-closed：不猜、不造事实）。`
         + `可用能力：${SUPPORTED_ACTIONS.join(' / ')}`,
+    };
+  }
+
+  // 档位绑定（执行层不做授权裁决，但拒绝**自相矛盾**的契约）：
+  // 派 `exploit`（tier=destructive）却声明 `action_class:active`，等于用弱标签套一个强动作绕过人工批准。
+  const tier = CAPABILITIES[cap].tier;
+  const declared = actionClass === null || actionClass === undefined || actionClass === '' ? null : String(actionClass);
+  if (declared !== null && TIER_ORDER[declared] === undefined) {
+    return { commands: [], reason: `契约声明了未知的 action_class=${JSON.stringify(declared)}（只认 readonly|active|destructive）` };
+  }
+  if (declared === null && tier === 'destructive') {
+    return {
+      commands: [],
+      reason: `动作 ${cap} 的档位是 destructive，契约必须显式声明 action_class=destructive（并携带已登记的人工批准令牌）——`
+        + '未声明档位时无从判定是否需要人工裁决',
+    };
+  }
+  if (declared !== null && TIER_ORDER[declared] < TIER_ORDER[tier]) {
+    return {
+      commands: [],
+      reason: `契约自相矛盾：动作 ${cap} 的档位是 ${tier}，却声明 action_class=${declared}`
+        + (tier === 'destructive' ? '——destructive 动作必须声明 destructive 并携带已登记的人工批准令牌' : ''),
     };
   }
 
@@ -487,6 +518,7 @@ export function planCommands(role, targets, {
             maxRequests, action: s?.action ?? 'exec', url: s?.url ?? null, method: s?.method ?? method, exit,
             command: s?.command ?? null, argv: s?.argv ?? null, template: s?.template ?? null,
             tags: s?.tags ?? null, severity: s?.severity ?? null, timeoutMs: s?.timeout_ms ?? null,
+            actionClass: s?.action_class ?? actionClass,
           });
           if (sub.commands.length === 0) {
             return { commands: [], reason: `chain.steps[${i}] 无法成计划：${sub.reason ?? '未知原因'}` };
@@ -536,6 +568,7 @@ export async function runJob(job, opts = {}) {
     command: contract.command ?? null, argv: contract.argv ?? null,
     template: contract.template ?? null, tags: contract.tags ?? null, severity: contract.severity ?? null,
     steps: contract.steps ?? null, timeoutMs: contract.timeout_ms ?? null,
+    actionClass: contract.action_class ?? null,
   });
   if (plan.commands.length === 0) throw new Error(plan.reason ?? '无可用命令计划');
 
