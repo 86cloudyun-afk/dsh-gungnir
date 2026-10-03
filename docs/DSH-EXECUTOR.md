@@ -17,6 +17,9 @@ GUNGNIR（本仓，指挥层） ──spool──► 应答器（DSH 侧）─�
 #    （参考实现：executors/example-role-cmd.mjs）
 # 2) 用 dsh-redteam-executor 把它接进应答器
 export GUNGNIR_EXECUTOR_CMD="node /path/to/your-executor.mjs"
+# 路径含空格时用 JSON 数组或引号（见 executors/parse-cmdline.mjs）：
+# export GUNGNIR_EXECUTOR_CMD='["/opt/node versions/node","/path/to/your-executor.mjs"]'
+# export GUNGNIR_EXECUTOR_CMD='"/opt/node versions/node" /path/to/your-executor.mjs'
 node scripts/dsh-bridge-responder.mjs --root "$WARROOM_HOME/dsh-bridge" \
   --executor executors/dsh-redteam-executor.mjs
 # 3) 指挥层侧正常开工/派单；事实经桥入库
