@@ -11,7 +11,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 | 项 | 现状 |
 |---|---|
 | 版本 | **`v0.1.0`**（v0.1 冻结闭环达成：16 批次 / 134 PR；最终审计见 [FINAL-AUDIT.md](docs/FINAL-AUDIT.md)） |
-| 测试 | 469 例，`npm run ci` 全绿 |
+| 测试 | 510 例，`npm run ci` 全绿 |
 | CI 闸 | 六道本地闸（验收套件 / 工具 schema / 预设允许清单 / 故障矩阵 / 工具文档与看板契约同步 / 自审闸）+ **三个真跑 CI job**：围栏真实容器（`fence`）、执行层跨进程演练（`drill`）、真实 DSH 挂载验收（`native-host` → HOST_VERIFIED） |
 | 故障矩阵 | 21 场景（丢回包/乱序/写失败/残留/重启/撤销/备份恢复/密钥/配置/版本/迁移/路由/心跳/知识库/交付边界/门禁/确认边界/归档幂等/门禁同源） |
 | 工具 | **37** 个 `warroom_*`（schema 严格校验；以 `presets/warroom.preset.json` 允许清单为准） |
@@ -62,6 +62,10 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 
 全部子命令支持 `--json`；默认 home 为 `$WARROOM_HOME` 或 `./.warroom`。
 
+## 对话战图（只读）
+
+运行 `node bin/dashboard.mjs --home "$WARROOM_HOME" --port 0` 打开 GUNGNIR 全局/局部战图。未提供 home 时显示真实空状态，不会创建目录；演示数据只在页面显式选择后显示。DSH 的 native Client slot、固定 session binding 和会话冷读说明见 [对话战图使用指南](docs/dashboard/usage.md)。
+
 ## 包结构
 
 | 包 | 平面 | 内容 |
@@ -75,7 +79,7 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 ## 测试与四闸
 
 ```sh
-npm run ci                           # 六道闸一次跑完（推荐；验收套件 469 例）
+npm run ci                           # 六道闸一次跑完（推荐；验收套件 510 例）
 node scripts/executor-drill.mjs      # 执行层落地演练（fake / --mode bridge）
 node scripts/ci.mjs --quiet          # 只看汇总（别用 | tail，管道会吞退出码）
 node --test                          # 只跑验收套件

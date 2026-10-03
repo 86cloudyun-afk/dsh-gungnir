@@ -12,6 +12,8 @@
     "test": "node --test",
     "test:schema": "node scripts/validate-tool-schemas.mjs",
     "cli": "node bin/warroom.mjs",
+    "dashboard": "node bin/dashboard.mjs",
+    "test:dashboard": "node --test test/dashboard-snapshot.test.js test/dashboard-graph.test.js test/dashboard-server.test.js test/dashboard-dsh.test.js test/dashboard-client.test.js test/dashboard-transport.test.js",
     "ci": "node scripts/ci.mjs",
     "faults": "node scripts/fault-matrix.mjs",
     "selfreview": "node scripts/self-review.mjs",
@@ -20,6 +22,7 @@
   "workspaces": [
     "packages/shared-types",
     "packages/warroom-core",
-    "packages/warroom-tools"
+    "packages/warroom-tools",
+    "packages/warroom-dashboard"
   ]
 }
