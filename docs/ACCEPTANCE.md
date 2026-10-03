@@ -159,6 +159,19 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 备份/维护 | 可重复备份 + 完整性；CLI backup/maintain | `test/maintenance.test.js` | ✅ |
 | 故障矩阵扩展 | 21 场景（含备份恢复往返） | `test/fault-matrix.test.js` | ✅ |
 
+## Proposed：执行线与自主研究线（未实现、未验收）
+
+仅设计评审：[ADR-010](adr/ADR-010-execution-autonomous-research.md) §5 定义 R1–R9 的未来验收矩阵；
+[第一期计划](superpowers/plans/2026-10-03-execution-autonomous-research.md) 为离线契约验证，不启动生产接入。
+现有验收项与实测计数保持原口径，以下不计入已通过能力。
+
+| 范围 | 待验收要求 | 证据/状态 |
+|---|---|---|
+| 双线独立与目标稳定 | R1/R2：后台研究不占住主回合；跨线/跨战役不得改目标、派发或取消 | Proposed；尚无实现测试 |
+| 自主论证与污染隔离 | R3/R4：范围内自主循环；预注册、反证和失败留存；资料无控制效力 | Proposed；尚无实现测试 |
+| 有界恢复与取消 | R5/R6/R7：unknown 不重做；停止逐项证实；预算耗尽无额外步骤 | Proposed；尚无实现测试 |
+| 采纳与迁移 | R8/R9：人工决定绑定候选版本，采纳不等于执行授权；执行 schema 不变 | Proposed；尚无实现测试 |
+
 ## 数字快照
 
 - 测试：753 例（`node --test`）
