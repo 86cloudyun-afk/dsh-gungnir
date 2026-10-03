@@ -262,12 +262,47 @@ export class Broker {
     }
   }
 
+  /**
+   * 资源收口实测（ADR-003 D4 / ADR-009）：清单里仍**未被证实停止**的资源 id。
+   *
+   * `observable:false` = 观测不到清单（适配器不认识这个任务）——此时不据此声称已收口，
+   * 但也不把"观测不到"当成"未收口"去阻塞既有语义。
+   */
+  _liveResources(cmd) {
+    if (typeof this.adapter.manifestOf !== 'function') return { observable: false, total: 0, live: [] };
+    if (typeof this.adapter.hydrate === 'function' && typeof this.adapter.lookup === 'function' && !this.adapter.lookup(cmd.command_id)) {
+      // 宿主重启后适配器可能没装载这个任务：先按持久化契据补水，再探
+      try { this.adapter.hydrate(cmd.command_id, JSON.parse(cmd.contract), cmd.state); } catch { return { observable: false, total: 0, live: [] }; }
+    }
+    let manifest;
+    try { manifest = this.adapter.manifestOf(cmd.task_id, { generation: cmd.generation }); } catch { return { observable: false, total: 0, live: [] }; }
+    if (!Array.isArray(manifest)) return { observable: false, total: 0, live: [] };
+    const live = [];
+    for (const m of manifest) {
+      let stopped = false;
+      try { stopped = m.check() === true; } catch { stopped = false; }
+      if (!stopped) live.push(m.id);
+    }
+    return { observable: true, total: manifest.length, live };
+  }
+
   // ── 取消与证实（ADR-003 D4：资源清单逐项证实，账本不算证明）──────────────────
   cancel(engagement_id, taskIdOrCommandId, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
     if (cmd.engagement_id !== engagement_id) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task belongs to another engagement');
-    if (isTerminal(cmd.state)) return { task_id: cmd.task_id, state: cmd.state, terminal: true };
+    if (isTerminal(cmd.state)) {
+      // 终态 ≠ 资源已收口（ADR-009）：清单里还有活着的资源时，取消请求必须把停止动作真的发下去，
+      // 否则"任务已完成"会永久盖住仍在跑的后台子进程（症状：取消直接回"已结束"，谁也没去停它）。
+      const liveness = this._liveResources(cmd);
+      if (!liveness.observable || liveness.live.length === 0) {
+        return { task_id: cmd.task_id, state: cmd.state, terminal: true, live: [] };
+      }
+      this._gate(engagement_id, 'cancel_after_terminal',
+        { task_id: cmd.task_id, state: cmd.state, live: liveness.live });
+      // 落到下面的取消流程收口：host 任务重新打开 cancel_requested 交宿主 tick 逐项证实；
+      // 非 host 任务就地探针收口。收口结果按 ADR-003：全证实 → confirmed_stopped，否则 unresolved。
+    }
 
     const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(cmd.command_id);
     if (owner) {
@@ -284,9 +319,13 @@ export class Broker {
 
     this.global.prepare('UPDATE command_queue SET state = ? WHERE command_id = ?')
       .run('cancel_requested', cmd.command_id);
-    this.adapter.cancel(cmd.task_id, reason);
+    // 停止身份（ADR-009）：同步路径也必须带可核对的 request_id，否则应答器无法把"停止"证实成
+    // confirmed_stopped（只能落 unresolved）。以前不给 id，落证据这一步永远欠着一口气。
+    const stopRequestId = randomUUID();
+    this.adapter.cancel(cmd.task_id, reason, { request_id: stopRequestId });
 
-    const manifest = this.adapter.manifestOf(cmd.task_id) ?? [];
+    const manifest = this.adapter.manifestOf(cmd.task_id,
+      { stopping: true, stop_request_id: stopRequestId, generation: cmd.generation }) ?? [];
     // 每个资源条目只探针一次（ADR-003 D4）：check() 是对运行资源的实测（PID/端口/容器 inspect），
     // 重复探针既浪费又会造成 TOCTOU 不一致（同一次取消内资源状态变化导致记账与返回自相矛盾）。
     const probed = manifest.map((m) => ({ id: m.id, kind: m.kind, confirmed: m.check() }));
@@ -834,9 +873,20 @@ export class Broker {
     if (!runtime || !terminal.includes(runtime.state)) {
       return { settled: false, task_id: cmd.task_id, ledger_state: cmd.state, runtime_state: runtime?.state ?? null };
     }
+    // `done` 的语义是"派下去的活干完了"，**从来不等于**它留下的资源都停了（ADR-003 D4）。
+    // 但也不许悄悄过去：完成时清单里还有活资源 → 留一条 resources_outstanding 审计信号
+    // （取消请求仍能把它们停掉并逐项证实，见 ADR-009）。
+    let live = [];
+    if (runtime.state === 'done') {
+      const liveness = this._liveResources(cmd);
+      if (liveness.observable && liveness.live.length > 0) live = liveness.live;
+    }
     if (cmd.state !== runtime.state) this._setCommandState(cmd.command_id, runtime.state);
+    // 结项信号保持原样（效率四段/时序归集都认它）；资源未收口另加一条，不改既有语义
     this._gate(engagementId, 'settle', { task_id: cmd.task_id, state: runtime.state });
-    return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state, runtime_state: runtime.state };
+    if (live.length) this._gate(engagementId, 'resources_outstanding', { task_id: cmd.task_id, state: runtime.state, live });
+    return { settled: true, task_id: cmd.task_id, ledger_state: runtime.state,
+      runtime_state: runtime.state, ...(live.length ? { live } : {}) };
   }
 
   /**

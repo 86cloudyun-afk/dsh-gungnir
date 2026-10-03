@@ -52,6 +52,9 @@ GUNGNIR（指挥层）与执行层（DSH 侧红队模式）通过 **spool 目录
                  { "id": "wt_...-container", "kind": "container", "stopped": false } ] }
 ```
 
+> 停止请求带 `request_id`（同步路径同样携带）：执行层用它把「停止证据」与本次请求绑定，
+> 上游只接受**新发布**（`event_seq` 前进）的状态作为停止结果，避免把取消前的旧状态当成已停（ADR-009）。
+
 `outbox/<id>.stop.json`
 ```json
 { "protocol": "gungnir-bridge/1", "external_id": "wt_...", "generation": "1:1:1",
