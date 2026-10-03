@@ -172,6 +172,8 @@ export class HostTaskRunner {
       try {
         let owner = this._owner(cmd.command_id);
         if (isTerminal(cmd.state)) { this._unknownGrace.delete(cmd.command_id); continue; }
+        // Legacy aliases must fail closed before authorization, cancellation or adapter access.
+        cmd = this.broker._findCommand(cmd.command_id);
         if (!this._authorized(cmd, owner) && !owner.cancel_requested) {
           this.broker.cancel(cmd.engagement_id, cmd.task_id, 'authorization revoked or expired');
           owner = this._owner(cmd.command_id); cmd = this.broker._findCommand(cmd.task_id);

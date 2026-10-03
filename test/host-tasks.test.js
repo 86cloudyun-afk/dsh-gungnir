@@ -102,14 +102,14 @@ test('bridge receipt keeps source generation rather than fabricating current ada
   const root = mkdtempSync(join(tmpdir(), 'host-source-'));
   const driver = new FileBridgeDriver({ root, timeoutMs: 1 });
   driver.onJob = (job) => {
-    writeFileSync(driver._statusPath(job.external_id), JSON.stringify({ state: 'running', generation: '1:0:1' }));
-    writeFileSync(driver._factsPath(job.external_id), JSON.stringify({ generation: '1:0:1', members: [] }));
+    writeFileSync(driver._statusPath(job.external_id), JSON.stringify({ external_id: job.external_id, state: 'running', generation: '1:0:1' }));
+    writeFileSync(driver._factsPath(job.external_id), JSON.stringify({ external_id: job.external_id, generation: '1:0:1', members: [] }));
   };
   const adapter = new RedteamModeAdapter({ driver });
   adapter.dispatch('host-one', { task_id: 'inert', generation: '1:1:1' });
   assert.equal(adapter.status('inert').generation, '1:0:1');
   assert.equal(adapter.collect('inert').generation, '1:0:1');
-  writeFileSync(driver._factsPath('inert'), JSON.stringify({ members: [] }));
+  writeFileSync(driver._factsPath('inert'), JSON.stringify({ external_id: 'inert', members: [] }));
   assert.equal(adapter.collect('inert').generation, undefined);
 });
 
