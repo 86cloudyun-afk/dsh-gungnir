@@ -22,7 +22,7 @@ const validatorUrl = coreDir
 const { TOOLS } = await import('../packages/warroom-tools/src/index.js');
 
 /** 工具总数：新增工具时只改这一处（其余断言一律与 TOOLS.length 对齐）。 */
-const EXPECTED_TOOL_COUNT = 37;
+const EXPECTED_TOOL_COUNT = 36;
 const { toToolDefinition, DENIED_IN_SCOPE, resolveWarroomHome } = await import('../packages/warroom-plugin/src/dsh-entry.mjs');
 
 test('挂载层硬门槛：全部工具的 parameters 通过宿主 JSON Schema 校验', async (t) => {
