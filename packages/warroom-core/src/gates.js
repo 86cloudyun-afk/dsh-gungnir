@@ -76,6 +76,35 @@ export function inScopeEntry(target, entry) {
   return false;
 }
 
+/** URL / 裸主机 → 主机名；`file://` 这类无主机的返回 null（没有远端资产可校验）。 */
+export function hostOf(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
+    try { const h = new URL(s).hostname; return h ? h.replace(/^\[|\]$/g, '') : null; } catch { return null; }
+  }
+  const host = s.replace(/[/?#].*$/, '').replace(/^.*@/, '').split(':')[0].trim();
+  return host || null;
+}
+
+/**
+ * 契约里**全部可寻址对象**：`targets`（原样，保留 CIDR 语义）+ `url` 主机 + chain 步内 `targets`/`url` 主机。
+ *
+ * 存在理由（真机实测）：scope 校验原先只遍历 `contract.targets`，于是 `url` 就是一条**绕过授权范围**
+ * 的旁路——`targets:[授权内]` + `url:https://<范围外>` 会一路放行到执行层。
+ */
+export function contractAddressables(contract) {
+  const out = [...(contract?.targets ?? [])];
+  const addRaw = (v) => { if (typeof v === 'string' && v.trim() && !out.includes(v)) out.push(v); };
+  const addUrl = (v) => { const h = hostOf(v); if (h && !out.includes(h)) out.push(h); };
+  addUrl(contract?.url);
+  for (const s of Array.isArray(contract?.steps) ? contract.steps : []) {
+    for (const t of Array.isArray(s?.targets) ? s.targets : []) addRaw(t);
+    addUrl(s?.url);
+  }
+  return out;
+}
+
 /** 请求 ⊆ 冻结对象（ADR-001 D3）。返回 null 表示通过，否则抛对应错误码。 */
 export function checkAgainstAuth({ auth, auth_version, nowMs, contract, manual_approval_token }) {
   if (Number(auth_version) !== Number(auth.auth_version)) {
@@ -85,7 +114,7 @@ export function checkAgainstAuth({ auth, auth_version, nowMs, contract, manual_a
   if (t < Date.parse(auth.window_start) || t > Date.parse(auth.window_end)) {
     throw warroomError(ERR.E_GATE_WINDOW_CLOSED, 'outside engagement window');
   }
-  for (const target of contract.targets) {
+  for (const target of contractAddressables(contract)) {
     const inScope = auth.scope.some((s) => inScopeEntry(target, s));
     if (!inScope) throw warroomError(ERR.E_GATE_OUT_OF_SCOPE, `target ${target} not in scope`, { target });
   }

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+- **执行层能力面配齐（通道不再回"未实装"）**：`executors/tool-runner.mjs` 原先只实装 3 个动作
+  （`http_get`/`recon`/`nuclei_scan`），指挥层派 `exec`/`vuln`/`exploit`/`internal`/`chain` 时只能收到
+  「未实装且不属于本通道」——既没缺哪个字段、也没说这条通道能干什么，任务在 failed/unknown 之间打转。
+  现在八项动作**全部实装**：通用能力（`exec`/`exploit`/`internal`/`chain`）由操作员在契约里显式给出命令
+  （`contract.command` 或 `argv`，argv 按参数边界拼壳），`chain` 走 `contract.steps` 顺序多跳（≤12 步）；
+  缺字段时精确报缺（`contract.command|argv|steps`），非法动作才拒绝且列出全量能力面
+- 证据回传新增**显式协议** `GUNGNIR_MEMBER: {…}`（逐行原样入库，缺 `content_hash` 按内容补，非法行忽略）；
+  操作员命令无论退出码都留一条 `artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——
+  非零退出是被派命令的真实结果，超时才抛错记 `unknown`；内置工具模板语义不变（非零退出即失败）
+- `--capabilities` 现查能力面（机器可读）；`commander.md` 可派动作表与注册表由测试**双向断言**（防文档漂移）
+- **修复对抗式审查抓到的三处 P0/P1**（同批）：①回执补 `generation`/`external_id`，否则文档那条
+  `GUNGNIR_EXECUTOR_CMD=tool-runner` + `--executor dsh-redteam-executor.mjs` 接线因代际校验整单 `exit=4`
+  （改动的目标在这条唯一文档接线上原本 0 交付）；②出口与授权范围两层都改判**可寻址对象全体**
+  （`targets` + `url` + chain 步内目标）——`url` 曾经是一条直连外网、绕过 scope 的旁路；
+  ③超时之外**信号杀（SIGKILL/OOM）也抛错**（原先 `status=null` 会被记成"跑过且无超时"）；
+  另修：证据 `content_hash` 按规范化内容重算（自报值/键序不再制造冲突隔离）、chain 上界按展开后命令数、
+  `vuln` 选择器按 token 引号拼装（不再折叠引号内空白）、操作员命令固定走证据协议不做格式嗅探
+
 ### Added
 - **交付门禁语义**：`checklist --strict` 按口径判定退出码——`delivery`（授权/水位/报告可复现/证据/审计/备份
   必须齐全）与 `progress`（**只盯"已做的东西没有坏"**：没干活不算异常，但报告一旦存在就不得漂移、
