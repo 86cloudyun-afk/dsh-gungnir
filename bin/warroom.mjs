@@ -9,7 +9,7 @@ import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { RedteamModeAdapter, LocalRedteamDriver } from '../packages/warroom-core/src/adapters/redteam-mode.js';
 import { rehydrate } from '../packages/warroom-core/src/rehydrate.js';
 
-const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'weekly', 'poc', 'engage', 'exec', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
+const COMMANDS = ['init', 'backup', 'restore', 'maintain', 'fact', 'egress', 'conformance', 'heartbeat', 'preflight', 'aggregate', 'timeline', 'watch', 'rate', 'checklist', 'deliver', 'weekly', 'poc', 'engage', 'exec', 'approve', 'approvals', 'collect', 'status', 'cancel', 'revoke', 'report', 'verify-report', 'evidence', 'audit', 'wave', 'sweep', 'doctor', 'config',
   'secret', 'jump', 'shell', 'spray', 'metrics', 'help'];
 
 function usage() {
@@ -17,6 +17,10 @@ function usage() {
 
 用法：node bin/warroom.mjs <命令> [选项]
 
+  approve   人工批准（绑定动作 + 靶标，不签万能令牌；一律一次性，只能由人执行）：
+            --engagement <id> --action <动作> --targets a,b [--url u]
+            [--ttl-seconds n] [--reason r] [--by 署名]   # targets 与 url 至少给一个
+  approvals 批准台账（只读）：--engagement <id>
   poc       知识库：add --code c --title t --category k [--body b --source s --allow-unsanitized]
             search [--q 关键词] [--category k] [--sort relevance|recent|hits] [--limit n]
             use --code c [--engagement id --asset a --result used|hit|miss|fail]
@@ -83,6 +87,7 @@ const { values: v } = parseArgs({
     'window-hours': { type: 'string' }, 'user-msg': { type: 'string' },
     engagement: { type: 'string' }, 'command-id': { type: 'string' }, task: { type: 'string' },
     intent: { type: 'string' }, class: { type: 'string' }, 'action-class': { type: 'string' },
+    action: { type: 'string' }, url: { type: 'string' }, command: { type: 'string' },
     wire: { type: 'string' }, resources: { type: 'string' }, approval: { type: 'string' },
     reason: { type: 'string' }, out: { type: 'string' }, adapter: { type: 'string' },
     label: { type: 'string' }, plaintext: { type: 'string' }, 'secret-ref': { type: 'string' },
@@ -395,6 +400,11 @@ switch (command) {
     const contract = {
       targets: [need('target', v.target)],
       action_class: v['action-class'] ?? v.class ?? 'readonly',
+      // 执行层按 contract.action 办事（8 个动作，见 `node executors/tool-runner.mjs --capabilities`）：
+      // 不声明 action 时按 intent/role 兜底；destructive 必须声明 action（批准按动作 + 靶标绑定）
+      ...(v.action ? { action: v.action } : {}),
+      ...(v.url ? { url: v.url } : {}),
+      ...(v.command ? { command: v.command } : {}),
       wire_cost: v.wire ? Number(v.wire) : 0,
       resources: v.resources ? v.resources.split(',').filter(Boolean) : [],
       intent: v.intent ?? 'recon',
@@ -407,6 +417,24 @@ switch (command) {
       manual_approval_token: v.approval,
     });
     out(r);
+    break;
+  }
+  case 'approve': {
+    // 人工批准：**绑定到动作 + 靶标**（不签万能令牌）。派单时动作与靶标必须逐字一致。
+    const targets = (v.targets ?? v.target ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const r = broker.createApproval({
+      engagement_id: need('engagement', v.engagement),
+      reason: v.reason ?? '',
+      issued_by: v.by ?? 'operator',
+      ttlSeconds: v['ttl-seconds'] ? Number(v['ttl-seconds']) : 3600,
+      bound: { action: need('action', v.action), targets, url: v.url ?? null },
+    });
+    out({ ...r, note: '批准已绑定「动作 + 靶标（含端口/路径/scheme）」且**一次性**：派单时用 --approval <approval_id>，'
+      + 'action / targets / url 必须与批准逐字一致；需要多次就签多张（本命令只能由人执行，agent 预设无 shell）' });
+    break;
+  }
+  case 'approvals': {
+    out(broker.listApprovals(need('engagement', v.engagement)));
     break;
   }
   case 'collect': {
