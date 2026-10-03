@@ -290,7 +290,7 @@ export class Broker {
   cancel(engagement_id, taskIdOrCommandId, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
-    if (cmd.engagement_id !== engagement_id) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task belongs to another engagement');
+    this._assertCommandOwned(cmd, engagement_id);
     if (isTerminal(cmd.state)) {
       // 终态 ≠ 资源已收口（ADR-009）：清单里还有活着的资源时，取消请求必须把停止动作真的发下去，
       // 否则"任务已完成"会永久盖住仍在跑的后台子进程（症状：取消直接回"已结束"，谁也没去停它）。
@@ -370,7 +370,7 @@ export class Broker {
     validateReceipt(receipt);
     const cmd = this._findCommand(task_id);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${task_id} not found`);
-    if (cmd.engagement_id !== engagement_id) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task belongs to another engagement');
+    this._assertCommandOwned(cmd, engagement_id);
     const { store } = this._eng(engagement_id);
     const instance = this.adapter.instanceId ?? 'adapter-1';
     const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(cmd.command_id);
@@ -399,9 +399,7 @@ export class Broker {
   recordMetrics(engagementId, commandId, { tokens_in = 0, tokens_out = 0, wall_time_ms = 0, verified_facts = 0, role = null, model_tier = null } = {}) {
     const cmd = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(commandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `command ${commandId} not found`);
-    if (cmd.engagement_id !== engagementId) {
-      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
-    }
+    this._assertCommandOwned(cmd, engagementId);
     this.global.prepare(`INSERT INTO task_metrics
       (command_id, engagement_id, task_id, role, model_tier, tokens_in, tokens_out, wall_time_ms, verified_facts, ts)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -865,6 +863,7 @@ export class Broker {
   settle(engagementId, taskIdOrCommandId) {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
       return { settled: isTerminal(cmd.state), task_id: cmd.task_id, ledger_state: cmd.state, host_observed: true };
     }
@@ -901,6 +900,7 @@ export class Broker {
   heartbeat(engagementId, taskIdOrCommandId, { note = null } = {}) {
     const cmd = this._findCommand(taskIdOrCommandId);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommandId} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     if (isTerminal(cmd.state)) {
       throw warroomError(ERR.E_INVALID_TRANSITION,
         `任务已处于终态 ${cmd.state}，无需心跳`);
@@ -1130,6 +1130,12 @@ export class Broker {
     }
     return cmd;
   }
+  /** 命令战役归属：caller 传入的 engagement_id 必须与队列绑定一致（ADR-001 副作用通道闭合）。 */
+  _assertCommandOwned(cmd, engagementId) {
+    if (cmd.engagement_id !== engagementId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
+    }
+  }
   _setCommandState(command_id, state) {
     if (!ALL_TASK_STATES.includes(state)) throw new Error(`bad state ${state}`);
     const cur = this.global.prepare('SELECT state FROM command_queue WHERE command_id = ?').get(command_id);
@@ -1143,7 +1149,7 @@ export class Broker {
   status(engagementId, taskIdOrCommand) {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
-    if (cmd.engagement_id !== engagementId) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task belongs to another engagement');
+    this._assertCommandOwned(cmd, engagementId);
     if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
       // The durable ledger remains authoritative before dispatch and after terminal reload.
       const resources = this.global.prepare('SELECT resource_id, kind FROM task_resources WHERE command_id = ? AND generation = ?')
@@ -1169,6 +1175,7 @@ export class Broker {
   reconcile(engagementId, taskIdOrCommand) {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
+    this._assertCommandOwned(cmd, engagementId);
     if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
       return { task_id: cmd.task_id, state: cmd.state, host_observed: true };
     }
@@ -1194,9 +1201,7 @@ export class Broker {
   redispatch(engagementId, taskIdOrCommand, reason = 'manual') {
     const cmd = this._findCommand(taskIdOrCommand);
     if (!cmd) throw warroomError(ERR.E_TASK_NOT_FOUND, `task ${taskIdOrCommand} not found`);
-    if (cmd.engagement_id !== engagementId) {
-      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command 不属于该战役');
-    }
+    this._assertCommandOwned(cmd, engagementId);
     if (this.global.prepare('SELECT command_id FROM task_owners WHERE command_id = ?').get(cmd.command_id)) {
       throw warroomError(ERR.E_TASK_NOT_REDISPATCHABLE, 'host-owned task requires a fresh authorized command, never automatic redispatch');
     }
