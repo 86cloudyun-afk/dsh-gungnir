@@ -67,11 +67,13 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null, metrics = null }) {
   const snap = store.exportSnapshot();
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
+  // 元数据（source_id 等）与 payload 一体过 redactor：source_id 是人类可读标签，
+  // 可能嵌入口令/令牌；只 scrub payload 会把明文留在 JSON facts / 影响面引用里。
   const facts = snap.rows.map((r) => {
     const { payload, ...rest } = r;
     let parsed = {};
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
-    return { ...rest, payload: R(parsed) };
+    return R({ ...rest, payload: parsed });
   });
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
@@ -141,7 +143,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
       by_tier: metrics.by_tier ?? {},
     } : null,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
-    ioc: ioc.items,
+    ioc: R(ioc.items),
     ioc_summary: ioc.summary,
   };
 }
@@ -223,7 +225,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   // 影响面摘要：客户最关心的一段，放在最前（工程视图可跳过）
   lines.push('## 影响面摘要');
   lines.push('');
-  lines.push(renderImpact(impact));
+  lines.push(R(renderImpact(impact)));
   lines.push('');
 
   lines.push('## shell 状态');
@@ -256,7 +258,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${r.adapter_instance}] ${r.source_id} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+      lines.push(`- [${r.adapter_instance}] ${R(r.source_id)} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
@@ -270,7 +272,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('## 未采用记录（隔离/历史/待审）');
     lines.push('');
     for (const q of quarantined) {
-      lines.push(`- ${q.entity_type}/${q.source_id} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
+      lines.push(`- ${q.entity_type}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
     }
     lines.push('');
   }
@@ -303,7 +305,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
   for (const i of ioc.items) {
-    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
+    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${R(i.ref)}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
   if (gantt.tasks.length > 0) {
@@ -322,7 +324,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       lines.push('');
     }
     for (const item of remediation.items) {
-      lines.push(`- \`${item.ref}\` — ${R(item.advice)}（来源：${item.source}）`);
+      lines.push(`- \`${R(item.ref)}\` — ${R(item.advice)}（来源：${item.source}）`);
     }
     lines.push('');
   }
@@ -331,7 +333,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     const viz = toMermaidGrouped(topology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
-    lines.push(viz.mermaid);
+    lines.push(R(viz.mermaid));
     lines.push('');
     lines.push(`- 节点 ${topology.nodes.length} · 边 ${topology.edges.length}`
       + `（边来源：${topology.derived_from}）`);
@@ -339,7 +341,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       + '普通箭头 = 支撑关系；标「推断」= 由引用字段推断，未在链路步骤中显式声明');
     if (viz.critical.length > 0) {
       lines.push('- 关键跳清单：');
-      for (const c of viz.critical) lines.push(`  - ${c.from} --(${c.via})--> **${c.to}**`);
+      for (const c of viz.critical) lines.push(`  - ${R(c.from)} --(${R(c.via)})--> **${R(c.to)}**`);
     }
     if (topology.unexplained > 0) {
       lines.push(`- ⚠️ 有 **${topology.unexplained}** 条事实（弱点/链路/控制面）**未给出引用关系**，`
