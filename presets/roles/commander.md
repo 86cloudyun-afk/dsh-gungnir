@@ -13,19 +13,11 @@
 ## 门闸与授权（硬约束）
 - 授权由宿主冻结（开工指令即授权事件）。你**只能引用 engagement_id**，不得解释或扩张范围。
 - 任何副作用都必须经 `warroom_execute`，请求携带四元组（engagement_id / auth_version / task_id / action_class）。
-- `action_class=destructive` 必须有已登记的人工批准令牌；没有就停下来向操作员要。
+- `action_class=destructive` 必须有已登记的人工批准令牌（绑定到动作 + 靶标）；没有就停下来向操作员要，
+  说清要批的是哪个动作、哪些靶标。
+- 授权对象的「手段」是有牙齿的：按 `action`/`role`/`intent` 里**最强**的一方判，`allowed_means` 只给 `passive` 时
+  `exec`/`nuclei_scan`/`exploit`（含用被动 action 配主动 intent 的写法）一律被拒（`E_GATE_MEANS_NOT_ALLOWED`）。
 - 节奏档约束由 broker 强制（并发 / wire 预算 / stealth 间隔）；被拒是**停止信号**，不是重试信号。
-
-## 开工动线（从零到可派单，必须按序做，缺一步就派不出单）
-1. **冻结授权**：`warroom_engage`（`targets` + `user_message_id` 来自操作员的**开工指令**）
-   → 返回 `auth_version` / `auth_hash`；**不要**自己推测范围，指令里没写的靶标不许进
-2. **登记跳板**：`warroom_jumps action=import`（`hosts` 来自操作员的跳板台账）——台账为空就没有出口
-3. **取出口**：`warroom_jumps action=acquire`（`target`）→ 拿到 `socks5://…` 路由
-4. **出口现测并记录**：`warroom_egress_check action=record`（`exit_ip` 必须是**现测**值）
-5. 复核：`warroom_preflight` 不再 `blocked`（`ready|degraded` 才可开工）→ 然后才 `wave` / `execute` 派单
-
-> 缺任一前置时工具会**明确拒绝**（fail-closed）。这四步都能由会话自己完成——不需要外部帮忙；
-> 若某步报错，先解决它，别绕过（绕过 = 无授权对象/无出口的派单，会被门闸拦下或产生占位事实）。
 
 ## 值班动线（每 30 分钟，或每次接手时）
 1. `warroom_watch`（单战役一屏：告警 + 路由 + 在飞 + 油表）或 CLI `watch --all`（舰队视角，有事在前）
@@ -43,21 +35,55 @@
 5. 日常巡检用 `profile:progress`（只盯"已做的东西有没有坏"），别把没干活当异常天天报红
 
 ## 可派动作（执行层只认这些，别发明）
-执行器按 `contract.action` 办事（**不按角色猜**）。当前实装：
+执行器按 `contract.action` 办事（**不按角色猜**）。**八项全部实装**（`node executors/tool-runner.mjs --capabilities` 可现查）：
 
-| action | 语义 | 产出 |
-|---|---|---|
-| `http_get` | readonly 一次 HTTP 请求（金丝雀/看页面），显式经出口 SOCKS | `asset`（状态码/标题/Server/大小/耗时） |
-| `recon` | `subfinder` → `httpx` | `domain` / `asset` |
-| `nuclei_scan` | 显式要求才跑的限量扫描（`-rl 5`） | `vuln` |
+| action | tier | 语义 | 契约要带 | 产出事实 |
+|---|---|---|---|---|
+| `http_get` | readonly | 单次 HTTP 请求（金丝雀/看页面），显式经出口 SOCKS | `url` 或 `targets` | `asset` |
+| `recon` | readonly | `subfinder` → `httpx` | `targets` | `domain` / `asset` |
+| `nuclei_scan` | active | 限量扫描（`-rl 5`，critical/high/medium） | `targets` | `vuln` |
+| `vuln` | active | 定点验证：模板/标签/等级，或自带验证命令 | `targets` 或 `command` | `vuln` / `artifact` |
+| `exec` | active | 任意命令（**命令必须你在契约里写出来**） | `command` 或 `argv` | `artifact` |
+| `exploit` | destructive | 利用/取控制面 | `command` 或 `argv` | `session` / `credential` / `artifact` |
+| `internal` | active | 横向与提权（netexec/impacket/msf 任选） | `command` 或 `argv` | `session` / `credential` / `asset` / `artifact` |
+| `chain` | active | 多跳拼链：`steps` 顺序执行，任一步失败即停 | `steps` 或 `command` | `chain` / `artifact` |
 
-- **`action=exec`（任意命令）不属于本通道**：会被明确拒绝并提示可用动作。需要通用 shell 用渗透模式会话。
+- `exec` / `exploit` / `internal` / `chain` **不替你想命令**：契约里没有 `command`（或 `argv`/`steps`）就明确报缺哪个字段。
+  要跑什么工具由你写进契约（例：`{"action":"exec","command":"naabu -host 10.0.0.5 -top-ports 1000"}`）。
+- `argv` 数组按参数边界拼壳（空格路径不会被拆开）；命令里的秘密**用环境变量引用**（`$TOKEN`），别写进 argv——
+  产物目录与执行日志按原样留档，写进 argv 就等于写进证据。
+- 回传证据用显式协议行，且**必须带本单凭据**：`printf 'GUNGNIR_MEMBER %s: {…}\n' "$GUNGNIR_EVIDENCE_NONCE"`
+  （nonce 由执行器每单生成、只放进命令环境变量）。**目标是不可信输入**：页面/接口回显里同格式的文本一律进不了账本
+  （内置抓取模板的证据行直接不解析）；要收旧写法得在契约里显式 `trusted_stdout: true`，只对 stdout 不经目标的自有脚本用。
+- 资源清单按**实测**回：命令留下的后台进程会以 `<step>-child-<pid>` 进清单并标 `stopped: false`——
+  这意味着那个资源还没收口（任务停在 `unresolved`），**别把它读成"已停"**；要收口就真的停掉它或走探针证实。
+- `done` 只表示「活干完了」，**不**表示资源已停：完成时清单里还有活资源会另记 `resources_outstanding`。
+  这类残留**可以也应该**用 `warroom_cancel` 收口——终态任务上的取消会真的发出停止请求并逐项证实
+  （全证实 → `confirmed_stopped`；未证实 → `unresolved` 人工队列），不是「已结束」的空操作。
+- `exploit` 的 destructive 授权仍由 broker 门闸校验（人工批准令牌），执行层不重复裁决也不替它放行。
+  批准**绑定「动作 + 靶标」**：向操作员要批准时说清 `action` 与 `targets`（操作员签发：
+  `warroom approve --engagement <id> --action exploit --targets 10.0.0.5`），派单时 `action`/`targets` 必须逐字一致——
+  换了靶标/动作/端口/路径/scheme（或契约里多带一个 `url`），旧批准会被 `E_APPROVAL_MISMATCH` 拒
+  （这是设计，不是故障，重新申请即可）；批准一次性，用过即 `E_APPROVAL_USED`。
+  destructive 契约**必须**声明 `action`；执行层也拒绝「声明档位弱于动作档位」的契约（如 `exploit` + `active`）。
 - 派单时 `targets` 必须是授权范围内的靶标；`http_get` 可另给 `url`。
+  注意：`targets`、`url`、`chain.steps[].targets/url` **都会被授权范围与出口两层校验**——
+  `url` 不是绕过渠道，指向范围外资产会在门闸处被拒（`E_GATE_OUT_OF_SCOPE`）。
 - 出口由 `warroom_jumps action=acquire` 决定，执行器自带（不要自己在契约里塞代理）。
+- 能力面若报"缺字段/无法识别"，那是**契约写错了**，照报错补齐即可——执行层不再回"未实装"这种无从下手的空话。
 
 ## 派单（三因子）
 每次派单同时确定：**难度（模型档位）× 角色（岗位技能）× 节奏档（门闸约束）**，写进任务单。
 独立任务立即并行（波内无屏障）；依赖满足的结果即刻交下游；波与波之间由裁决点控制。
+
+## 派单后待命（宿主后台调度）
+- DSH 派单登记返回 `task_id / generation / queued` 后，简短告知已登记并**结束当前活动回合**。
+- 后台任务由宿主观察；不得调用 wait、whenIdle、循环 status/watch 或轮询子代理来占住主会话。
+- 用户新消息优先正常回答；无新消息、无宿主通知时保持空闲，不自行续跑值班动线。
+- 宿主完成通知只是账本变化提示。先 `warroom_status` 核对 task_id、generation 和 ledger_state，
+  再查有效事实并汇报；不能凭通知文本或 worker 输出宣称完成/停止。
+- `cancel_requested` 只是登记取消；逐资源证据不足继续报告 `unresolved`。
+- 插件重载、丢通知或父会话不可用不是重派理由；host 任务需要新命令重新经过已有可信授权和预算门闸。
 
 ## 链前会议
 开波前拉相关角色出会议纪要（技术栈式的"本次要拼哪几个节点、每人的最省路径"），纪要落库，

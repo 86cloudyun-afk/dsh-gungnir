@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runMigrations } from './migrate.js';
+import { TASK_LEDGER_DDL } from './task-ledger.js';
 
 export const FACT_DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -122,7 +123,7 @@ CREATE TABLE IF NOT EXISTS task_metrics (
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
   reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
-  used_by_command TEXT, ts TEXT NOT NULL
+  used_by_command TEXT, contract_hash TEXT, bound_action TEXT, bound_scope TEXT, ts TEXT NOT NULL
 );
 `;
 
@@ -146,6 +147,7 @@ export function openGlobalDb(home) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
   applyDdl(db, GLOBAL_DDL);
+  applyDdl(db, TASK_LEDGER_DDL);
   runMigrations(db, 'global');
   return db;
 }

@@ -14,7 +14,7 @@ test('长任务不被桥超时打断：先写 running 确认，再异步执行�
   writeFileSync(ex, `
 export default { name: 'slow', async run(job) {
   await new Promise((r) => setTimeout(r, 2500));
-  return { members: [{ entity_type: 'asset', source_id: 'slow-1', revision_no: 1, content_hash: 'h', payload: {} }], resources: [{ id: 'slow-1', kind: 'process', stopped: true }] };
+  return { generation: job.contract.generation, members: [{ entity_type: 'asset', source_id: 'slow-1', revision_no: 1, content_hash: 'h', payload: {} }], resources: [{ id: 'slow-1', kind: 'process', stopped: true }] };
 } };
 `);
   const { spawn } = await import('node:child_process');
@@ -24,7 +24,7 @@ export default { name: 'slow', async run(job) {
     // 派单
     const outbox = join(root, 'outbox');
     mkdirSync(outbox, { recursive: true });
-    writeFileSync(join(outbox, 'job-slow.job.json'), JSON.stringify({ protocol: 'gungnir-bridge/1', external_id: 'job-slow', role: 'recon', contract: { targets: ['t.example'] } }));
+    writeFileSync(join(outbox, 'job-slow.job.json'), JSON.stringify({ protocol: 'gungnir-bridge/1', external_id: 'job-slow', role: 'recon', contract: { generation: '1:1:1', targets: ['t.example'] } }));
     // 1 秒内应已有 running 状态（= 派单不会被 2s 桥超时判为丢失）
     await new Promise((r) => setTimeout(r, 1000));
     const running = JSON.parse(readFileSync(join(root, 'inbox', 'job-slow.status.json'), 'utf8'));
@@ -43,7 +43,7 @@ export default { name: 'slow', async run(job) {
   }
 });
 
-test('执行器失败 → 写 failed 且不写 facts（绝不假装成功）', async () => {
+test('执行器失败 → unknown 且不写 facts（保留可能已执行的领取记录）', async () => {
   const home = mkdtempSync(join(tmpdir(), 'wr-responder-fail-'));
   const root = join(home, 'dsh-bridge');
   const ex = join(home, 'bad-executor.mjs');
@@ -53,11 +53,11 @@ test('执行器失败 → 写 failed 且不写 facts（绝不假装成功）', a
     { cwd: process.cwd(), stdio: 'ignore' });
   try {
     mkdirSync(join(root, 'outbox'), { recursive: true });
-    writeFileSync(join(root, 'outbox', 'job-bad.job.json'), JSON.stringify({ protocol: 'gungnir-bridge/1', external_id: 'job-bad', role: 'assess', contract: { targets: ['t.example'] } }));
+    writeFileSync(join(root, 'outbox', 'job-bad.job.json'), JSON.stringify({ protocol: 'gungnir-bridge/1', external_id: 'job-bad', role: 'assess', contract: { generation: '1:1:1', targets: ['t.example'] } }));
     await new Promise((r) => setTimeout(r, 1500));
     const st = JSON.parse(readFileSync(join(root, 'inbox', 'job-bad.status.json'), 'utf8'));
-    assert.equal(st.state, 'failed');
-    assert.match(st.detail, /工具挂了/);
+    assert.equal(st.state, 'unknown');
+    assert.equal(existsSync(join(root, 'claims', 'job-bad.json')), true);
     assert.equal(existsSync(join(root, 'inbox', 'job-bad.facts.json')), false, '失败不得写事实');
   } finally {
     child.kill('SIGTERM');

@@ -4,7 +4,7 @@
   "tools": [
     {
       "name": "warroom_execute",
-      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。",
+      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么，**八项全部实装**——http_get（readonly 单次 HTTP）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）/ vuln（定点验证）/ exec（任意命令，命令须写在 contract.command|argv）/ exploit（利用取控制面，destructive 需人工批准）/ internal（横向提权）/ chain（contract.steps 顺序多跳，≤12 步）。能力面与各动作所需契约字段可现查：`node executors/tool-runner.mjs --capabilities`。",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -696,7 +696,7 @@
     },
     {
       "name": "warroom_jumps",
-      "description": "跳板台账与出口：import（登记跳板，需 hosts）/ acquire（为本战役取一条出口路由，需 target） / status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
+      "description": "跳板台账与收口：status / release / sweep（到期租约）/ sweep_routes（活跃路由巡检）/ heartbeat（路由续期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -707,8 +707,6 @@
             "type": "string",
             "enum": [
               "status",
-              "import",
-              "acquire",
               "release",
               "sweep",
               "sweep_routes",
@@ -717,45 +715,6 @@
           },
           "route_id": {
             "type": "string"
-          },
-          "target": {
-            "type": "string",
-            "description": "acquire 用：本次要出网的目标（域名/IP）"
-          },
-          "jumphost_id": {
-            "type": "string",
-            "description": "acquire/release 用：显式指定跳板（按轮换策略挑机器）"
-          },
-          "hosts": {
-            "type": "array",
-            "description": "import 用：跳板清单（来自操作员的 advisory/jumphosts.md）",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "role": {
-                  "type": "string"
-                },
-                "ssh_host": {
-                  "type": "string"
-                },
-                "addr_v4": {
-                  "type": "string"
-                },
-                "addr_v6": {
-                  "type": "string"
-                },
-                "quota": {
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "id"
-              ],
-              "additionalProperties": false
-            }
           }
         },
         "required": [
@@ -784,7 +743,7 @@
     },
     {
       "name": "warroom_egress_check",
-      "description": "出口验证：probe（**宿主侧现测**：经路由 SOCKS 真发一次请求测出口 IP 并记录）/ record（记录已知结果）/ status（查询，含有效期）",
+      "description": "出口验证：record（记录可信宿主的验证结果）/ status（查询，含有效期）",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -795,7 +754,6 @@
             "type": "string",
             "enum": [
               "status",
-              "probe",
               "record"
             ]
           },
@@ -842,55 +800,6 @@
         "required": [
           "engagement_id",
           "task_id"
-        ],
-        "additionalProperties": false
-      },
-      "in_allowlist": true
-    },
-    {
-      "name": "warroom_engage",
-      "description": "冻结授权并建战役（开工指令即授权事件）：给 targets（靶标/范围）+ user_message_id（操作员开工指令原文或会话 id）。冻结后返回 auth_version / auth_hash，后续所有副作用都绑定该授权对象；目标范围之外的动作一律被门闸拒绝。",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "targets": {
-            "type": "array",
-            "description": "授权范围内的靶标（域名/IP/CIDR）；必须来自操作员的开工指令",
-            "items": {
-              "type": "string"
-            }
-          },
-          "user_message_id": {
-            "type": "string",
-            "description": "开工指令的标识（会话 id 或指令哈希），作为授权事件来源"
-          },
-          "engagement_id": {
-            "type": "string",
-            "description": "可选：显式指定战役 id（跨会话沿用同一战役时必须保持一致）"
-          },
-          "rhythm": {
-            "type": "string",
-            "enum": [
-              "open",
-              "restricted",
-              "stealth"
-            ]
-          },
-          "window_hours": {
-            "type": "integer"
-          },
-          "action_class_limit": {
-            "type": "string",
-            "enum": [
-              "readonly",
-              "active",
-              "destructive"
-            ]
-          }
-        },
-        "required": [
-          "targets",
-          "user_message_id"
         ],
         "additionalProperties": false
       },

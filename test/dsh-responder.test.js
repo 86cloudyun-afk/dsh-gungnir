@@ -17,15 +17,6 @@ function startResponder(root, extra = []) {
   return child;
 }
 
-const waitFor = async (fn, timeoutMs = 3000) => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (fn()) return true;
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  return false;
-};
-
 /** 常驻模式下事实是异步落盘的：collect 前先等 facts 文件出现（最多 5 秒）。 */
 async function waitFacts(root, externalId, timeoutMs = 5000) {
   const p = join(root, 'inbox', `${externalId}.facts.json`);
@@ -41,11 +32,16 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
   const home = mkdtempSync(join(tmpdir(), 'wr-responder-'));
   const root = join(home, 'dsh-bridge');
   mkdirSync(root, { recursive: true });
-  const child = startResponder(root);
+  const once = () => {
+    const result = spawnSync(process.execPath, ['scripts/dsh-bridge-responder.mjs', '--root', root, '--once'], {
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+  };
 
   try {
     const adapter = new RedteamModeAdapter({
-      driver: new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25 }),
+      driver: new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25, onJob: once }),
     });
     const broker = new Broker({ home, adapter });
     const eng = broker.createEngagement({ user_message_id: 'um-resp', targets: ['10.0.0.0/24'] });
@@ -57,28 +53,72 @@ test('跨进程：应答器消费 job → 事实入库 → stop 后逐项证实'
         fake_members: [{ entity_type: 'asset', source_id: 'resp-a1', revision_no: 1, content_hash: 'h-resp', payload: { ip: '10.0.0.5' } }],
       },
     });
-    // 常驻应答器：立刻回 running；若任务瞬间完成（echo 执行器），此处已是 done——两者都算回执及时
-    assert.ok(['running', 'done'].includes(ex.state), `应答器应在超时前回执（实得 ${ex.state}）`);
+    // legacy --once 等待事实落盘并保留 running，让本用例确定性验证真正的停止路径。
+    assert.equal(ex.state, 'running');
+    assert.equal(broker._findCommand(ex.task_id).state, 'running');
 
     await waitFacts(root, ex.task_id);
     const col = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
     assert.equal(col.accepted, true);
     assert.equal(broker._eng(eng.engagement_id).store.effectiveCount(), 1);
 
-    // facts 到达不代表资源已停止，且派发时的 running 账本不会随 facts 自动结项。
-    // 先发停止请求：跨进程证明尚未到达时 unresolved 正常；最终仍须逐项实测。
-    const requested = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.ok(['unresolved', 'confirmed_stopped', 'done'].includes(requested.state));
-    if (requested.state !== 'done') {
-      assert.equal(await waitFor(() => {
-        const manifest = adapter.manifestOf(ex.task_id) ?? [];
-        return manifest.length > 0 && manifest.every((p) => p.check() === true);
-      }), true, '停止请求后必须收到非空清单的逐项停止证明');
-    }
+    // cancel 先请求，再等待 echo 所有模拟资源的实际停止回执。
+    const c1 = broker.cancel(eng.engagement_id, ex.task_id, 'test');
+    assert.equal(c1.state, 'unresolved');
+    assert.ok(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)));
+    once();
+    const stopped = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(stopped.length, 2, 'session/container 两项必须都有源证据');
+    assert.equal(stopped.every((p) => p.check() === true), true);
     const c2 = broker.cancel(eng.engagement_id, ex.task_id, 'test');
-    assert.ok(['confirmed_stopped', 'done'].includes(c2.state), `停止请求后的 cancel 必须终态，实得 ${c2.state}`);
+    assert.equal(c2.state, 'confirmed_stopped');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('daemon 初始 done：collect 不改终态；终态取消必须真的停并逐项证实（ADR-009）', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-responder-done-'));
+  const root = join(home, 'dsh-bridge');
+  mkdirSync(root, { recursive: true });
+  const child = startResponder(root);
+  try {
+    const driver = new DshRedteamDriver({ root, timeoutMs: 2000, pollMs: 25, onJob(job) {
+      // 只等待真实子进程的最终 source publication，不写状态或停止证据。
+      const statusPath = join(root, 'inbox', `${job.external_id}.status.json`);
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        let source;
+        try { source = JSON.parse(readFileSync(statusPath, 'utf8')); } catch {}
+        if (source?.state === 'done') return;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+      throw new Error('daemon 未在期限内发布真实 done');
+    } });
+    const adapter = new RedteamModeAdapter({ driver });
+    const broker = new Broker({ home, adapter });
+    const eng = broker.createEngagement({ user_message_id: 'um-done', targets: ['10.0.0.0/24'] });
+    const ex = broker.execute({ command_id: 'done-1', engagement_id: eng.engagement_id, auth_version: 1,
+      contract: { targets: ['10.0.0.5'], action_class: 'active', resources: ['container'], wire_cost: 0, intent: 'recon',
+        fake_members: [{ entity_type: 'asset', source_id: 'done-a1', revision_no: 1, content_hash: 'h-done', payload: { ip: '10.0.0.5' } }] } });
+    assert.equal(ex.state, 'done');
+    assert.equal(broker._findCommand(ex.task_id).state, 'done');
+    assert.equal(broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id)).accepted, true);
+    assert.equal(broker._findCommand(ex.task_id).state, 'done', 'collect 不触发终态转换');
+    const probes = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(probes.length, 2);
+    assert.equal(probes.every((p) => p.check() === false), true, 'done 不是 stopped 证明');
+    // ADR-009：终态任务上清单里仍有活资源 → 取消请求必须真的去停 + 逐项证实，
+    // 不许无副作用地回一句"已结束"（那会让 done 永久盖住在跑的资源）。
+    const result = broker.cancel(eng.engagement_id, ex.task_id, 'test');
+    assert.equal(result.state, 'confirmed_stopped', '逐项证实通过才落 confirmed_stopped');
+    assert.equal(existsSync(join(root, 'outbox', `${ex.task_id}.stop.json`)), true, '停止请求必须发下去');
+    const after = adapter.manifestOf(ex.task_id) ?? [];
+    assert.equal(after.every((p) => p.check() === true), true, '证实后清单逐项为已停止');
   } finally {
     child.kill('SIGTERM');
+    await new Promise((resolve) => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
+    rmSync(home, { recursive: true, force: true });
   }
 });
 
@@ -88,7 +128,7 @@ test('应答器幂等：重复 job 文件不产生第二份回执副作用', asy
   await new Promise((r) => child.on('exit', r));
 
   const job = {
-    protocol: 'gungnir-bridge/1', external_id: 'idem-1', role: 'recon', contract: { resources: [], fake_members: [] },
+    protocol: 'gungnir-bridge/1', external_id: 'idem-1', role: 'recon', contract: { generation: '1:1:1', resources: [], fake_members: [] },
   };
   const { writeFileSync: wf } = await import('node:fs');
   wf(join(root, 'outbox', 'idem-1.job.json'), JSON.stringify(job));
@@ -103,16 +143,18 @@ test('fixture 模式：应答器按预置回执响应（可编排异常场景）
   const fixtures = join(root, 'fixtures');
   mkdirSync(fixtures, { recursive: true });
   writeFileSync(join(fixtures, 'fx-1.facts.json'), JSON.stringify({
+    generation: '1:1:1', external_id: 'fx-1',
     members: [{ entity_type: 'vuln', source_id: 'v-fx', revision_no: 1, content_hash: 'h-fx', payload: { id: 'CVE-DEMO' } }],
   }));
   writeFileSync(join(fixtures, 'fx-1.probes.json'), JSON.stringify({
+    generation: '1:1:1', external_id: 'fx-1',
     resources: [{ id: 'fx-1-session', kind: 'session', stopped: true }],
   }));
 
   const child = startResponder(root, ['--once', '--mode', 'fixture', '--fixture', fixtures]);
   await new Promise((r) => child.on('exit', r));
 
-  const job = { protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'vuln', contract: { resources: [], fake_members: [] } };
+  const job = { protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'vuln', contract: { generation: '1:1:1', resources: [], fake_members: [] } };
   // --once 在启动时扫过空 outbox；投递后需要再跑一次应答器
   writeFileSync(join(root, 'outbox', 'fx-1.job.json'), JSON.stringify(job));
   const child2 = spawn('node', ['scripts/dsh-bridge-responder.mjs', '--root', root, '--once', '--mode', 'fixture', '--fixture', fixtures], { stdio: 'ignore' });
@@ -131,7 +173,7 @@ test('fixture 模式缺夹具 → 不写假回执（fail-closed），错误留�
   // 先造一个 job（无对应夹具）
   mkdirSync(join(root, 'outbox'), { recursive: true });
   writeFileSync(join(root, 'outbox', 'fx-1.job.json'), JSON.stringify({
-    protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'recon', contract: { resources: ['container'], fake_members: [] },
+    protocol: 'gungnir-bridge/1', external_id: 'fx-1', role: 'recon', contract: { generation: '1:1:1', resources: ['container'], fake_members: [] },
   }));
   const r = spawnSync('node', [
     'scripts/dsh-bridge-responder.mjs', '--root', root, '--mode', 'fixture', '--once',
@@ -142,15 +184,18 @@ test('fixture 模式缺夹具 → 不写假回执（fail-closed），错误留�
   void out;
 });
 
-test('跨进程停止：任务在飞时 cancel → 请求态；应答器确认后 → confirmed_stopped（且不停回 done）', async () => {
+test('跨进程停止：任务在飞时 cancel → unresolved；残留资源不伪造停止、不复活', async () => {
   const home = mkdtempSync(join(tmpdir(), 'wr-responder-stop-'));
   const root = join(home, 'dsh-bridge');
   mkdirSync(root, { recursive: true });
   const slow = join(home, 'slow-executor.mjs');
+  const started = join(home, 'slow-started');
   writeFileSync(slow, `
+import { writeFileSync } from 'node:fs';
 export default { name: 'slow', async run(job) {
+  writeFileSync(${JSON.stringify(started)}, 'started');
   await new Promise((r) => setTimeout(r, 1500));
-  return { members: [], resources: [{ id: job.external_id + '-p', kind: 'process', stopped: false }] };
+  return { generation: job.contract.generation, members: [], resources: [{ id: job.external_id + '-p', kind: 'process', stopped: false }] };
 } };
 `);
   const child = spawn('node', ['scripts/dsh-bridge-responder.mjs', '--root', root, '--executor', slow, '--interval', '25'], { stdio: 'ignore' });
@@ -163,21 +208,44 @@ export default { name: 'slow', async run(job) {
       contract: { targets: ['10.0.0.5'], action_class: 'active', resources: [], wire_cost: 0, intent: 'recon' },
     });
     assert.equal(ex.state, 'running', '慢任务应处于在飞态');
+    const awaitReady = async (read, label) => {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        try { if (read()) return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      assert.fail(`slow fixture 未就绪：${label}`);
+    };
+    // A fast running acknowledgement precedes executor entry; prove the inert
+    // executor actually started before asking this in-flight fixture to stop.
+    await awaitReady(() => existsSync(started), 'executor entry');
 
     // 首轮：停止是"请求"，此时还没有停止证明（执行体仍在跑）→ unresolved（ADR-003：停止证明要实测）
     const c1 = broker.cancel(eng.engagement_id, ex.task_id, 'stop-test');
     assert.equal(c1.state, 'unresolved', `首轮应为请求态，实得 ${c1.state}`);
 
-    // 执行体结束（应答器收到过 stop 请求 → 不再写 done，直接 confirmed_stopped）
-    await new Promise((r) => setTimeout(r, 1900));
+    // 执行体结束不等于资源停止：源仍报告 stopped:false，不能伪造确认。
+    await awaitReady(() => {
+      const status = JSON.parse(readFileSync(join(root, 'inbox', `${ex.task_id}.status.json`), 'utf8'));
+      const probes = JSON.parse(readFileSync(join(root, 'inbox', `${ex.task_id}.probes.json`), 'utf8'));
+      const facts = JSON.parse(readFileSync(join(root, 'inbox', `${ex.task_id}.facts.json`), 'utf8'));
+      return status.state === 'unresolved' && [status, probes, facts].every(source =>
+        source.external_id === ex.task_id && source.generation === ex.generation && source.event_seq === status.event_seq);
+    }, 'source publication');
     const c2 = broker.cancel(eng.engagement_id, ex.task_id, 'stop-test');
-    assert.equal(c2.state, 'confirmed_stopped', `应答器确认后必须 confirmed_stopped，实得 ${c2.state}`);
+    assert.equal(c2.state, 'unresolved', '源残留资源必须维持 unresolved');
 
     const st = JSON.parse(readFileSync(join(root, 'inbox', `${ex.task_id}.status.json`), 'utf8'));
-    assert.equal(st.state, 'confirmed_stopped', '停了就是停了：不得复活成 done');
-    assert.equal(existsSync(join(root, 'inbox', `${ex.task_id}.facts.json`)), false, '停止的任务不写事实');
+    assert.equal(st.state, 'unresolved', '不得复活成 done 或伪造 confirmed_stopped');
+    const probes = JSON.parse(readFileSync(join(root, 'inbox', `${ex.task_id}.probes.json`), 'utf8'));
+    assert.equal(probes.resources[0].stopped, false, '保留实际源的残留资源证据');
+    assert.equal(probes.resources.length, 1, '残留资源证明不得为空');
+    const manifest = adapter.manifestOf(ex.task_id);
+    assert.equal(manifest.length, 1);
+    assert.ok(manifest.every(resource => resource.check() === false), '逐项保持未停止证明');
   } finally {
     child.kill('SIGTERM');
+    await new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
     rmSync(home, { recursive: true, force: true });
   }
 });

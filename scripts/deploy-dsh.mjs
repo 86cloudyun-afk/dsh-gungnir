@@ -208,9 +208,24 @@ findings.push(bin ? `✓ dsh 可用（${bin}）` : '· 未找到 dsh 可执行�
 if (v.adapter && !['fake', 'local', 'bridge'].includes(v.adapter)) {
   findings.push(`✗ --adapter 只接受 fake|local|bridge（收到 ${v.adapter}）`);
 }
-if ((v.adapter ?? 'fake') === 'fake') {
-  findings.push('· adapter=fake：派单只会产出**占位事实**，不是真执行。接真通道见 docs/DSH-EXECUTOR-IMPL.md');
-}
+// 有效适配器：preset 行显式值 > 家目录 warroom.json > 默认 fake。
+// （旧实现只看标志默认值，会对着已是 bridge 的部署误报"fake"——真机把我自己都绕了一次。）
+const effectiveAdapter = (() => {
+  if (v.adapter) return { kind: v.adapter, source: '--adapter' };
+  try {
+    // warroom 家目录 = <DSH_HOME>/warroom（插件按 DSH_HOME 解析）；也可由 WARROOM_HOME 覆盖
+    const warroomHome = process.env.WARROOM_HOME ?? (home ? join(home, 'warroom') : null);
+    const cfgPath = warroomHome ? join(warroomHome, 'warroom.json') : null;
+    if (cfgPath && existsSync(cfgPath)) {
+      const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+      if (cfg.adapterKind) return { kind: cfg.adapterKind, source: cfgPath };
+    }
+  } catch { /* 配置读不到就退回默认，并在下面如实说明 */ }
+  return { kind: 'fake', source: '默认（未配置）' };
+})();
+findings.push(effectiveAdapter.kind === 'fake'
+  ? `· 有效 adapter=fake（来源：${effectiveAdapter.source}）：派单只会产出**占位事实**，不是真执行。接真通道见 docs/DSH-EXECUTOR-IMPL.md`
+  : `✓ 有效 adapter=${effectiveAdapter.kind}（来源：${effectiveAdapter.source}）`);
 
 let already = false;
 if (patchPath && existsSync(patchPath)) {

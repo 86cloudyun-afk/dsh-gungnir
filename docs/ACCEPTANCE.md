@@ -1,14 +1,15 @@
 # 验收对照表（v0.1 · 2026-10-02）
 
-## GUNGNIR 对话战图交付（2026-10-03）
-
-Dashboard 定向测试 **41/41**。临时 SQLite 与 Chrome 通过 21/261 节点、桌面/窄屏、对话双向定位、路线/任务引用、折叠与错误清空验证；当前安装的 DSH 0.2.0-rc.2 在独立临时 HOME/cwd 中通过实际 Client 页签、会话冷读、opaque iframe 和认证/作用域拒绝验证。两轮浏览器均无页面错误，事实库与全局库哈希未变。测试会话和数据库均为合成夹具；不改变既有生产 `HOST_VERIFIED` 记录。复现命令和截图见 [战图验收记录](dashboard/validation.md)，接入说明见 [使用指南](dashboard/usage.md)。
-
 规格：[WARROOM-FRAMEWORK.md](WARROOM-FRAMEWORK.md) §8 + 三份 ADR 的验收节。
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-逐闸等价命令：`node --test`（**606 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-03 身份隔离修复的历史 Mac 离线复核：当时登记用例总数为 841，其中 805 通过、0 失败、36 项未运行。
+本次字面参数边界修复整合 main `21f18adf` 后，登记用例总数为 858，其中 822 通过、0 失败、36 项范围跳过；Mac 离线复核与现场限制见 [整合记录](VALIDATION-ARGV-INTEGRATION-2026-10-03.md)。
+六闸在外部 `offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
+复跑：`NODE_OPTIONS='--require=<证据目录>/offline-scope.cjs' node scripts/ci.mjs`。
+
+逐闸等价命令：`node --test`（**858 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -18,7 +19,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 
 | # | 验收项 | 证据 | 状态 |
 |---|---|---|---|
-| 1 | 允许清单负样本：bash/文件写/进程工具不在战役会话工具目录 | `presets/warroom.preset.json` + `test/preset.test.js` + `scripts/check-preset.mjs` + **`test/dsh-mount.test.js`** + **`scripts/verify-host.mjs`** + **`test/dsh-host-verified.test.js`**（宿主校验器 + 官方 boot API 真实进程挂载验收） | ✅ **真实挂载已闭环**（dsh 0.2.0-rc.2）：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile，断言 ①注册表无 broken + 预设在册 ②`retain` 成功 ③主控会话工具目录 = 允许集（`warroom_*` 全数，0 内核工具；数量与允许清单同源，当前 37），过了才打 **HOST_VERIFIED**。CI `native-host` job 每次推送真装官方 DSH 复跑（`--require-host` 防静默通过）；缺宝时如实 SKIP |
+| 1 | 允许清单与宿主授权边界负样本 | `test/model-auth-boundary.test.js` + `test/bootstrap-verbs.test.js` + `scripts/check-preset.mjs` + `test/dsh-mount.test.js` | 本次离线复核：独立基线固定 36 个模型工具和参数 schema；策略缺省仍不挂 engage；伪造来源/授权覆盖无创建入口；import/acquire/probe/未知动词在宿主访问前拒绝。可信 host/CLI 引用及重启兼容通过。新树的真实 DSH 挂载未运行，历史 HOST_VERIFIED 记录不代替本次验收 |
 | 2 | broker 负样本：缺四元组 / 请求 ⊄ 授权对象 / auth_version 过期 | `test/gates.test.js`（三负样本 + 类档 + 窗口） | ✅ |
 | 3 | 授权撤销 + 时间窗：级联取消 + 探针证实停止 | `test/gates.test.js`、`test/gate-controls.test.js`、故障矩阵⑥ | ✅ |
 | 4 | 丢回包恢复：接收成功→断回包→重启→lookup 找回，无重复任务 | `test/dispatch.test.js`、故障矩阵① | ✅ |
@@ -35,7 +36,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 
 | 验收项 | 证据 | 状态 |
 |---|---|---|
-| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（37 `warroom_*`，0 内核工具），非提示词拒绝 |
+| 允许清单负样本（挂载层缺失，非提示词拒绝） | preset + checker + **`scripts/verify-host.mjs`**（官方 boot API 实挂验收 → HOST_VERIFIED）+ CI `native-host` job | ✅ **真实挂载已闭环**：主控会话工具目录由挂载构成在真实 DSH 进程里实测 = 允许集（历史工具目录，0 内核工具；本次 36 工具仅离线核对），非提示词拒绝 |
 | broker 负样本三类 | `test/gates.test.js` | ✅ |
 | 授权对象冻结性：重启后恢复且哈希一致；agent 无写路径 | `test/migrate-backup.test.js`、`test/fault-matrix.test.js` | ✅（哈希一致性由 engagements.auth_hash 保留；agent 侧无写工具由 preset deny 表达） |
 | 撤销级联 + 秘密抽测 | `test/gates.test.js`、`test/secrets.test.js` | ✅ |
@@ -71,7 +72,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 | 缺口 | 影响 | 计划 |
 |---|---|---|
 | 桶 A 容器隔离的运行验收（§8-9 / ADR-001-5） | 已由 CI `fence` job 承担（daemon 可用即真测；`--require-daemon` 防静默通过）；本机 docker daemon 未运行时本地表现为 SKIP | 观察 CI `fence` job 结果；如需本地复跑，启动 Docker Desktop 后执行脚本 |
-| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（37 `warroom_*`，0 内核工具），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
+| ~~允许清单在真实 DSH 挂载层生效~~ **（已闭环 2026-10-02）** | **已闭环**：`scripts/verify-host.mjs` 用官方 boot API 真起 web profile 并断言预设无 broken + `retain` 成功 + 主控会话工具目录 = 允许集（历史工具目录，0 内核工具；本次 36 工具仅离线核对），过了才 **HOST_VERIFIED**；CI `native-host` job 真装官方 DSH 每推送复跑（`--require-host` 防静默） | ✅ 已闭环（本机实跑 HOST_VERIFIED；`test/dsh-host-verified.test.js` 缺宝 SKIP、有宝实跑） |
 | 进程级取消证实 | **已落地**：真实探针（PID `process.kill(pid,0)` / 端口 TCP 连接 / 容器 `docker inspect`，未知一律 fail-closed）；"主会话已停、子进程仍在"必须 unresolved（真实子进程回归） | ✅ 完成（test/process-probes.test.js） |
 | 真实执行层应答器 | **已提供**：应答器（`scripts/dsh-bridge-responder.mjs`，含 `--executor` 插件与 fail-closed）、
 可跑 stub（`executors/dsh-plugin-cmd.example.mjs`）、实装指引（`docs/DSH-EXECUTOR-IMPL.md`）；
@@ -106,6 +107,11 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
 | 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
 | 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
+| 任务身份与桥证据隔离 | task/command 共用命名空间拒绝跨任务歧义；同一 writer 事务内幂等复核、身份/节奏检查后才按完整契约消费绑定批准；宿主历史歧义拒绝；同步与序列等待严格核 external_id、保留源 generation/event_seq | `test/task-identity-isolation.test.js`、`test/task-identity-concurrency.test.js`、`test/host-identity-isolation.test.js`、`test/bridge-evidence-identity.test.js` | 本次离线定向回归；不代表真实污染记录已清理 |
+| 批准与动作绑定 | 批准指纹（动作 + 靶标，**含端口/路径/scheme**）不符即拒；裸批准/死令牌在签发或消费处拒；**一律一次性** + CAS 原子消费 + 记真实 command_id；宿主派发前复核；`allowed_means` 手段校验（按 `action`/`role`/`intent` 最强一方）；执行层拒绝「声明档位弱于动作档位」的契约 | `test/approval-binding.test.js`、`test/gate-controls.test.js` | ✅ |
+| 终态与资源收口 | 完成 + 清单仍有活资源 → 记 `resources_outstanding`（不重定义 `done`）；终态任务取消 → 真的发停止请求 + 逐项证实（`confirmed_stopped` / `unresolved`），不再无副作用回「已结束」；同步取消带 `request_id` 且只认新发布 | `test/resource-settlement.test.js`、`test/dsh-responder.test.js` | ✅ |
+| 证据来源与资源清单真实性 | 目标返回文本不得成为事实（证据行须带本单 nonce；内置抓取模板一律不解析；`trusted_stdout` 显式逃逸）；后台子进程逐条进资源清单且 `stopped` 按进程组实测（不代填停止证明）；超时/信号杀清组不留残留 | `test/tool-runner.test.js` | ✅ |
+| 执行层能力面配齐 | 八个动作（http_get/recon/nuclei_scan/vuln/exec/exploit/internal/chain）全部有真实命令计划；文档承诺 == 注册表（双向断言）；缺字段精确报缺；`--capabilities` 可现查；操作员命令留 artifact 事实（退出码/输出哈希/落盘路径） | `test/tool-runner.test.js` | ✅ |
 | 蓝队视图 IOC 前置 | 整段搬迁且段集合不变 | `test/ioc-report.test.js` | ✅ |
 | HTML 窄屏适配 | 表格滚动容器 + 媒体查询；零外部资源 | `test/report-html.test.js` | ✅ |
 | 角色动线落地 | 值班/交付/路径口径写进三角色提示词 | `presets/roles/*.md`、`scripts/check-preset.mjs` | ✅ |
@@ -157,8 +163,8 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：606 例（`node --test`）
+- 测试：858 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
-- 工具：37 个（schema 严格校验，DSH 挂载要求）
-- schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）
+- 工具：36 个（schema 严格校验，DSH 挂载要求）
+- schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
 - 标签：`v0.1.0-alpha.17`（批次 1–16 已合并）

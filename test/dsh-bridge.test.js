@@ -19,13 +19,16 @@ function responder(driver) {
   };
   return (job) => {
     state.set(job.external_id, { session_up: true, container_up: (job.contract.resources ?? []).includes('container') });
-    write(driver._statusPath(job.external_id), { protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running' });
+    write(driver._statusPath(job.external_id), { protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'running', generation: job.contract.generation });
     write(driver._factsPath(job.external_id), {
+      external_id: job.external_id,
+      generation: job.contract.generation,
       members: job.contract.fake_members ?? [{
         entity_type: 'asset', source_id: 'bridge-a1', revision_no: 1, content_hash: 'h-b1', payload: { ip: '10.0.0.5' },
       }],
     });
     write(driver._probesPath(job.external_id), {
+      external_id: job.external_id,
       resources: [
         { id: `${job.external_id}-session`, kind: 'session', stopped: false },
         ...(state.get(job.external_id).container_up ? [{ id: `${job.external_id}-container`, kind: 'container', stopped: false }] : []),
@@ -39,6 +42,7 @@ function responder(driver) {
         state.set(job.external_id, { session_up: false, container_up: false });
         write(driver._statusPath(job.external_id), { protocol: 'gungnir-bridge/1', external_id: job.external_id, state: 'cancel_requested' });
         write(driver._probesPath(job.external_id), {
+          external_id: job.external_id,
           resources: [
             { id: `${job.external_id}-session`, kind: 'session', stopped: true },
             ...(job.contract.resources ?? []).includes('container')
@@ -130,7 +134,10 @@ test('Broker 端到端：桥驱动 + 事实入库 + 停止证实（unknown → r
   });
   assert.ok(['running', 'done'].includes(ex.state), `派单状态异常：${ex.state}`);
   await waitFacts(bridgeRoot, ex.task_id);
-  const col = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id)); broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  const col = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  const duplicate = broker.collect(eng.engagement_id, ex.task_id, adapter.collect(ex.task_id));
+  assert.equal(duplicate.accepted, true);
+  assert.ok(duplicate.results.every((r) => r.action === 'duplicate_ignored'), '重复收集不得新增有效事实');
   assert.equal(col.accepted, true);
   assert.equal(broker._eng(eng.engagement_id).store.effectiveCount(), 1);
 

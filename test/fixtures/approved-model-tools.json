@@ -1,0 +1,981 @@
+{
+  "baseline": "70a5a775127b77dd143ff9e39cd2cc0f94097255",
+  "source_blob": "3c83f9467d87dcd42a51857e7c3d5f2f6164d4a5",
+  "tools": [
+    {
+      "name": "warroom_execute",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "auth_version": {
+            "type": "integer"
+          },
+          "action_class": {
+            "type": "string",
+            "enum": [
+              "readonly",
+              "active",
+              "destructive"
+            ]
+          },
+          "contract": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "manual_approval_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "engagement_id",
+          "auth_version",
+          "action_class",
+          "contract"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_collect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id",
+          "receipt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_fact_query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "include_history": {
+            "type": "boolean"
+          },
+          "adapter_instance": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_secret_put",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plaintext": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plaintext"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_secret_grant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "secret_ref": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "secret_ref",
+          "task_id",
+          "purpose"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_secret_status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_report_export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "md",
+              "json",
+              "html",
+              "both",
+              "all"
+            ]
+          },
+          "max_facts_per_type": {
+            "type": "integer"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "client",
+              "blue",
+              "full"
+            ]
+          },
+          "verify": {
+            "type": "boolean",
+            "description": "true = 导出后立刻复核可复现性并返回结论"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_reconcile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_redispatch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_shell_status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_shell_verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "proof": {
+            "type": "string"
+          },
+          "validity": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "likely",
+              "confirmed_lost"
+            ]
+          },
+          "evidence_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_spray_check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credential_ref",
+          "service",
+          "account"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_spray_record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "success",
+              "fail",
+              "locked",
+              "skipped"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credential_ref",
+          "service",
+          "account",
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          },
+          "wall_time_ms": {
+            "type": "integer"
+          },
+          "verified_facts": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string"
+          },
+          "model_tier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_poc_search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "recent",
+              "hits"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "warroom_poc_add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "affected_versions": {
+            "type": "string"
+          },
+          "evidence_ref": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "category"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_poc_use",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "engagement_id": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_sweep_timeouts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "timeout_min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_evidence_export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "client",
+                "blue"
+              ]
+            }
+          },
+          "checklist": {
+            "type": "boolean",
+            "description": "true=随包生成 DELIVERY_CHECKLIST.md（默认 true）"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_spray_matrix",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "credentials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "engagement_id",
+          "credentials",
+          "services"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_audit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "export_dir": {
+            "type": "string"
+          },
+          "export_format": {
+            "type": "string",
+            "enum": [
+              "jsonl",
+              "csv"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_jumps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "release",
+              "sweep",
+              "sweep_routes",
+              "heartbeat"
+            ]
+          },
+          "route_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_secret_rotate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_egress_check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "record"
+            ]
+          },
+          "jumphost_id": {
+            "type": "string"
+          },
+          "exit_ip": {
+            "type": "string"
+          },
+          "route_id": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail"
+            ]
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_heartbeat",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "task_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_preflight",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "meeting_tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "可选：波次任务列表（逐个核对是否在授权范围内）"
+          },
+          "record": {
+            "type": "boolean",
+            "description": "true = 把预检结论写入审计（开工留痕）"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_aggregate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sessions_db": {
+            "type": "string",
+            "description": "DSH 聚合库路径；留空表示只聚合本框架各战役"
+          }
+        },
+        "required": [
+          "sessions_db"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_timeline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_watch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "timeout_min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_rate_view",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_checklist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "export": {
+            "type": "boolean"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "delivery",
+              "progress"
+            ]
+          },
+          "confirm": {
+            "type": "string",
+            "description": "人工项 id（shell|ioc）：记录确认留痕"
+          },
+          "by": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_deliver",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engagement_id": {
+            "type": "string"
+          },
+          "out_dir": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "backup": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "engagement_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_weekly",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "archive": {
+            "type": "boolean",
+            "description": "true = 归档到 <home>/reports/weekly/<ISO 周>.md"
+          }
+        },
+        "required": [
+          "days"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "warroom_fleet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timeout_min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "timeout_min"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "allow": [
+    "warroom_execute",
+    "warroom_collect",
+    "warroom_cancel",
+    "warroom_status",
+    "warroom_reconcile",
+    "warroom_redispatch",
+    "warroom_fact_query",
+    "warroom_secret_put",
+    "warroom_secret_grant",
+    "warroom_secret_status",
+    "warroom_report_export",
+    "warroom_shell_status",
+    "warroom_shell_verify",
+    "warroom_spray_check",
+    "warroom_spray_record",
+    "warroom_metrics",
+    "warroom_poc_search",
+    "warroom_poc_add",
+    "warroom_poc_use",
+    "warroom_sweep_timeouts",
+    "warroom_evidence_export",
+    "warroom_spray_matrix",
+    "warroom_audit",
+    "warroom_jumps",
+    "warroom_secret_rotate",
+    "warroom_egress_check",
+    "warroom_heartbeat",
+    "warroom_preflight",
+    "warroom_aggregate",
+    "warroom_timeline",
+    "warroom_watch",
+    "warroom_rate_view",
+    "warroom_checklist",
+    "warroom_deliver",
+    "warroom_weekly",
+    "warroom_fleet",
+    "skill"
+  ]
+}

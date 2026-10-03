@@ -1,9 +1,10 @@
 # v0.1 最终验收审计
 
+> 历史审计记录（真实宿主/容器结论不作为本次修复新树的验收）：
 > 生成时间：2026-10-02 · 审计范围：WARROOM-FRAMEWORK v1.4 §8 十二项 + ADR-001/002/003 验收节
 > 汇总口径：**只认可复跑的仓库内命令**；推不出来的一律写"未闭环"。
 
-2026-10-03 参数修复补记：框架/ADR/演练等既有结论是基线 `1828ca296ef2c4c4da34dfd2d889260959708e99` 中保留的历史审计声明，本次没有重新认证这些能力。下表的当前目录计数与受限离线结果单独列示；范围 skip 不计为通过，Mac 初测不替代真实 Windows/DSH/服务器验收。
+2026-10-03 参数修复补记：框架/ADR/演练等既有结论是主线 `21f18adfa81e571220fd0262ed0391a569fb3e2d` 中保留的历史审计声明，本次没有重新认证这些能力。下表的当前目录计数与受限离线结果单独列示；范围 skip 不计为通过，Mac 初测不替代真实 Windows/DSH/服务器验收。
 
 ## 一、一次性结论
 
@@ -13,8 +14,9 @@
 | ADR-001（权限与执行边界） | 5/5 闭环（含桶 A 真实容器验收，由 CI `fence` job 真跑） |
 | ADR-002（数据与证据契约） | 6/6 闭环 |
 | ADR-003（Adapter 生命周期） | 9/9 闭环 |
-| 本地六闸 | 当前目录 606 例；2026-10-03 参数修复受限离线六闸退出码均 0：580 pass / 0 fail / 26 范围 skip；37 工具 / 21 场景矩阵 / 文档与契约同步 / 自审通过 |
-| CI 真跑 job | 历史冻结记录：`fence`、`drill`、`native-host`、`test` 皆绿；本次参数修复精确 head 的远端结果见对应 PR，不沿用此历史结论 |
+| 本次授权边界修复 | 离线定向与安全回归、schema、preset、故障矩阵、生成文档、自审；真实执行器、网络探针及原生宿主验收未运行（见 [ACCEPTANCE](ACCEPTANCE.md)） |
+| 本地六闸 | 当前目录 858 例；本次外部 preload 下离线六闸均 exit 0：822 pass /0 fail /36 范围 skip；36 工具 /21 场景矩阵 /文档与契约同步 /自审通过 |
+| CI 真跑 job | 历史冻结记录：`fence`、`drill`、`native-host`、`test` 皆绿；本次精确 head 的远端结果见原 PR，不沿用历史结论 |
 | 端到端演练 | `node scripts/executor-drill.mjs` → 全链路通过（11 步）；`--mode bridge` 亦通过 |
 | 契约自检 | `node scripts/conformance.mjs` → 8/8（且对真实桥接 adapter 亦通过） |
 | 性能 | N=5000：md 报告 73ms / json 167ms / html 73ms / 看板视图×5 35ms / 证据落盘 545ms / RSS 234MB |
@@ -51,7 +53,7 @@
 
 - **编排层代码**：`packages/*`（shared-types / warroom-core / warroom-tools / warroom-plugin）
 - **CLI**：`bin/warroom.mjs`（30+ 子命令，见 [QUICKSTART.md](QUICKSTART.md) 一图流）
-- **工具**：37 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
+- **工具**：36 个 `warroom_*`（[TOOLS.md](TOOLS.md) 与 [tools.schema.json](tools.schema.json) 自动生成）
 - **预设与角色**：`presets/warroom.preset.json` + `presets/roles/{commander,recon,chain}.md`
 - **契约**：`docs/adr/*`（四份 ADR）、`docs/dashboards.schema.json`（看板字段）、`docs/tools.schema.json`
 - **可读文档**：QUICKSTART / ACCEPTANCE / FAULT-MATRIX / DSH-EXECUTOR(-IMPL) / CI-INTEGRATION / BACKUP / MERGE-REVIEW-1..16

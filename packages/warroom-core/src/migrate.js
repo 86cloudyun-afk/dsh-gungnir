@@ -4,12 +4,14 @@
 //   · 库版本 > 代码 SCHEMA_VERSION → 拒绝打开（防降级写坏数据）；
 //   · 迁移按版本号升序执行（数组顺序无关）。
 import { SCHEMA_VERSION } from './version.js';
+import { TASK_LEDGER_DDL } from './task-ledger.js';
 
 const META_KEY = 'schema_version';
 export const ERR_SCHEMA_NEWER = 'E_SCHEMA_NEWER_THAN_CODE';
 
 /** 迁移清单：version = 目标版本，labels 限定作用的库，up(db) 执行该步变更。 */
 export const MIGRATIONS = [
+  { version: 9, labels: ['global'], up(db) { db.exec(TASK_LEDGER_DDL); } },
   {
     version: 2,
     labels: ['global'],
@@ -90,6 +92,17 @@ export const MIGRATIONS = [
       if (!cols.includes('key_id')) {
         db.exec("ALTER TABLE secret_store ADD COLUMN key_id TEXT");
       }
+    },
+  },
+  {
+    version: 10,
+    labels: ['global'],
+    up(db) {
+      // v10：批准与动作绑定（ADR-007）——批准指纹 + 绑定动作/靶标，`used_by_command` 记真实 command_id
+      const cols = db.prepare('PRAGMA table_info(approvals)').all().map((c) => c.name);
+      if (!cols.includes('contract_hash')) db.exec('ALTER TABLE approvals ADD COLUMN contract_hash TEXT');
+      if (!cols.includes('bound_action')) db.exec('ALTER TABLE approvals ADD COLUMN bound_action TEXT');
+      if (!cols.includes('bound_scope')) db.exec('ALTER TABLE approvals ADD COLUMN bound_scope TEXT');
     },
   },
   {
