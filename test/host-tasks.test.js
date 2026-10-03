@@ -150,3 +150,51 @@ for (const invalid of ['expired', 'failed']) test(`first host dispatch rechecks 
   assert.equal(h.adapter.tasks.size, 0);
   assert.equal(h.store().rateTotal('wire'), 1);
 });
+
+test('tick grants dispatch grace before unknown and logs dispatch_unknown gate', async () => {
+  const h = harness();
+  const r = queued(h);
+  // background 适配器：派发被接受但仍是 queued（等首次 observe 上报 running）
+  h.broker.adapter = {
+    dispatch: () => ({ task_id: r.task_id, state: 'queued' }),
+    observe: () => null,
+    lookup: () => null,
+    hydrate: () => null,
+    cancel: () => {},
+    manifestOf: () => [],
+  };
+  const { HostTaskRunner } = await import('../packages/warroom-plugin/src/host-tasks.js');
+  const runner = new HostTaskRunner({ broker: h.broker, delivery: { deliver: async () => ({ status: 'blocked' }) } });
+  const state = () => h.broker._findCommand(r.task_id).state;
+  const gates = () => h.store().db.prepare("SELECT * FROM gate_log WHERE decision = 'dispatch_unknown'").all();
+  await runner.tick(); // 派发：dispatch_attempted=1，仍是 queued
+  assert.equal(state(), 'queued');
+  for (let i = 0; i < 4; i++) { await runner.tick(); assert.equal(state(), 'queued', `grace tick ${i + 1} 不得误标 unknown`); }
+  assert.equal(gates().length, 0, '宽限期内不得打 dispatch_unknown');
+  await runner.tick(); // 宽限耗尽
+  assert.equal(state(), 'unknown');
+  assert.equal(gates().length, 1, '标 unknown 时必须打 dispatch_unknown 门闸日志');
+  assert.match(gates()[0].detail, /no adapter progress within grace period/);
+});
+
+test('adapter reporting running during grace clears the unknown countdown', async () => {
+  const h = harness();
+  const r = queued(h);
+  h.broker.adapter = {
+    dispatch: () => ({ task_id: r.task_id, state: 'queued' }),
+    observe: () => null,
+    lookup: () => ({ task_id: r.task_id }),
+    hydrate: () => null,
+    cancel: () => {},
+    manifestOf: () => [],
+  };
+  const { HostTaskRunner } = await import('../packages/warroom-plugin/src/host-tasks.js');
+  const runner = new HostTaskRunner({ broker: h.broker, delivery: { deliver: async () => ({ status: 'blocked' }) } });
+  await runner.tick();
+  await runner.tick();
+  // 宽限期内适配器上报 running：直接恢复，不经过 unknown
+  h.broker._setCommandState(r.command_id, 'running');
+  await runner.tick(); await runner.tick(); await runner.tick(); await runner.tick();
+  assert.equal(h.broker._findCommand(r.task_id).state, 'running');
+  assert.equal(h.store().db.prepare("SELECT count(*) n FROM gate_log WHERE decision = 'dispatch_unknown'").get().n, 0);
+});

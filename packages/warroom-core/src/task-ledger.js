@@ -1,4 +1,9 @@
 // Host-only durable ownership/outbox. Model arguments never supply parent identity.
+//
+// Append-only by design（审计账本）：task_notifications / task_resources 只增不删。
+// 重放证据必须活得比投递确认更久（_tick 注释：Keep its replay evidence until all
+// acknowledgements settle），行级自动清理会破坏"同一事件不重复通知"的不变式。
+// 长期运行的归档走 SQLite 文件级备份/轮转，不要在这里加 TTL 删除。
 export const TASK_LEDGER_DDL = `
 CREATE TABLE IF NOT EXISTS task_owners (
   command_id TEXT PRIMARY KEY,
