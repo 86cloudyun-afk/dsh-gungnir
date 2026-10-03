@@ -11,23 +11,81 @@
 // 未给出且目标是外部地址时 **拒绝执行**（fail-closed）；本地/实验室目标需显式
 //   GUNGNIR_ALLOW_DIRECT=1
 //
-// 角色 → 工具（可在 TOOLBOX 里查模板，一律走 `tools/env.sh` 环境）：
-//   recon  : subfinder（子域）→ httpx（存活/指纹）          产出 domain / asset
-//   assess : nuclei（限量、只跑 critical/high/medium）       产出 vuln
-//   其它角色（vuln/exploit/internal/chain）：**未实装**，明确拒绝（不猜、不造事实）
+// 能力面（capability surface）——**全部实装**，见 CAPABILITIES / `--capabilities`：
+//   http_get     readonly     curl 单次请求                                    → asset
+//   recon        readonly     subfinder（子域）→ httpx（存活/指纹）             → domain / asset
+//   nuclei_scan  active       nuclei 限量扫描（-rl 5，critical/high/medium）    → vuln
+//   vuln         active       定点验证：模板/标签/等级，或操作员给的命令         → vuln / artifact
+//   exec         active       contract.command / contract.argv 任意命令         → artifact
+//   exploit      destructive  利用/取控制面（命令由操作员给出）                 → session / credential / artifact
+//   internal     active       横向与提权（netexec/impacket/msf 任选）           → session / credential / asset / artifact
+//   chain        active       contract.steps 顺序多跳（≤12 步）                 → chain / artifact
 //
-// 安全阀：每条命令有超时；请求数上限由 GUNGNIR_MAX_REQUESTS 控制（默认 200）；
-// 原始输出落盘到 GUNGNIR_ARTIFACT_DIR（默认 <home>/artifacts/<external_id>/）供人工复核。
+// 命令来源只有一处：**操作员在契约里显式给出**（`command` 字符串或 `argv` 数组）。
+// 执行器不猜、不造事实——没有命令就明确报缺哪个字段（而不是"未实装"）。
+// 证据回传走显式协议行 `GUNGNIR_MEMBER: {"entity_type":…,"source_id":…,"payload":…}`，
+// 逐行原样入库（自动补 content_hash），执行器不做任何推断。
+//
+// 安全阀：每条命令有超时（`contract.timeout_ms`，上限 GUNGNIR_MAX_TIMEOUT_MS）；请求数上限由
+// GUNGNIR_MAX_REQUESTS 控制（默认 200）；原始输出落盘到 GUNGNIR_ARTIFACT_DIR
+// （默认 <home>/artifacts/<external_id>/）供人工复核。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { createHash, randomBytes } from 'node:crypto';
 
 const sha = (s) => `sha256:${createHash('sha256').update(String(s)).digest('hex')}`;
 const isLocalTarget = (t) => /^(127\.|localhost|::1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(String(t ?? ''));
 
+/**
+ * URL/裸主机 → 主机名（出口判定按主机，不按整条 URL）；file:// 之类无主机的返回 null。
+ * 与 core 的 `gates.js:hostOf` 同口径：带 scheme 的 URL、协议相对 `//host/x`、裸 IPv6 `[::1]:8080` 都认。
+ */
+export function hostOf(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const asUrl = s.startsWith('//') ? `http:${s}` : (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : null);
+  if (asUrl) {
+    try { const h = new URL(asUrl).hostname; return h ? h.replace(/^\[|\]$/g, '') : null; } catch { return null; }
+  }
+  const v6 = /^\[([^\]]+)\](?::\d+)?$/.exec(s);
+  if (v6) return v6[1].toLowerCase();
+  const host = s.replace(/[/?#].*$/, '').replace(/^.*@/, '').split(':')[0].trim();
+  return host || null;
+}
+
+/**
+ * 契约里**全部可寻址对象**：targets + url + chain 步内 targets/url。
+ * 出口铁律（操作员 SOP §12）不能只盯 `targets`——否则 `url` 就是一条直连外网的旁路（真机实测过）。
+ */
+export function addressables(contract = {}) {
+  const out = [];
+  const addHost = (v) => { const h = hostOf(v); if (h && !out.includes(h)) out.push(h); };
+  for (const t of Array.isArray(contract.targets) ? contract.targets : []) addHost(t);
+  addHost(contract.url);
+  for (const s of Array.isArray(contract.steps) ? contract.steps : []) {
+    for (const t of Array.isArray(s?.targets) ? s.targets : []) addHost(t);
+    addHost(s?.url);
+  }
+  return out;
+}
+
+/** 稳定序列化（对象键排序）：同一份证据两次入库必须得到同一个 content_hash（幂等的前提）。 */
+const canonical = (v) => JSON.stringify(v, (_k, val) => (
+  val && typeof val === 'object' && !Array.isArray(val)
+    ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]]))
+    : val
+));
+
 /** 每条命令的默认超时（ms）与并发限制（节奏档由主控门闸管，这里是执行层自保）。 */
-const TIMEOUTS = { subfinder: 180_000, httpx: 240_000, nuclei: 600_000 };
+const TIMEOUTS = { subfinder: 180_000, httpx: 240_000, nuclei: 600_000, exec: 300_000 };
+
+/** 单次派单内允许的最大步骤数（chain.steps / 多命令计划），防止一次派单变成无界批处理。 */
+const MAX_STEPS = 12;
+
+/** 操作员命令的超时上限（可用 GUNGNIR_MAX_TIMEOUT_MS 抬到 1h）。 */
+const maxExecTimeout = () => Math.max(1_000, Number(process.env.GUNGNIR_MAX_TIMEOUT_MS ?? 3_600_000));
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -44,30 +102,92 @@ function readStdin() {
  * 实测一条 echo 级别的命令要 ~30 秒（测试因此卡死），而且把执行层耦合到交互式环境。
  * 需要工具链环境时**显式**给 `GUNGNIR_TOOLS_ENV=/path/to/tools/env.sh`（或 opts.toolsEnv）。
  */
+/**
+ * 进程组是否仍有存活成员（**实测**，不是声明）：组空 → false。
+ * 命令一律以 `detached` 起，成为独立进程组的组长（pgid = pid），这样后台子进程可被点名与清点。
+ */
+export function groupAlive(pgid) {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) return false;
+  try { process.kill(-pgid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+/** 进程组内仍存活的成员（pid + 命令行），用于把它们**列进资源清单**而不是假装没发生。 */
+export function groupMembers(pgid) {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) return [];
+  try {
+    const pids = spawnSync('pgrep', ['-g', String(pgid)], { encoding: 'utf8', timeout: 5_000 }).stdout ?? '';
+    const list = pids.split('\n').map((s) => s.trim()).filter((s) => /^\d+$/.test(s) && Number(s) !== process.pid);
+    if (list.length === 0) return [];
+    const ps = spawnSync('ps', ['-o', 'pid=,args=', '-p', list.join(',')], { encoding: 'utf8', timeout: 5_000 }).stdout ?? '';
+    return ps.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const m = /^(\d+)\s+(.*)$/.exec(l);
+      return m ? { pid: Number(m[1]), cmd: m[2] } : null;
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * 组状态实测：刚退出的进程会有一小段僵尸窗口（还没被 reap），
+ * 直接判定会把"其实已经清干净"报成还活着——给它几十毫秒，再下结论。
+ */
+export function groupStatus(pgid) {
+  if (!groupAlive(pgid)) return { alive: false, survivors: [] };
+  for (let i = 0; i < 5 && groupAlive(pgid); i += 1) sleepMs(20);
+  if (!groupAlive(pgid)) return { alive: false, survivors: [] };
+  return { alive: true, survivors: groupMembers(pgid) };
+}
+
+/** 命令收尾：超时/信号时把整个进程组清掉（失败的步骤不该留下无主残留）。 */
+function reapGroup(pgid) {
+  if (!groupAlive(pgid)) return false;
+  try { process.kill(-pgid, 'SIGKILL'); } catch { /* 竞态：刚好自己退了 */ }
+  for (let i = 0; i < 10 && groupAlive(pgid); i += 1) sleepMs(20);
+  return groupAlive(pgid);
+}
+
 export function runTool(cmd, { artifactDir, env = {}, timeoutMs = 300_000, id = 'cmd', log = null, toolsEnv = null, cleanProxyEnv = true } = {}) {
   const envFile = toolsEnv ?? process.env.GUNGNIR_TOOLS_ENV ?? null;
-  const script = envFile && existsSync(envFile)
+  const body = envFile && existsSync(envFile)
     ? `source ${JSON.stringify(envFile)} >/dev/null 2>&1; ${cmd}`
     : cmd;
+  // 输出走**文件**而不是管道：管道会被后台子进程继承，spawnSync 就会一直等到管道关闭
+  // （实测 `sleep 3 & echo hi` 让执行器白等 3 秒，等到子进程自己退了还报 stopped:true —— 一条假停止证明）。
+  const dir = artifactDir ?? mkdtempSync(join(tmpdir(), 'wr-run-'));
+  mkdirSync(dir, { recursive: true });
+  const outPath = join(dir, `${id}.stdout.txt`);
+  const errPath = join(dir, `${id}.stderr.txt`);
+  // 注意 `{` / `}` 各占一行：命令以 `#` 注释结尾时，行内的 `}` 会被一起注释掉（真机踩到过语法错误）
+  const script = `{\n${body}\n} > ${JSON.stringify(outPath)} 2> ${JSON.stringify(errPath)}`;
   const base = { ...process.env };
   if (cleanProxyEnv) {
     // 目标流量必须显式指定出口：环境里的代理变量会造成"静默回落本机出口"或与 -x 打架
     for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'NO_PROXY']) delete base[k];
   }
   const r = spawnSync('bash', ['-c', script], {
-    encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024,
+    encoding: 'utf8', timeout: timeoutMs,
     env: { ...base, ...env },
+    stdio: ['ignore', 'ignore', 'ignore'],   // 输出在文件里，不占管道
+    // detached：独立进程组（pgid = 子进程 pid）。不这样起，命令留下的后台子进程既点不到名，
+    // 也无法给出"到底停没停"的实测结论——只能靠一句 stopped:true 蒙过去（真机踩过的假停止证明）。
+    detached: true,
   });
-  const stdout = r.stdout ?? '';
-  const stderr = r.stderr ?? '';
-  if (artifactDir) {
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(join(artifactDir, `${id}.stdout.txt`), stdout, 'utf8');
-    writeFileSync(join(artifactDir, `${id}.stderr.txt`), stderr, 'utf8');
-  }
-  if (log) log.push({ id, cmd, exit: r.status, bytes: stdout.length });
-  // 超时/非零：如实上报（不把失败当成功）
-  return { ok: r.status === 0, exit: r.status, stdout, stderr, timedOut: r.error?.code === 'ETIMEDOUT' };
+  const readOut = (f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
+  const stdout = readOut(outPath);
+  const stderr = readOut(errPath);
+  const pgid = Number.isSafeInteger(r.pid) && r.pid > 0 ? r.pid : null;
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  const signaled = r.signal ?? null;
+  if (timedOut || signaled) reapGroup(pgid);   // 失败步骤清组：不留无主残留
+  if (log) log.push({ id, cmd, exit: r.status, pgid, bytes: stdout.length });
+  // 超时/信号/非零：如实上报（不把失败当成功）；信号杀（SIGKILL/OOM）不是"正常退出"
+  return {
+    ok: r.status === 0, exit: r.status, signal: signaled, pgid,
+    stdout, stderr, timedOut,
+    // 命令自己退了不等于它的进程组空了：后台子进程照实回报
+    ...groupStatus(pgid),
+  };
 }
 
 /** subfinder 输出（每行一个域名）→ domain 成员。 */
@@ -132,6 +252,95 @@ export function parseHttp(text) {
   }];
 }
 
+/**
+ * 显式证据协议：操作员的命令可以在 stdout 里逐行写
+ *   `GUNGNIR_MEMBER <nonce>: {"entity_type":"session","source_id":"…","payload":{…}}`
+ * 执行器把它变成事实成员（`content_hash` 按规范化内容**重算**，不采信自报值）。
+ *
+ * **为什么必须带 nonce**：命令的 stdout 里会流过**目标可控的文本**（`curl` 一个页面、
+ * `nuclei` 打印目标字段、操作员脚本回显响应体）。不带凭据的话，目标页面里写一行同样格式的文本
+ * 就能把自己塞进账本当"战果"（实测：`http_get` 抓一个含该行的页面 → 账本多出一条 `shell` 事实）。
+ * nonce 由执行器**每单随机生成**、只放进命令环境变量（`GUNGNIR_EVIDENCE_NONCE`），目标无从得知。
+ * 显式 `contract.trusted_stdout: true` 才接受不带 nonce 的旧写法（用于 stdout 不经目标的自有脚本）。
+ *
+ * 只认这几种实体类型，字段不全/凭据不符的行直接忽略——**不推断、不脑补**。
+ */
+export const EVIDENCE_PREFIX = 'GUNGNIR_MEMBER';
+const MEMBER_TYPES = new Set(['asset', 'domain', 'vuln', 'credential', 'session', 'shell', 'chain', 'artifact']);
+
+export function parseEvidence(text, { nonce = null, allowUnsigned = false } = {}) {
+  const out = [];
+  const rejected = [];
+  for (const raw of String(text ?? '').split('\n')) {
+    const at = raw.indexOf(`${EVIDENCE_PREFIX} `);
+    const legacy = at >= 0 ? -1 : raw.indexOf(`${EVIDENCE_PREFIX}:`);
+    if (at < 0 && legacy < 0) continue;
+    let body = null;
+    if (at >= 0) {
+      const rest = raw.slice(at + EVIDENCE_PREFIX.length + 1);
+      const sep = rest.indexOf(':');
+      const tag = sep >= 0 ? rest.slice(0, sep).trim() : '';
+      if (!nonce || tag !== nonce) { rejected.push(tag || '(无凭据)'); continue; }
+      body = rest.slice(sep + 1).trim();
+    } else if (allowUnsigned) {
+      body = raw.slice(legacy + EVIDENCE_PREFIX.length + 1).trim();
+    } else {
+      rejected.push('(无凭据)');
+      continue;
+    }
+    let j;
+    try { j = JSON.parse(body); } catch { continue; }
+    const type = String(j?.entity_type ?? j?.type ?? '');
+    const src = String(j?.source_id ?? j?.source ?? '').trim();
+    if (!MEMBER_TYPES.has(type) || !src) continue;
+    const payload = (j.payload && typeof j.payload === 'object' && !Array.isArray(j.payload)) ? j.payload : {};
+    out.push({
+      entity_type: type, source_id: src,
+      revision_no: Number.isInteger(j.revision_no) ? j.revision_no : 1,
+      // 一律按**规范化内容**重算：自报值/键序不同会让同一条证据变成两条冲突事实（真机踩过）
+      content_hash: sha(`${type}|${src}|${canonical(payload)}`),
+      payload,
+    });
+  }
+  out.rejected = rejected.length;   // 被拒行数（目标注入的可观测面：写进 _debug 与产物日志）
+  return out;
+}
+
+/**
+ * 操作员命令的运行证据（**命令确实跑过**这一事实本身）：命令哈希 + 退出码 + 输出哈希 + 落盘路径。
+ * source_id 带上输出哈希：同一条命令两次输出不同 → 两条事实（不互相覆盖）；输出相同 → 幂等忽略。
+ */
+export function artifactMember({ id, action, cmd, exit, stdout, stderr, timedOut = false, artifactDir = null }) {
+  const cmdSha = sha(cmd);
+  const outSha = sha(stdout);
+  return {
+    entity_type: 'artifact',
+    source_id: `${action ?? 'exec'}:${cmdSha.slice(7, 19)}:${outSha.slice(7, 19)}`,
+    revision_no: 1,
+    content_hash: outSha,
+    payload: {
+      action: action ?? 'exec', exit: exit ?? null, timed_out: timedOut === true,
+      bytes: String(stdout ?? '').length, command_sha256: cmdSha, stderr_sha256: sha(stderr ?? ''),
+      artifact: artifactDir ? join(artifactDir, `${id ?? 'cmd'}.stdout.txt`) : null, tool: 'exec',
+    },
+  };
+}
+
+/** argv → shell 安全的单行命令（保留参数边界；PR #170 的教训：空格路径不许被拆开）。 */
+export function shellQuote(s) {
+  const v = String(s);
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(v) ? v : `'${v.replaceAll("'", `'\\''`)}'`;
+}
+
+/** 命令来源：契约里**显式**给出的 `command` 或 `argv`；都没有就返回 null（调用方负责报缺字段）。 */
+export function resolveCommand({ command = null, argv = null } = {}) {
+  if (typeof command === 'string' && command.trim()) return { cmd: command.trim(), source: 'contract.command' };
+  if (Array.isArray(argv) && argv.length > 0) {
+    return { cmd: argv.map(shellQuote).join(' '), source: 'contract.argv' };
+  }
+  return null;
+}
+
 /** nuclei 行 → vuln 成员。 */
 export function parseFindings(text) {
   const out = [];
@@ -154,12 +363,85 @@ export function parseFindings(text) {
   return out;
 }
 
-/** 支持的动作（会写进拒绝信息里，让指挥层知道该派什么）。 */
-export const SUPPORTED_ACTIONS = Object.freeze([
-  'http_get（readonly：单次 HTTP 请求，取状态/标题/关键响应头）',
-  'recon（subfinder → httpx）',
-  'nuclei_scan（显式要求才跑：限量扫描）',
-]);
+/**
+ * 能力面注册表：**动作 → 计划构建方式**。指挥层可用 `--capabilities` 现查（机器可读），
+ * 拒绝信息里也列全量能力——历史上这里只实装了 3 个动作，别的动作一律回"未实装"，
+ * 指挥层只能看到"通道缺少能力"而不知道缺什么、该怎么办（真机教训 2026-10-03）。
+ *
+ * tier 与 broker 的 action_class 对齐：readonly/active/destructive。执行器**不重复**做授权裁决
+ * （那是 broker 的门闸：destructive 需人工批准令牌），只保证「派下来的动作有真实命令计划」。
+ */
+export const CAPABILITIES = Object.freeze({
+  http_get: {
+    aliases: ['http', 'http_probe', 'probe', 'readonly'], tier: 'readonly',
+    requires: ['url|targets'], tool: 'curl', produces: ['asset'],
+    note: '单次 HTTP 请求（状态码/标题/关键响应头）',
+  },
+  recon: {
+    aliases: [], tier: 'readonly',
+    requires: ['targets'], tool: 'subfinder+httpx', produces: ['domain', 'asset'],
+    note: '子域枚举 → 存活/指纹',
+  },
+  nuclei_scan: {
+    aliases: ['assess'], tier: 'active',
+    requires: ['targets'], tool: 'nuclei', produces: ['vuln'],
+    note: '限量漏洞扫描（-rl 5，仅 critical/high/medium）',
+  },
+  vuln: {
+    aliases: ['vuln_check', 'verify'], tier: 'active',
+    requires: ['targets|command'], tool: 'nuclei|操作员命令', produces: ['vuln', 'artifact'],
+    note: '定点漏洞验证：给 template/tags/severity 走 nuclei，或直接用操作员给的命令',
+  },
+  exec: {
+    aliases: ['shell', 'bash', 'cmd', 'command'], tier: 'active',
+    requires: ['command|argv'], tool: 'bash -c', produces: ['artifact'],
+    note: '任意命令（命令由操作员在契约里显式给出）',
+  },
+  exploit: {
+    aliases: ['poc'], tier: 'destructive',
+    requires: ['command|argv'], tool: 'bash -c', produces: ['session', 'credential', 'artifact'],
+    note: '利用/取控制面：命令由操作员给出；broker 侧 destructive 需人工批准令牌',
+  },
+  internal: {
+    aliases: ['lateral'], tier: 'active',
+    requires: ['command|argv'], tool: 'bash -c', produces: ['session', 'credential', 'asset', 'artifact'],
+    note: '横向与提权：命令由操作员给出（netexec/impacket/msf 任选）',
+  },
+  chain: {
+    aliases: [], tier: 'active',
+    requires: ['steps|command|argv'], tool: 'bash -c ×N', produces: ['chain', 'artifact'],
+    note: '多跳拼链：contract.steps 顺序执行，任一步失败即停',
+  },
+});
+
+/** tier 强弱次序：声明档位**不得弱于**动作自身的档位（否则契约自相矛盾，拒绝执行）。 */
+export const TIER_ORDER = Object.freeze({ readonly: 0, active: 1, destructive: 2 });
+
+const ALIASES = new Map(Object.entries(CAPABILITIES).flatMap(([k, v]) => [[k, k], ...(v.aliases ?? []).map((a) => [a, k])]));
+
+/** 动作名（含别名）→ 能力键；未知动作返回 null。 */
+export function capabilityOf(action) {
+  const a = String(action ?? '').trim().toLowerCase();
+  return ALIASES.get(a) ?? null;
+}
+
+/** 支持的动作清单（写进拒绝信息里，让指挥层知道该派什么、要带哪些字段）。 */
+export const SUPPORTED_ACTIONS = Object.freeze(
+  Object.entries(CAPABILITIES).map(([k, v]) => `${k}（${v.tier}：${v.note}；契约需 ${v.requires.join(' + ')}）`),
+);
+
+/** 机器可读能力面（`node executors/tool-runner.mjs --capabilities`）。 */
+export function capabilitiesSnapshot() {
+  return {
+    protocol: 'gungnir-executor/1',
+    actions: Object.fromEntries(Object.entries(CAPABILITIES).map(([k, v]) => [k, { ...v, aliases: [...v.aliases] }])),
+    roles: { recon: 'recon', assess: 'nuclei_scan', vuln: 'vuln', exploit: 'exploit', internal: 'internal', chain: 'chain' },
+    evidence_protocol: `${EVIDENCE_PREFIX} <nonce>: {"entity_type":…,"source_id":…,"payload":…}`
+      + '（nonce 在命令环境变量 GUNGNIR_EVIDENCE_NONCE 里；不带凭据的行不进账本）',
+    resources_semantics: '每条命令一个进程组；组内仍有存活成员时 stopped:false 并逐个子进程列出（不代填停止证明）',
+    limits: { max_steps: MAX_STEPS, default_exec_timeout_ms: TIMEOUTS.exec, max_exec_timeout_ms: maxExecTimeout() },
+  };
+}
 
 /**
  * 契约 → 命令计划（纯函数，便于回归；不接触网络）。
@@ -167,69 +449,182 @@ export const SUPPORTED_ACTIONS = Object.freeze([
  * **按 `contract.action` 办事，而不是按角色猜**。真机教训（2026-10-03）：指挥层派
  * `action: http_get`（带 url）要的是"看一眼这个页面"，执行器却因为 `role=assess` 去跑了
  * 10 分钟 nuclei —— 跑飞、被超时杀掉、状态 failed、wire=0，指挥层看到的就是"派单成功但执行失败"。
+ *
+ * 解析顺序：`contract.action`（含别名）→ 没有 action 时退回 `role` 的能力 → 都没有则**明确报缺**
+ * （列出全量能力面，不再出现"未实装/不属于本通道"这种让指挥层无从下手的空话）。
  */
-export function planCommands(role, targets, { maxRequests = 200, action = null, url = null, method = 'GET', exit = null } = {}) {
+export function planCommands(role, targets, {
+  maxRequests = 200, action = null, url = null, method = 'GET', exit = null,
+  command = null, argv = null, template = null, tags = null, severity = null,
+  steps = null, timeoutMs = null, actionClass = null,
+} = {}) {
   const t0 = targets?.[0];
-  const act = (action ?? role ?? '').toString();
   const targetUrl = url ?? (t0 ? (String(t0).startsWith('http') ? t0 : `https://${t0}`) : null);
-  if (!t0 && !url) return { commands: [], reason: 'contract.targets/url 为空：没有可执行的对象' };
+  const op = resolveCommand({ command, argv });          // 操作员显式给出的命令（唯一的通用能力来源）
+  const asked = Number(timeoutMs ?? TIMEOUTS.exec);
+  const execTimeout = Math.max(1_000, Math.min(Number.isFinite(asked) ? asked : TIMEOUTS.exec, maxExecTimeout()));
 
-  // ① readonly 单次 HTTP（金丝雀/看页面）：只发 1 个请求
-  if (['http', 'http_get', 'http_probe', 'probe', 'readonly'].includes(act)) {
-    if (!targetUrl) return { commands: [], reason: 'http_get 需要 contract.url 或 targets' };
-    return {
-      commands: [{
-        id: 'http_get', tool: 'http_get', timeoutMs: 45_000,
-        // 必须**显式** -x：只靠 ALL_PROXY 时 curl 会只完成 CONNECT 就失败（真机实测 000）
-        cmd: `curl -sS -i -m 20${exit ? ` -x ${exit}` : ''} -X ${method}`
-          + ` -w "\\n__CURL__%{http_code} %{size_download} %{time_total}" ${JSON.stringify(targetUrl)}`,
-        parse: 'http',
-      }],
-      requests: 1,
-    };
-  }
-
-  // ② 任意命令：明确拒绝（本通道不给通用 shell；要用 shell 请用渗透模式会话）
-  if (['exec', 'shell', 'bash', 'cmd', 'command'].includes(act)) {
+  // 动作解析：显式 action 优先；没有 action 才按 role 取能力。
+  const rawAction = action === null || action === undefined || action === '' ? null : String(action);
+  const cap = rawAction ? capabilityOf(rawAction) : capabilityOf(role);
+  if (!cap) {
     return {
       commands: [],
-      reason: 'action=exec（任意命令）未实装且**不属于本通道**：'
-        + `允许的动作只有 ${SUPPORTED_ACTIONS.join(' / ')}。需要通用 shell 请用「新版多 Agent 渗透指挥官」会话。`,
+      reason: `动作 ${JSON.stringify(rawAction ?? role)} 无法识别（fail-closed：不猜、不造事实）。`
+        + `可用能力：${SUPPORTED_ACTIONS.join(' / ')}`,
     };
   }
 
-  // ③ 显式要求才跑扫描（噪声大）
-  if (act === 'nuclei_scan' || (act === 'assess' && action === 'assess') || (role === 'assess' && action === null)) {
+  // 档位绑定（执行层不做授权裁决，但拒绝**自相矛盾**的契约）：
+  // 派 `exploit`（tier=destructive）却声明 `action_class:active`，等于用弱标签套一个强动作绕过人工批准。
+  const tier = CAPABILITIES[cap].tier;
+  const declared = actionClass === null || actionClass === undefined || actionClass === '' ? null : String(actionClass);
+  if (declared !== null && TIER_ORDER[declared] === undefined) {
+    return { commands: [], reason: `契约声明了未知的 action_class=${JSON.stringify(declared)}（只认 readonly|active|destructive）` };
+  }
+  if (declared === null && tier === 'destructive') {
     return {
-      commands: [{
-        id: 'nuclei', tool: 'nuclei',
-        cmd: `printf '%s\\n' ${t0} | nuclei -silent -jsonl -severity critical,high,medium -rl 5 -timeout 10 -retries 1`,
-        timeoutMs: TIMEOUTS.nuclei, parse: 'findings',
-      }],
-      requests: Math.min(maxRequests, 50),
+      commands: [],
+      reason: `动作 ${cap} 的档位是 destructive，契约必须显式声明 action_class=destructive（并携带已登记的人工批准令牌）——`
+        + '未声明档位时无从判定是否需要人工裁决',
+    };
+  }
+  if (declared !== null && TIER_ORDER[declared] < TIER_ORDER[tier]) {
+    return {
+      commands: [],
+      reason: `契约自相矛盾：动作 ${cap} 的档位是 ${tier}，却声明 action_class=${declared}`
+        + (tier === 'destructive' ? '——destructive 动作必须声明 destructive 并携带已登记的人工批准令牌' : ''),
     };
   }
 
-  // ④ 角色式 recon
-  if (role === 'recon') {
-    const domain = t0.replace(/^https?:\/\//, '').split('/')[0];
-    return {
-      commands: [
-        { id: 'subfinder', tool: 'subfinder', cmd: `subfinder -d ${domain} -silent`, timeoutMs: TIMEOUTS.subfinder, parse: 'domains' },
-        {
-          id: 'httpx', tool: 'httpx',
-          cmd: `printf '%s\\n' ${domain} | httpx -silent -td -title -sc -rl ${Math.min(20, maxRequests)}`,
-          timeoutMs: TIMEOUTS.httpx, parse: 'assets',
-        },
-      ],
-      requests: Math.min(maxRequests, 40),
-    };
+  // 通用命令计划（exec/exploit/internal：命令由操作员给出）。
+  // 操作员命令只走**显式证据协议**解析，不做格式嗅探（防止把 exec 输出解析成 asset/vuln 之类的假事实）。
+  const operatorStep = (id, extra = {}) => ({
+    id, tool: 'exec', cmd: op.cmd, timeoutMs: execTimeout,
+    parse: 'evidence', artifact: true, strict: false, from: op.source, ...extra,
+  });
+
+  switch (cap) {
+    case 'http_get': {
+      if (!targetUrl) return { commands: [], reason: 'http_get 需要 contract.url 或 targets' };
+      return {
+        commands: [{
+          id: 'http_get', tool: 'http_get', timeoutMs: 45_000,
+          // 必须**显式** -x：只靠 ALL_PROXY 时 curl 会只完成 CONNECT 就失败（真机实测 000）
+          cmd: `curl -sS -i -m 20${exit ? ` -x ${exit}` : ''} -X ${method}`
+            + ` -w "\\n__CURL__%{http_code} %{size_download} %{time_total}" ${JSON.stringify(targetUrl)}`,
+          parse: 'http', strict: true,
+        }],
+        requests: 1,
+      };
+    }
+
+    case 'recon': {
+      if (!t0) return { commands: [], reason: 'recon 需要 contract.targets' };
+      const domain = String(t0).replace(/^https?:\/\//, '').split('/')[0];
+      return {
+        commands: [
+          { id: 'subfinder', tool: 'subfinder', cmd: `subfinder -d ${domain} -silent`, timeoutMs: TIMEOUTS.subfinder, parse: 'domains', strict: true },
+          {
+            id: 'httpx', tool: 'httpx',
+            cmd: `printf '%s\\n' ${domain} | httpx -silent -td -title -sc -rl ${Math.min(20, maxRequests)}`,
+            timeoutMs: TIMEOUTS.httpx, parse: 'assets', strict: true,
+          },
+        ],
+        requests: Math.min(maxRequests, 40),
+      };
+    }
+
+    case 'nuclei_scan': {
+      if (!t0) return { commands: [], reason: 'nuclei_scan 需要 contract.targets' };
+      return {
+        commands: [{
+          id: 'nuclei', tool: 'nuclei',
+          cmd: `printf '%s\\n' ${t0} | nuclei -silent -jsonl -severity critical,high,medium -rl 5 -timeout 10 -retries 1`,
+          timeoutMs: TIMEOUTS.nuclei, parse: 'findings', strict: true,
+        }],
+        requests: Math.min(maxRequests, 50),
+      };
+    }
+
+    case 'vuln': {
+      // 定点验证：给了命令就按命令跑；没给就按选择器（模板/标签/等级）跑 nuclei。
+      if (op) return { commands: [operatorStep('vuln', { tool: 'vuln' })], requests: Math.min(maxRequests, 50) };
+      if (!t0) {
+        return {
+          commands: [],
+          reason: 'vuln 需要 contract.targets（定点 nuclei 扫描），或 contract.command / contract.argv（自带验证命令）',
+        };
+      }
+      // 选择器按 token 逐个 shellQuote 组装（不裸拼、不做全局空白折叠——免得把已引号包裹的路径改语义）
+      const sevs = String(severity ?? 'critical,high,medium').split(',')
+        .map((s) => s.trim()).filter(Boolean).map(shellQuote);
+      if (sevs.length === 0) return { commands: [], reason: 'vuln 的 severity 为空：要么给合法等级，要么用 contract.command 自带命令' };
+      const argv = [
+        'nuclei', '-silent', '-jsonl', '-severity', sevs.join(','),
+        ...(template ? ['-t', template] : []),
+        ...(tags ? ['-tags', String(tags)] : []),
+        '-rl', '5', '-timeout', '10', '-retries', '1',
+      ];
+      return {
+        commands: [{
+          id: 'nuclei_vuln', tool: 'nuclei',
+          cmd: `printf '%s\\n' ${shellQuote(t0)} | ${argv.map(shellQuote).join(' ')}`,
+          timeoutMs: TIMEOUTS.nuclei, parse: 'findings', strict: true,
+        }],
+        requests: Math.min(maxRequests, 50),
+      };
+    }
+
+    case 'exec':
+    case 'exploit':
+    case 'internal': {
+      if (!op) {
+        return {
+          commands: [],
+          reason: `${cap} 需要 contract.command（字符串）或 contract.argv（数组）——命令必须由操作员显式给出，`
+            + '执行器不替指挥层发明命令。示例：{"action":"exec","command":"id"}'
+            + `（${cap === 'exploit' ? '；destructive 需人工批准令牌，由 broker 门闸校验' : ''}）`,
+        };
+      }
+      return { commands: [operatorStep(cap)], requests: 0 };
+    }
+
+    case 'chain': {
+      // 多跳：contract.steps 顺序执行（每步 = 命令，或 {action, …} 走同一套计划器）。
+      if (Array.isArray(steps) && steps.length > 0) {
+        if (steps.length > MAX_STEPS) {
+          return { commands: [], reason: `chain.steps 最多 ${MAX_STEPS} 步（收到 ${steps.length} 步）` };
+        }
+        const commands = [];
+        for (const [i, s] of steps.entries()) {
+          const sub = planCommands(role, Array.isArray(s?.targets) ? s.targets : targets, {
+            maxRequests, action: s?.action ?? 'exec', url: s?.url ?? null, method: s?.method ?? method, exit,
+            command: s?.command ?? null, argv: s?.argv ?? null, template: s?.template ?? null,
+            tags: s?.tags ?? null, severity: s?.severity ?? null, timeoutMs: s?.timeout_ms ?? null,
+            actionClass: s?.action_class ?? actionClass,
+          });
+          if (sub.commands.length === 0) {
+            return { commands: [], reason: `chain.steps[${i}] 无法成计划：${sub.reason ?? '未知原因'}` };
+          }
+          commands.push(...sub.commands.map((c, k) => ({ ...c, id: `step${i + 1}.${k + 1}.${c.id}` })));
+        }
+        // 上界按**展开后的命令数**判（12 步 recon 型动作 = 24 条命令，不是 12 条）
+        if (commands.length > MAX_STEPS) {
+          return { commands: [], reason: `chain 展开后共 ${commands.length} 条命令，超过上限 ${MAX_STEPS}（steps ${steps.length} 步）` };
+        }
+        return { commands, requests: Math.min(maxRequests, 50), steps: steps.length, commands_total: commands.length };
+      }
+      if (op) return { commands: [operatorStep('chain')], requests: 0 };
+      return {
+        commands: [],
+        reason: 'chain 需要 contract.steps（数组，顺序多跳）或 contract.command / contract.argv（单条拼链命令）',
+      };
+    }
+
+    default:
+      return { commands: [], reason: `能力 ${cap} 没有命令计划（这是实现缺陷，请报 bug）` };
   }
-  return {
-    commands: [],
-    reason: `动作 ${JSON.stringify(act)} 未实装（fail-closed：不猜、不造事实）。`
-      + `允许的动作：${SUPPORTED_ACTIONS.join(' / ')}`,
-  };
 }
 
 export async function runJob(job, opts = {}) {
@@ -241,11 +636,12 @@ export async function runJob(job, opts = {}) {
   const artifactDir = opts.artifactDir ?? join(process.env.GUNGNIR_ARTIFACT_DIR ?? 'artifacts', externalId);
   const log = [];
 
-  // 出口纪律：外部目标必须显式给代理
+  // 出口纪律：契约里**任何**可寻址对象是外部地址就必须显式给代理（targets 之外还有 url 与 chain 步内目标）
   const exitSocks = opts.exitSocks ?? process.env.GUNGNIR_EXIT_SOCKS ?? null;
-  const external = targets.some((t) => !isLocalTarget(t));
-  if (external && !exitSocks && process.env.GUNGNIR_ALLOW_DIRECT !== '1') {
-    throw new Error('拒绝执行：目标是外部地址但未提供出口（GUNGNIR_EXIT_SOCKS）；'
+  const addrs = addressables(contract);
+  const external = addrs.filter((t) => !isLocalTarget(t));
+  if (external.length > 0 && !exitSocks && process.env.GUNGNIR_ALLOW_DIRECT !== '1') {
+    throw new Error(`拒绝执行：目标是外部地址（${external.join(', ')}）但未提供出口（GUNGNIR_EXIT_SOCKS）；`
       + '直连目标违反出口 SOP。若确为本地/实验室目标，设 GUNGNIR_ALLOW_DIRECT=1。');
   }
 
@@ -253,6 +649,10 @@ export async function runJob(job, opts = {}) {
     maxRequests: Number(process.env.GUNGNIR_MAX_REQUESTS ?? 200),
     action: contract.action ?? null, url: contract.url ?? null, method: contract.method ?? 'GET',
     exit: exitSocks,
+    command: contract.command ?? null, argv: contract.argv ?? null,
+    template: contract.template ?? null, tags: contract.tags ?? null, severity: contract.severity ?? null,
+    steps: contract.steps ?? null, timeoutMs: contract.timeout_ms ?? null,
+    actionClass: contract.action_class ?? null,
   });
   if (plan.commands.length === 0) throw new Error(plan.reason ?? '无可用命令计划');
 
@@ -262,27 +662,87 @@ export async function runJob(job, opts = {}) {
     ? { ALL_PROXY: goProxy, HTTP_PROXY: goProxy, HTTPS_PROXY: goProxy, all_proxy: goProxy, http_proxy: goProxy, https_proxy: goProxy }
     : {};
   const members = [];
+  const resources = [];
+  // 证据凭据：每单随机，只进命令环境变量。目标无从得知 → 它回显的同格式文本进不了账本。
+  const evidenceNonce = randomBytes(16).toString('hex');
+  const trustStdout = contract.trusted_stdout === true;
+  const evidence = { accepted: 0, rejected: 0 };
   for (const step of plan.commands) {
-    const r = runTool(step.cmd, { artifactDir, env, timeoutMs: step.timeoutMs, id: step.id, log });
-    if (!r.ok) {
-      // 工具失败不伪造事实；把失败作为成员之外的错误抛出（主控→unknown）
-      throw new Error(`工具 ${step.tool} 执行失败（exit=${r.exit}${r.timedOut ? ', timeout' : ''}）：${r.stderr.slice(0, 300)}`);
+    const operator = step.artifact === true;   // 只有操作员给的命令能申报证据
+    const r = runTool(step.cmd, {
+      artifactDir, env: operator ? { ...env, GUNGNIR_EVIDENCE_NONCE: evidenceNonce } : env,
+      timeoutMs: step.timeoutMs, id: step.id, log,
+    });
+
+    // 超时 = 证据不完整：如实抛错（进程组已在 runTool 里清掉；产物仍在 artifactDir，错误里给出路径）
+    if (r.timedOut) {
+      throw new Error(`命令超时（${step.id}，${step.timeoutMs}ms）：证据不完整，主控应记 unknown；`
+        + `已落盘的原始输出：${join(artifactDir, `${step.id}.stdout.txt`)}`);
+    }
+    // 信号杀（SIGKILL/OOM）也不是"正常退出"：status=null 时绝不记成成功
+    if (r.exit === null || r.signal) {
+      throw new Error(`命令被信号终止（${step.id}，signal=${r.signal ?? 'unknown'}）：证据不完整，主控应记 unknown；`
+        + `已落盘的原始输出：${join(artifactDir, `${step.id}.stdout.txt`)}`);
+    }
+    // 内置工具模板（subfinder/httpx/nuclei/curl）非零退出 = 失败，绝不伪造事实（主控→unknown）
+    if (!r.ok && step.strict !== false) {
+      throw new Error(`工具 ${step.tool} 执行失败（exit=${r.exit}）：${r.stderr.slice(0, 300)}`);
+    }
+
+    // 证据申报：只从操作员命令收，且必须带本单 nonce（内置抓取模板的 stdout 是**目标可控文本**）
+    if (operator) {
+      const ev = parseEvidence(r.stdout, { nonce: evidenceNonce, allowUnsigned: trustStdout });
+      members.push(...ev);
+      evidence.accepted += ev.length;
+      evidence.rejected += ev.rejected ?? 0;
     }
     if (step.parse === 'http') members.push(...parseHttp(r.stdout));
     else if (step.parse === 'domains') members.push(...parseDomains(r.stdout, targets[0]));
     else if (step.parse === 'assets') members.push(...parseAssets(r.stdout));
     else if (step.parse === 'findings') members.push(...parseFindings(r.stdout));
+
+    // 操作员命令：无论成败都留一条 artifact 事实（命令确实跑过 + 退出码 + 输出哈希 + 落盘路径）。
+    // 非零退出**不抛错**（那是被派命令的真实结果，属证据不是故障）；超时已在上文抛出。
+    if (operator) {
+      members.push(artifactMember({
+        id: step.id, action: contract.action ?? role, cmd: step.cmd,
+        exit: r.exit, stdout: r.stdout, stderr: r.stderr, timedOut: false, artifactDir,
+      }));
+    }
+
+    // 资源清单按**实测**报：命令自己退了不等于它的进程组空了——后台子进程要点名列出，
+    // 否则主控拿一份"stopped: true"的清单去判定 confirmed_stopped（假停止证明，真机踩过）。
+    resources.push({ id: step.id, kind: 'process', stopped: !r.alive, pgid: r.pgid });
+    for (const s of r.survivors ?? []) {
+      resources.push({ id: `${step.id}-child-${s.pid}`, kind: 'process', stopped: false, pid: s.pid, cmd: String(s.cmd).slice(0, 200) });
+    }
   }
 
   return {
+    // 回执必须带 generation：桥的插件层（executors/dsh-redteam-executor.mjs）按
+    // `out.generation === job.contract.generation` 校验代际，缺了就整单退 exit=4（真机踩过）
+    ...(typeof contract.generation === 'string' ? { generation: contract.generation } : {}),
+    external_id: externalId,
     members,
-    resources: [{ id: `${externalId}-runner`, kind: 'process', stopped: true }],
-    _debug: { role, targets, artifactDir, steps: log, exit: exitSocks ? 'via-socks' : 'direct-local' },
+    resources,
+    _debug: {
+      role, targets, addressables: addrs, artifactDir, steps: log,
+      exit: exitSocks ? 'via-socks' : 'direct-local',
+      action: capabilityOf(contract.action ?? role) ?? null, capabilities: Object.keys(CAPABILITIES),
+      // 证据申报的可观测面：accepted = 入库条数，rejected = 凭据不符被丢掉的条数（目标注入的痕迹）
+      evidence: { ...evidence, trusted_stdout: trustStdout, nonce_env: 'GUNGNIR_EVIDENCE_NONCE' },
+      survivors: resources.filter((r) => r.stopped === false).map((r) => r.id),
+    },
   };
 }
 
 // ── CLI（被 GUNGNIR_EXECUTOR_CMD 调用）──
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // 能力面现查：指挥层/运维不用读源码就知道这条通道能派什么、每项要带哪些契约字段
+  if (process.argv.includes('--capabilities')) {
+    process.stdout.write(`${JSON.stringify(capabilitiesSnapshot(), null, 2)}\n`);
+    process.exit(0);
+  }
   const raw = await readStdin();
   let job;
   try { job = JSON.parse(raw); } catch (e) {

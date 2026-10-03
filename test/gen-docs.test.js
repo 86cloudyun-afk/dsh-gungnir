@@ -2,10 +2,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, copyFileSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, copyFileSync, unlinkSync, existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TOOLS } from '../packages/warroom-tools/src/index.js';
 
 const run = (flag) => execFileSync('node', ['scripts/gen-docs.mjs', flag], { encoding: 'utf8' });
+
+/**
+ * 备份目录放**仓库外**：早期实现把备份写成 `docs/*.bak-test`，一旦两次 `node --test` 并行
+ * （或进程中途被杀）就会互相覆盖，甚至把临时占位内容留到工作区被 commit（真机踩过一次）。
+ */
+const tmpBak = (name) => join(mkdtempSync(join(tmpdir(), 'wr-gendocs-')), name);
 
 test('docs/TOOLS.md 与代码同步（--check 通过）', () => {
   const out = run('--check');
@@ -20,7 +28,7 @@ test('生成内容覆盖全部工具与约定', () => {
 });
 
 test('漂移会被检出（写入后 --check 必须失败）', () => {
-  const bak = 'docs/TOOLS.md.bak-test';
+  const bak = tmpBak('TOOLS.md');
   copyFileSync('docs/TOOLS.md', bak);
   try {
     writeFileSync('docs/TOOLS.md', readFileSync('docs/TOOLS.md', 'utf8') + '\n漂移内容\n');
@@ -43,7 +51,7 @@ test('机器可读 schema 导出：结构与同步校验', () => {
   assert.equal(parsed.preset.allowlist_mode, 'allowlist');
 
   // 漂移检出：写入后 --check 必须失败
-  const bak = 'docs/tools.schema.json.bak-test';
+  const bak = tmpBak('tools.schema.json');
   copyFileSync('docs/tools.schema.json', bak);
   try {
     writeFileSync('docs/tools.schema.json', raw.replace('gungnir-tools/1', 'gungnir-tools/0'));
@@ -78,7 +86,7 @@ test('看板契约导出：七个视图字段齐备，且与实时输出一致�
 });
 
 test('看板契约漂移会被 docs 闸检出（改字段后不重跑生成器即失败）', () => {
-  const bak = 'docs/dashboards.schema.json.bak-test';
+  const bak = tmpBak('dashboards.schema.json');
   copyFileSync('docs/dashboards.schema.json', bak);
   try {
     writeFileSync('docs/dashboards.schema.json', '{"schema":"gungnir-dashboards/0","views":{}}');
@@ -99,7 +107,7 @@ test('故障矩阵文档：21 行且与场景清单一致（漂移即失败）',
   assert.ok(rows.every((r) => r.split('|').length >= 5), '每行应有 #/场景/期望/契约 四列');
   assert.match(rows[0], /ADR-002/);
 
-  const bak = 'docs/FAULT-MATRIX.md.bak-test';
+  const bak = tmpBak('FAULT-MATRIX.md');
   copyFileSync('docs/FAULT-MATRIX.md', bak);
   try {
     writeFileSync('docs/FAULT-MATRIX.md', '# 故障矩阵（1 场景）\n');

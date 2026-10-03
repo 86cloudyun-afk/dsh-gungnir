@@ -4,7 +4,7 @@
   "tools": [
     {
       "name": "warroom_execute",
-      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么——http_get（readonly 一次 HTTP 请求）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）；exec（任意命令）不在本通道会被拒绝。",
+      "description": "派单（唯一副作用通道）：contract.action 决定执行层做什么，**八项全部实装**——http_get（readonly 单次 HTTP）/ recon（subfinder→httpx）/ nuclei_scan（限量扫描）/ vuln（定点验证）/ exec（任意命令，命令须写在 contract.command|argv）/ exploit（利用取控制面，destructive 需人工批准）/ internal（横向提权）/ chain（contract.steps 顺序多跳，≤12 步）。能力面与各动作所需契约字段可现查：`node executors/tool-runner.mjs --capabilities`。",
       "input_schema": {
         "type": "object",
         "properties": {

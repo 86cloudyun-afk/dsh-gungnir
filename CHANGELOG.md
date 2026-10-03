@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+### Fixed
+- **终态取消不再是空操作（ADR-009）**：`cancel()` 原先对终态任务直接返回 `{terminal:true}` ——
+  `command: 'nohup ./x &'` 这类「干完就退出、留下后台进程」的任务，资源永远收不了口（实测：`sleep 300 & echo started`
+  → 执行器报 done + 子进程仍在跑 → 取消回一句「已结束」，谁也没去停）。现在先看清单：已收口 → 保持原语义；
+  还有活资源 → 记 `cancel_after_terminal`、重新打开取消流程、**全项证实 → `confirmed_stopped`，未证实 → `unresolved`**
+- **完成结论不再掩盖活资源**：任务以 `done` 落定时若清单里仍有未证实停止的资源，除 `settle` 外另记
+  `resources_outstanding`（含 live 资源 id），`settle()` 返回值带 `live`；`done` 的语义本身不变
+  （仍只表示「活干完了」，ADR-003 D4 原样）
+- **同步取消能证实了**：同步路径补 `request_id`（应答器据此判定停止证据是否 fresh），
+  `FileBridgeDriver.stopRole` 改为等**新发布**（`event_seq` 前进）而不是读到早就存在的旧状态文件——
+  在此之前，取消后立刻探针拿到的还是取消前的证据，只能落 `unresolved`
+- **目标返回文本不再成为任务证据（ADR-008）**：证据协议行原先在**任何** stdout 里都被承认，于是靶标页面写一行
+  `GUNGNIR_MEMBER: {"entity_type":"shell",…}`，`http_get` 抓一下就把它当**战果**送进账本（`shell`/`chain`/`credential`
+  正是判定战果与控制面状态的那几类事实）——实测复现。现在：证据行只从**操作员命令**的 stdout 收（内置抓取模板的
+  stdout 是目标返回体，一律不解析），且必须带**本单随机 nonce**（执行器经环境变量 `GUNGNIR_EVIDENCE_NONCE` 下发，
+  目标无从得知）；被拒行数记入 `_debug.evidence.rejected` 可观测；旧写法需契约显式 `trusted_stdout: true`
+- **输出捕获改走文件（ADR-008 D3.5）**：原先用 `spawnSync` 的管道捕获，管道被后台子进程继承后执行器会一直等到
+  管道关闭——实测 `sleep 3 & echo hi` 白等 3 秒，且等到子进程自己退出后回一句 `stopped: true`（假停止证明）。
+  现在 stdout/stderr 直接重定向到产物文件，命令一退立刻返回，顺带解除 `maxBuffer` 上限
+- **后台子进程进资源清单，停止证明不再代填（ADR-008）**：回执原先无条件带 `stopped: true`，命令留下的后台进程
+  既不在清单里、也没人核实，而应答器把它原样写进 `probes.json`、broker `cancel` 据此落 `confirmed_stopped`
+  （ADR-003 D4 要求实测）。现在每条命令以**独立进程组**运行，退出后实测该组：组空才报 `stopped: true`，
+  否则报 `false` 并把每个存活子进程逐条列出（`<step>-child-<pid>`）；超时/信号杀的步骤由执行器清掉整个进程组，
+  不留无主残留
+- **批准与动作绑定（ADR-007）**：修「要求是声明出来的、动作是实际发生的，两者没绑上」这一类缺口——
+  ①批准表只绑战役与 `action_class`（`reason` 是自由文本不参与校验），一张令牌可授权该战役内**任何**
+  destructive 动作（实测同一张令牌连放 `exploit@10.0.0.5`/`exec@10.0.0.6`/`internal@10.0.0.7`）→ 现在
+  批准绑定 `sha256(动作 + 排序后的靶标集合)` 指纹，换动作/换靶标在门闸处即拒（`E_APPROVAL_MISMATCH`），
+  无绑定的裸批准（含旧库）一律拒收；签发面补齐为操作员 CLI `warroom approve` / `warroom approvals`
+  ②`used_by_command` 记的是 `used_at:<时间戳>`、`gate_log` 无批准 id、消费 `SELECT` + **无条件**`UPDATE`
+  且在事务外 → 现在消费移入派发事务，用 `WHERE used_by_command IS NULL` 的 compare-and-set 落定并写
+  **真实 command_id**，allow 记录带 `approval=<id>`；宿主派发前再复核指纹与消费归属
+  ③授权对象的第四维「手段」从来没校验过（`allowed_means` 只冻结不使用，`['passive']` 的战役照样能派任意
+  命令）→ 新增 `ACTION_MEANS` 词表按**动作本身**判定，越界即 `E_GATE_MEANS_NOT_ALLOWED`（与执行层
+  `CAPABILITIES` 由测试双向断言）
+  ④`action_class` 是请求方自填的标签，执行层的动作档位不受它约束（`exploit` 声明成 `active` 即可免批准）
+  → 执行层拒绝「声明档位弱于动作档位」的契约；destructive 契约必须声明 `action`，否则无从绑定与审计
+- 对抗式审查后追加收紧：批准绑定的粒度到**端口/路径/scheme**（同一主机上的 `:8443` 与 `:9443`、`/safe` 与
+  `/admin/delete-all` 不再是同一个靶标；`contract.steps[].url` 一并参与）、动作归一化（`EXEC` == `exec`，
+  不再出现"动作其实一样却被判成换动作"）、手段判定把 `intent`/`role` 一起算进去（被动标签配主动意图不再放行）、
+  批准**一律一次性**（删掉 `--multi`：可复制的不记名批条既不安全、台账也失去归属）、签发时校验
+  「至少有靶标/URL」与「战役存在」（不再签出永远消费不掉的死令牌）、`hostOf` 补协议相对 URL 与裸 IPv6
+- 破坏性兼容（有意 fail-closed）：旧库裸批准失效须重新签发；destructive 契约必须补 `action` 字段
+- schema：global 目标版本 v9 → **v10**（`approvals` 增 `contract_hash` / `bound_action` / `bound_scope`，
+  老库补列、旧行保留但不伪造绑定）
+
+### Added
+- **执行层能力面配齐（通道不再回"未实装"）**：`executors/tool-runner.mjs` 原先只实装 3 个动作
+  （`http_get`/`recon`/`nuclei_scan`），指挥层派 `exec`/`vuln`/`exploit`/`internal`/`chain` 时只能收到
+  「未实装且不属于本通道」——既没缺哪个字段、也没说这条通道能干什么，任务在 failed/unknown 之间打转。
+  现在八项动作**全部实装**：通用能力（`exec`/`exploit`/`internal`/`chain`）由操作员在契约里显式给出命令
+  （`contract.command` 或 `argv`，argv 按参数边界拼壳），`chain` 走 `contract.steps` 顺序多跳（≤12 步）；
+  缺字段时精确报缺（`contract.command|argv|steps`），非法动作才拒绝且列出全量能力面
+- 证据回传新增**显式协议** `GUNGNIR_MEMBER: {…}`（逐行原样入库，缺 `content_hash` 按内容补，非法行忽略）；
+  操作员命令无论退出码都留一条 `artifact` 事实（命令哈希 + 退出码 + 输出哈希 + 落盘路径）——
+  非零退出是被派命令的真实结果，超时才抛错记 `unknown`；内置工具模板语义不变（非零退出即失败）
+- `--capabilities` 现查能力面（机器可读）；`commander.md` 可派动作表与注册表由测试**双向断言**（防文档漂移）
+- **修复对抗式审查抓到的三处 P0/P1**（同批）：①回执补 `generation`/`external_id`，否则文档那条
+  `GUNGNIR_EXECUTOR_CMD=tool-runner` + `--executor dsh-redteam-executor.mjs` 接线因代际校验整单 `exit=4`
+  （改动的目标在这条唯一文档接线上原本 0 交付）；②出口与授权范围两层都改判**可寻址对象全体**
+  （`targets` + `url` + chain 步内目标）——`url` 曾经是一条直连外网、绕过 scope 的旁路；
+  ③超时之外**信号杀（SIGKILL/OOM）也抛错**（原先 `status=null` 会被记成"跑过且无超时"）；
+  另修：证据 `content_hash` 按规范化内容重算（自报值/键序不再制造冲突隔离）、chain 上界按展开后命令数、
+  `vuln` 选择器按 token 引号拼装（不再折叠引号内空白）、操作员命令固定走证据协议不做格式嗅探
+
 ### Added
 - **交付门禁语义**：`checklist --strict` 按口径判定退出码——`delivery`（授权/水位/报告可复现/证据/审计/备份
   必须齐全）与 `progress`（**只盯"已做的东西没有坏"**：没干活不算异常，但报告一旦存在就不得漂移、

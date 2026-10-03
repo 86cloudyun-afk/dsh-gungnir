@@ -39,16 +39,20 @@ test('撤销后旧 auth_version 被拒绝', () => {
   );
 });
 
-test('destructive 无人工批准被拒绝；带批准通过', () => {
+test('destructive 无人工批准被拒绝；带**绑定动作靶标**的批准通过', () => {
   const h = harness();
+  const destructive = h.contract({ action_class: 'destructive', action: 'exec' });
   expectCode(
-    () => h.broker.execute({ ...h.base, command_id: 'g3', contract: h.contract({ action_class: 'destructive' }) }),
+    () => h.broker.execute({ ...h.base, command_id: 'g3', contract: destructive }),
     ERR.E_GATE_DESTRUCTIVE_NEEDS_APPROVAL
   );
-  const ap = h.broker.createApproval({ engagement_id: h.eng.engagement_id, reason: '测试批准' });
+  const ap = h.broker.createApproval({
+    engagement_id: h.eng.engagement_id, reason: '测试批准',
+    bound: { action: 'exec', targets: ['10.0.0.5'] },
+  });
   const ok = h.broker.execute({
     ...h.base, command_id: 'g4',
-    contract: h.contract({ action_class: 'destructive' }),
+    contract: destructive,
     manual_approval_token: ap.approval_id,
   });
   assert.equal(ok.state, 'running');
@@ -67,6 +71,35 @@ test('时间窗外被拒绝', () => {
   expectCode(
     () => h.broker.execute({ ...h.base, command_id: 'g6', contract: h.contract() }),
     ERR.E_GATE_WINDOW_CLOSED
+  );
+});
+
+test('授权范围校验覆盖 url：targets 在范围内也不许用 url 指向范围外资产', () => {
+  const h = harness();
+  // targets 合法（10.0.0.5 ∈ 10.0.0.0/24），url 指向范围外 → 必须按范围外拒绝
+  expectCode(
+    () => h.broker.execute({
+      ...h.base, command_id: 'g7',
+      contract: h.contract({ url: 'https://outside.example.test/login' }),
+    }),
+    ERR.E_GATE_OUT_OF_SCOPE
+  );
+  // url 主机在范围内（含端口/路径）→ 放行
+  const ok = h.broker.execute({
+    ...h.base, command_id: 'g8',
+    contract: h.contract({ url: 'http://10.0.0.5:8080/admin' }),
+  });
+  assert.equal(ok.state, 'running');
+});
+
+test('授权范围校验覆盖 chain 步内目标（steps[].targets / steps[].url）', () => {
+  const h = harness();
+  expectCode(
+    () => h.broker.execute({
+      ...h.base, command_id: 'g9',
+      contract: h.contract({ steps: [{ action: 'exec', command: 'id' }, { action: 'http_get', url: 'https://outside.example.test/' }] }),
+    }),
+    ERR.E_GATE_OUT_OF_SCOPE
   );
 });
 
