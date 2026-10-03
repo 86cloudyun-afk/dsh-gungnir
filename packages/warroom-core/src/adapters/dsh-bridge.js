@@ -3,6 +3,7 @@
 // 协议见 docs/DSH-BRIDGE-PROTOCOL.md。所有写文件走 tmp + rename（原子），避免半截文件被读到。
 import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { ERR, warroomError } from '../../../shared-types/src/index.js';
 
 const PROTOCOL = 'gungnir-bridge/1';
 
@@ -43,15 +44,45 @@ export class FileBridgeDriver {
   _probesPath(id) { return join(this.inbox, `${id}.probes.json`); }
   _stopPath(id) { return join(this.outbox, `${id}.stop.json`); }
 
-  _awaitFile(path, phase) {
+  _readTaskEvidence(path, externalId) {
+    let source;
+    try { source = JSON.parse(readFileSync(path, 'utf8')); }
+    catch (error) {
+      if (error.code === 'ENOENT') return null; // No response is still unknown, not success.
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'bridge evidence is unreadable or malformed');
+    }
+    if (typeof source?.external_id !== 'string' || !source.external_id) {
+      throw warroomError(ERR.E_GATE_MISSING_TUPLE, 'bridge evidence requires a non-empty external identity');
+    }
+    if (source.external_id !== externalId) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'bridge evidence belongs to another task');
+    }
+    return source;
+  }
+
+  _awaitFile(path, phase, externalId) {
+    return this._awaitFileAfter(path, null, phase, externalId);
+  }
+
+  /**
+   * 等一个**新**版本的文件：`afterSeq` 给定时，只接受 event_seq 更大的发布。
+   *
+   * 存在理由（真机实测）：同步取消原本用 `_awaitFile` 等状态文件，而文件早就存在（上一次发布），
+   * 于是立刻返回**取消前**的状态，紧接着的停止探针读到的还是旧证据 → 只能落 unresolved。
+   */
+  _awaitFileAfter(path, afterSeq, phase, externalId) {
     const deadline = Date.now() + this.timeoutMs;
+    let last = null;
     while (Date.now() < deadline) {
-      const v = readJson(path);
-      if (v) return v;
+      const v = this._readTaskEvidence(path, externalId);
+      if (v) {
+        last = v;
+        if (afterSeq === null || !Number.isSafeInteger(v.event_seq) || v.event_seq > afterSeq) return v;
+      }
       // 真实模式：等执行层落盘；这里用忙等 + 小睡（Node 同步上下文下最简实现）
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.pollMs);
     }
-    return null; // 超时 → 调用方转 unknown
+    return afterSeq === null ? null : (last ?? null);   // 超时：把最后看到的状态交给调用方（可能是旧状态）
   }
 
   spawnRole(role, contract) {
@@ -62,7 +93,7 @@ export class FileBridgeDriver {
     atomicWrite(this._jobPath(external_id), job);
     if (this.background) return { external_id, state: 'queued' };
     if (this.onJob) this.onJob(job); // 进程内应答器（测试/彩排）
-    const st = this._awaitFile(this._statusPath(external_id), 'spawn');
+    const st = this._awaitFile(this._statusPath(external_id), 'spawn', external_id);
     return { external_id, state: st?.state ?? 'unknown' };
   }
 
@@ -74,12 +105,13 @@ export class FileBridgeDriver {
     atomicWrite(this._stopPath(externalId), { protocol: PROTOCOL, external_id: externalId,
       generation: this.generations.get(externalId), request_id, after_event_seq, action: 'stop', at: new Date().toISOString() });
     if (this.background) return { state: 'cancel_requested' };
-    const st = this._awaitFile(this._statusPath(externalId), 'stop');
+    // 同步路径必须等**新的**发布（event_seq 前进），否则读到的是取消前的旧状态
+    const st = this._awaitFileAfter(this._statusPath(externalId), after_event_seq, 'stop', externalId);
     return { state: st?.state ?? 'unknown' };
   }
 
   statusOf(externalId) {
-    const st = readJson(this._statusPath(externalId));
+    const st = this._readTaskEvidence(this._statusPath(externalId), externalId);
     return st ? { state: st.state, generation: st.generation, event_seq: st.event_seq } : null;
   }
 
@@ -94,7 +126,7 @@ export class FileBridgeDriver {
   }
 
   collectReceipt(externalId) {
-    const f = readJson(this._factsPath(externalId));
+    const f = this._readTaskEvidence(this._factsPath(externalId), externalId);
     return { generation: f?.generation, members: f?.members ?? [] };
   }
 
@@ -110,7 +142,7 @@ export class FileBridgeDriver {
   }
 
   collectFacts(externalId) {
-    const f = readJson(this._factsPath(externalId));
+    const f = this._readTaskEvidence(this._factsPath(externalId), externalId);
     return f?.members ?? [];
   }
 
@@ -125,7 +157,8 @@ export class FileBridgeDriver {
   }
 
   probes(externalId, { stopping = false, stop_request_id, generation = this.generations.get(externalId) } = {}) {
-    const p = readJson(this._probesPath(externalId));
+    const p = this.background ? readJson(this._probesPath(externalId))
+      : this._readTaskEvidence(this._probesPath(externalId), externalId);
     if (this.background && (p?.external_id !== externalId || p?.generation !== this.generations.get(externalId) || p.generation !== generation)) return [];
     if (this.background) {
       const status = readJson(this._statusPath(externalId));

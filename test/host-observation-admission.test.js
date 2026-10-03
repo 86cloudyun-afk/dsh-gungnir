@@ -15,10 +15,10 @@ function fixture(t, adapterKind) {
   t.after(async () => { await service.dispose(); rmSync(home, { recursive: true, force: true }); });
   const auth = service.broker.createEngagement({ user_message_id: 'inert-admission', targets: ['example.test'],
     overrides: { action_class_limit: 'destructive' } });
-  const approval = service.broker.createApproval({ engagement_id: auth.engagement_id });
+  const approval = service.broker.createApproval({ engagement_id: auth.engagement_id, bound: { action: 'exec', targets: ['example.test'] } });
   const req = { engagement_id: auth.engagement_id, auth_version: 1, command_id: 'inert-admission',
     manual_approval_token: approval.approval_id,
-    contract: { targets: ['example.test'], action_class: 'destructive', wire_cost: 1, resources: [] } };
+    contract: { targets: ['example.test'], action_class: 'destructive', action: 'exec', wire_cost: 1, resources: [] } };
   return { service, req, approval };
 }
 for (const kind of [undefined, 'local']) for (const entry of ['broker', 'native']) {
