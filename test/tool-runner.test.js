@@ -155,7 +155,8 @@ test('执行器失败必须可诊断：包装层带上 killed/exit 与输出尾�
   const dir = mkdtempSync(join(tmpdir(), 'wr-wrap-'));
   const ex = join(dir, 'boom.mjs');
   writeFileSync(ex, `process.stderr.write('具体原因: 工具没装\\n'); process.exit(9);`);
-  process.env.GUNGNIR_EXECUTOR_CMD = `/usr/local/bin/node ${ex}`;
+  // 用当前解释器路径，避免硬编码 /usr/local/bin/node（nvm/云盒上不存在 → ENOENT 假失败）
+  process.env.GUNGNIR_EXECUTOR_CMD = `${process.execPath} ${ex}`;
   try {
     const mod = await import('../executors/dsh-redteam-executor.mjs');
     await assert.rejects(() => mod.default.run({ external_id: 'x', role: 'recon', contract: { targets: ['t'] } }),
