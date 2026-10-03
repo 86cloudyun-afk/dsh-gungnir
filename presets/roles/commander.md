@@ -52,8 +52,11 @@
   要跑什么工具由你写进契约（例：`{"action":"exec","command":"naabu -host 10.0.0.5 -top-ports 1000"}`）。
 - `argv` 数组按参数边界拼壳（空格路径不会被拆开）；命令里的秘密**用环境变量引用**（`$TOKEN`），别写进 argv——
   产物目录与执行日志按原样留档，写进 argv 就等于写进证据。
-- 回传证据用显式协议行：命令 stdout 里写 `GUNGNIR_MEMBER: {"entity_type":"session","source_id":"…","payload":{…}}`，
-  执行器逐行原样入库（不推断、不脑补）；其余输出按 `parse` 声明的格式解析（`nuclei`/`httpx`/`curl`）。
+- 回传证据用显式协议行，且**必须带本单凭据**：`printf 'GUNGNIR_MEMBER %s: {…}\n' "$GUNGNIR_EVIDENCE_NONCE"`
+  （nonce 由执行器每单生成、只放进命令环境变量）。**目标是不可信输入**：页面/接口回显里同格式的文本一律进不了账本
+  （内置抓取模板的证据行直接不解析）；要收旧写法得在契约里显式 `trusted_stdout: true`，只对 stdout 不经目标的自有脚本用。
+- 资源清单按**实测**回：命令留下的后台进程会以 `<step>-child-<pid>` 进清单并标 `stopped: false`——
+  这意味着那个资源还没收口（任务停在 `unresolved`），**别把它读成"已停"**；要收口就真的停掉它或走探针证实。
 - `exploit` 的 destructive 授权仍由 broker 门闸校验（人工批准令牌），执行层不重复裁决也不替它放行。
   批准**绑定「动作 + 靶标」**：向操作员要批准时说清 `action` 与 `targets`（操作员签发：
   `warroom approve --engagement <id> --action exploit --targets 10.0.0.5`），派单时 `action`/`targets` 必须逐字一致——

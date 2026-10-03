@@ -11,7 +11,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 | 项 | 现状 |
 |---|---|
 | 版本 | **`v0.1.0`**（v0.1 冻结闭环达成：16 批次 / 134 PR；最终审计见 [FINAL-AUDIT.md](docs/FINAL-AUDIT.md)） |
-| 测试 | 743 例，`npm run ci` 全绿 |
+| 测试 | 747 例，`npm run ci` 全绿 |
 | CI 闸 | 六道本地闸（验收套件 / 工具 schema / 预设允许清单 / 故障矩阵 / 工具文档与看板契约同步 / 自审闸）+ **三个真跑 CI job**：围栏真实容器（`fence`）、执行层跨进程演练（`drill`）、真实 DSH 挂载验收（`native-host` → HOST_VERIFIED） |
 | 故障矩阵 | 21 场景（丢回包/乱序/写失败/残留/重启/撤销/备份恢复/密钥/配置/版本/迁移/路由/心跳/知识库/交付边界/门禁/确认边界/归档幂等/门禁同源） |
 | 工具 | **36** 个 `warroom_*`（schema 严格校验；以 `presets/warroom.preset.json` 允许清单为准） |
@@ -41,6 +41,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 - ADR-004 v0.2 边界与验收：[docs/adr/ADR-004-v0.2-scope.md](docs/adr/ADR-004-v0.2-scope.md)
 - ADR-006 执行层能力面（八项动作全实装 + 显式证据协议）：[docs/adr/ADR-006-executor-capability-surface.md](docs/adr/ADR-006-executor-capability-surface.md)
 - ADR-007 批准与动作绑定（批准指纹 + 原子单次消费 + 授权手段校验）：[docs/adr/ADR-007-approval-action-binding.md](docs/adr/ADR-007-approval-action-binding.md)
+- ADR-008 证据来源与资源清单真实性（目标文本不得成为事实 + 后台进程进清单）：[docs/adr/ADR-008-evidence-provenance-and-resource-manifest.md](docs/adr/ADR-008-evidence-provenance-and-resource-manifest.md)
 - 冻结快照：[docs/adr/frozen/](docs/adr/frozen/)
 - 快速开始（真实演练输出）：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 - 工具清单（自动生成）：[docs/TOOLS.md](docs/TOOLS.md)
@@ -77,7 +78,7 @@ node bin/warroom.mjs jump import --id jh-1 --addr-v4 203.0.113.9
 ## 测试与四闸
 
 ```sh
-npm run ci                           # 六道闸一次跑完（推荐；验收套件 743 例）
+npm run ci                           # 六道闸一次跑完（推荐；验收套件 747 例）
 node scripts/executor-drill.mjs      # 执行层落地演练（fake / --mode bridge）
 node scripts/ci.mjs --quiet          # 只看汇总（别用 | tail，管道会吞退出码）
 node --test                          # 只跑验收套件

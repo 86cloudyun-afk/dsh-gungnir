@@ -192,7 +192,7 @@ test('能力面现查：--capabilities 输出机器可读清单', () => {
   const snap = JSON.parse(execFileSync('node', ['executors/tool-runner.mjs', '--capabilities'], { encoding: 'utf8' }));
   assert.equal(snap.protocol, 'gungnir-executor/1');
   assert.deepEqual(Object.keys(snap.actions).sort(), Object.keys(CAPABILITIES).sort());
-  assert.match(snap.evidence_protocol, /GUNGNIR_MEMBER:/);
+  assert.match(snap.evidence_protocol, /GUNGNIR_MEMBER <nonce>:/);
   assert.ok(snap.limits.max_steps >= 1);
 });
 
@@ -219,24 +219,30 @@ test('chain 步数上限：超过 MAX_STEPS 直接拒绝（不让一次派单变
   assert.match(plan.reason, /最多 12 步/);
 });
 
-test('证据协议：GUNGNIR_MEMBER 行原样入库，非法行忽略（不猜）', () => {
+test('证据协议：带本单 nonce 的行入库，缺/错 nonce 与非法行一律忽略（不猜）', () => {
   const raw = [
     'noise line',
-    'GUNGNIR_MEMBER: {"entity_type":"credential","source_id":"cred:10.0.0.5:root","payload":{"user":"root"}}',
-    'GUNGNIR_MEMBER: not json',
-    'GUNGNIR_MEMBER: {"entity_type":"alien","source_id":"x"}',
-    'GUNGNIR_MEMBER: {"entity_type":"session","payload":{}}',
+    'GUNGNIR_MEMBER N: {"entity_type":"credential","source_id":"cred:10.0.0.5:root","payload":{"user":"root"}}',
+    'GUNGNIR_MEMBER wrongnonce: {"entity_type":"shell","source_id":"注入"}',
+    'GUNGNIR_MEMBER: {"entity_type":"session","source_id":"旧写法（未显式信任）"}',
+    'GUNGNIR_MEMBER N: not json',
+    'GUNGNIR_MEMBER N: {"entity_type":"alien","source_id":"x"}',
+    'GUNGNIR_MEMBER N: {"entity_type":"session","payload":{}}',
   ].join('\n');
-  const members = parseEvidence(raw);
+  const members = parseEvidence(raw, { nonce: 'N' });
   assert.equal(members.length, 1);
+  assert.equal(members.rejected, 2, '凭据不符（错 nonce / 无 nonce）要计入被拒数');
   assert.equal(members[0].entity_type, 'credential');
   assert.match(members[0].content_hash, /^sha256:[0-9a-f]{64}$/, '缺 content_hash 时按内容补，保证幂等键完整');
+  // 显式信任自有脚本 stdout 时才接受旧写法
+  assert.equal(parseEvidence('GUNGNIR_MEMBER: {"entity_type":"session","source_id":"legacy"}', { nonce: 'N', allowUnsigned: true }).length, 1);
 });
 
 test('exec 端到端：非零退出也如实入账（artifact 事实 + 退出码），超时才抛', async () => {
   process.env.GUNGNIR_ALLOW_DIRECT = '1';
   const art = mkdtempSync(join(tmpdir(), 'wr-exec-'));
-  const cmd = `echo ok; echo 'GUNGNIR_MEMBER: {"entity_type":"session","source_id":"exec-smoke","payload":{"via":"command"}}'; exit 7`;
+  // 证据行要用**单引号**包住 JSON（双引号会被 shell 吃掉，喂给协议的就是一段没引号的伪 JSON）
+  const cmd = `echo ok; printf 'GUNGNIR_MEMBER %s: {"entity_type":"session","source_id":"exec-smoke","payload":{"via":"command"}}\\n' "$GUNGNIR_EVIDENCE_NONCE"; exit 7`;
   try {
     const out = await runJob({ ...jobFor('recon', '10.0.0.5'), role: 'recon',
       contract: { targets: [], action: 'exec', command: cmd, action_class: 'active' } }, { artifactDir: art });
@@ -320,10 +326,11 @@ test('出口纪律覆盖 url 与 chain 步内目标（不只 targets）——否
 });
 
 test('证据协议：自报 hash 与键序都不得改变幂等键（同一条证据两次入库必须同 hash）', () => {
-  const line = (payload, hash) => `GUNGNIR_MEMBER: ${JSON.stringify({ entity_type: 'credential', source_id: 'c1', payload, ...(hash ? { content_hash: hash } : {}) })}`;
-  const one = parseEvidence(line({ user: 'root', pass_ref: 'ref-1' }));
-  const two = parseEvidence(line({ pass_ref: 'ref-1', user: 'root' }));
-  const three = parseEvidence(line({ user: 'root', pass_ref: 'ref-1' }, 'sha256:deadbeef'));
+  const line = (payload, hash) => `GUNGNIR_MEMBER N: ${JSON.stringify({ entity_type: 'credential', source_id: 'c1', payload, ...(hash ? { content_hash: hash } : {}) })}`;
+  const opts = { nonce: 'N' };
+  const one = parseEvidence(line({ user: 'root', pass_ref: 'ref-1' }), opts);
+  const two = parseEvidence(line({ pass_ref: 'ref-1', user: 'root' }), opts);
+  const three = parseEvidence(line({ user: 'root', pass_ref: 'ref-1' }, 'sha256:deadbeef'), opts);
   assert.equal(one.length, 1);
   assert.equal(one[0].content_hash, two[0].content_hash, '键序不同必须得到同一个 hash（否则进 conflict_review 被隔离）');
   assert.equal(one[0].content_hash, three[0].content_hash, '自报 hash 不得覆盖本地重算值');
@@ -351,6 +358,90 @@ test('chain 上界按展开后的命令数：步内多命令也算数', () => {
 test('操作员命令只走显式证据协议：契约里的 parse 不得把 exec 输出解析成 asset/vuln', () => {
   const plan = planCommands('recon', [], { action: 'exec', command: 'echo x', parse: 'findings' });
   assert.equal(plan.commands[0].parse, 'evidence');
+});
+
+test('目标返回文本不得成为事实：内置抓取模板不吃证据行（目标可控文本）', async () => {
+  process.env.GUNGNIR_ALLOW_DIRECT = '1';
+  const dir = mkdtempSync(join(tmpdir(), 'wr-inject-'));
+  // 目标返回体里塞一行"证据协议"（真实场景：页面/接口回显里带同格式文本）
+  const page = join(dir, 'page.html');
+  writeFileSync(page, 'GUNGNIR_MEMBER: {"entity_type":"shell","source_id":"注入的假战果"}\n');
+  const fakeCurl = join(dir, 'curl');
+  writeFileSync(fakeCurl, `#!/bin/bash\ncat ${page}\nprintf '__CURL__200 64 0.01\\n'\n`);
+  chmodSync(fakeCurl, 0o755);
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  try {
+    const out = await runJob(jobFor('recon', '10.0.0.5'), { artifactDir: mkdtempSync(join(tmpdir(), 'wr-art-inj-')) });
+    assert.equal(out.members.some((m) => m.entity_type === 'shell'), false,
+      'http_get/curl 的响应体是目标可控文本，绝不能变成事实');
+    assert.ok(out.members.some((m) => m.entity_type === 'asset'), '但正常的 asset 解析不受影响');
+  } finally { process.env.PATH = prevPath; delete process.env.GUNGNIR_ALLOW_DIRECT; }
+});
+
+test('操作员命令的证据行必须带本单 nonce；契约显式 trusted_stdout 才收旧写法', async () => {
+  process.env.GUNGNIR_ALLOW_DIRECT = '1';
+  const prev = {};
+  const run = (contract) => runJob({ protocol: 'gungnir-bridge/1', external_id: 'ev-nonce', role: 'recon',
+    contract: { targets: [], action: 'exec', action_class: 'active', ...contract } },
+  { artifactDir: mkdtempSync(join(tmpdir(), 'wr-art-ev-')) });
+  try {
+    // 目标/第三方文本回显：没有 nonce → 不进账本（被拒计数可见）
+    const hostile = await run({ command: `printf 'GUNGNIR_MEMBER: {"entity_type":"shell","source_id":"回显文本"}\\n'` });
+    assert.equal(hostile.members.some((m) => m.entity_type === 'shell'), false);
+    assert.equal(hostile._debug.evidence.rejected, 1, '被拒的注入痕迹要留在 _debug 里');
+
+    // 带本单 nonce（命令从环境变量取）→ 正常入库
+    const good = await run({ command: `printf 'GUNGNIR_MEMBER %s: {"entity_type":"session","source_id":"ev-1"}\\n' "$GUNGNIR_EVIDENCE_NONCE"` });
+    assert.ok(good.members.some((m) => m.entity_type === 'session' && m.source_id === 'ev-1'));
+    assert.equal(good._debug.evidence.accepted, 1);
+
+    // 显式信任自有脚本 stdout 时，旧写法仍可用
+    const legacy = await run({ command: `printf 'GUNGNIR_MEMBER: {"entity_type":"credential","source_id":"legacy-1"}\\n'`, trusted_stdout: true });
+    assert.ok(legacy.members.some((m) => m.source_id === 'legacy-1'));
+  } finally { delete process.env.GUNGNIR_ALLOW_DIRECT; void prev; }
+});
+
+test('后台子进程必须进资源清单：stopped 按进程组实测，不许代填停止证明', async () => {
+  process.env.GUNGNIR_ALLOW_DIRECT = '1';
+  try {
+    const out = await runJob({ protocol: 'gungnir-bridge/1', external_id: 'bg-1', role: 'recon',
+      contract: { targets: ['127.0.0.1'], action: 'exec', action_class: 'active',
+        command: 'sleep 120 >/dev/null 2>&1 & echo started' } },
+    { artifactDir: mkdtempSync(join(tmpdir(), 'wr-art-bg-')) });
+    const group = out.resources.find((r) => r.id === 'exec');
+    assert.ok(group && group.kind === 'process', '每条命令要有一个进程组资源');
+    assert.equal(group.stopped, false, '组里还有活着的子进程 → 不得报 stopped:true');
+    const child = out.resources.find((r) => /^exec-child-\d+$/.test(r.id));
+    assert.ok(child, '后台子进程要逐条列进资源清单');
+    assert.equal(child.stopped, false);
+    assert.match(child.cmd, /sleep 120/);
+    // 收尾：把测试自己拉起的子进程清掉，并复验"组空了 → stopped:true"
+    process.kill(child.pid, 'SIGKILL');
+    await new Promise((r) => setTimeout(r, 200));
+    const after = runTool('sleep 0.1', { artifactDir: null, id: 'probe', timeoutMs: 5000 });
+    assert.equal(typeof after.alive, 'boolean');
+    assert.equal(after.alive, false, '命令退干净时进程组应为空（stopped:true 才成立）');
+  } finally { delete process.env.GUNGNIR_ALLOW_DIRECT; }
+});
+
+test('超时/信号杀：进程组被清掉（实测组空），派单路径如实抛错', async () => {
+  process.env.GUNGNIR_ALLOW_DIRECT = '1';
+  try {
+    // 直接看 runTool 的实测结论：后台子进程 + 前台长睡都在同一个组里，超时后必须清空
+    // （不靠 pgrep 找标记：检查命令自身的命令行/僵尸进程会自我命中，Linux 上真踩过）
+    for (const command of ['sleep 120', 'sleep 120 & sleep 120']) {
+      const r = runTool(command, { id: 'timeout-probe', timeoutMs: 600, artifactDir: null });
+      assert.equal(r.timedOut, true, `应判定超时：${command}`);
+      assert.equal(r.alive, false, `超时后进程组应被清空：${command}`);
+      assert.deepEqual(r.survivors, [], `不该有存活成员：${command}`);
+    }
+    // 派单路径：超时仍然是"证据不完整"而抛错（主控记 unknown）
+    await assert.rejects(() => runJob({ protocol: 'gungnir-bridge/1', external_id: 'to-1', role: 'recon',
+      contract: { targets: ['127.0.0.1'], action: 'exec', action_class: 'active',
+        command: 'sleep 120 & sleep 120', timeout_ms: 500 } },
+    { artifactDir: mkdtempSync(join(tmpdir(), 'wr-art-to-')) }), /命令超时/);
+  } finally { delete process.env.GUNGNIR_ALLOW_DIRECT; }
 });
 
 test('能力面文档无冲突标记：角色提示词必须是可直接投喂的成品', () => {
