@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS task_metrics (
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
   reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
-  used_by_command TEXT, ts TEXT NOT NULL
+  used_by_command TEXT, contract_hash TEXT, bound_action TEXT, bound_scope TEXT, ts TEXT NOT NULL
 );
 `;
 
