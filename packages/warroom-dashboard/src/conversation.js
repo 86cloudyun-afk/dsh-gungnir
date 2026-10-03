@@ -17,7 +17,7 @@ export function normalizeConversationMessages(messages, snapshot) {
     const values = sourceNodes.get(node.source_id) || [];
     values.push(node.id); sourceNodes.set(node.source_id, values);
   }
-  const normalized = messages.slice(0, MAX_MESSAGES).flatMap((message, index) => {
+  const normalized = messages.slice(-MAX_MESSAGES).flatMap((message, index) => {
     if (!message || !['user', 'assistant'].includes(message.role) || typeof message.id !== 'string') return [];
     const nodeIds = new Set();
     for (const ref of Array.isArray(message.node_ids) ? message.node_ids : []) {

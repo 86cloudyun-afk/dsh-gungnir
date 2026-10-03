@@ -225,7 +225,7 @@ function evidenceStructureSignature(node, edges) {
 }
 
 function edgeSignature(edge) {
-  const { id, from, to, label, ...semantics } = edge;
+  const { id, from, to, ...semantics } = edge;
   return sortObject(semantics);
 }
 function sortNeighborSignature(neighbors) {
