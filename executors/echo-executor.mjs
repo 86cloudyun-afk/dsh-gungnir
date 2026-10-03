@@ -11,6 +11,6 @@ export default {
       { id: `${job.external_id}-session`, kind: 'session', stopped: false },
       ...((c.resources ?? []).includes('container') ? [{ id: `${job.external_id}-container`, kind: 'container', stopped: false }] : []),
     ];
-    return { members, resources };
+    return { generation: c.generation, external_id: job.external_id, members, resources };
   },
 };
