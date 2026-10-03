@@ -1,0 +1,17 @@
+{
+  "dsh_version": "0.2.0-rc.2",
+  "fixture": "synthetic temporary databases and session log",
+  "checks": [
+    "official Session.append + durability checkpoint; no prompt issued",
+    "anonymous native data RPC denied",
+    "official cookie login and clean URL",
+    "ModuleLoader plugin + session slot + opaque iframe + authenticated RPC graph",
+    "official inspect/page text decoded and conversation links work",
+    "actual opaque origin blocks parent DOM; native CSP has connect-src none",
+    "authenticated mismatched engagement and visible unbound session denied",
+    "database hashes unchanged; zero page errors"
+  ],
+  "page_errors": [],
+  "stage": "native graph",
+  "ok": true
+}

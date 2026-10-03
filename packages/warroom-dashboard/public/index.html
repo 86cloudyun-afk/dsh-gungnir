@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GUNGNIR · 对话战图</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" aria-label="主导航"><div class="brand">G</div><a class="rail-item current" href="#conversation" aria-label="对话">◉<span>对话</span></a><a class="rail-item" href="#map" aria-label="战图">⌘<span>战图</span></a></aside>
+    <header class="topbar"><div class="crumb">DSH <span>/</span> GUNGNIR <span>/</span> 对话联动战图</div><div class="selectors"><label>战役 <select id="engagement-select" aria-label="选择战役"><option value="">读取中…</option></select></label><label>会话 <select id="session-select" aria-label="选择单一会话"><option value="">未选择会话 / 对话未接入</option></select></label><button id="refresh-button" type="button" aria-label="刷新快照">刷新</button></div></header>
+    <div class="statusbar"><span id="data-state" role="status">正在读取数据…</span><span id="alert-summary"></span></div>
+    <main class="workspace">
+      <section id="conversation" class="conversation panel" aria-label="对话记录"><div class="panel-heading"><div><p class="eyebrow">CONVERSATION</p><h1>对话与事件</h1></div><span id="message-count" class="muted">—</span></div><div class="search-wrap"><label for="map-search">精确定位节点 / 来源 / 任务 / 跳板 / route</label><div class="search-row"><input id="map-search" type="search" autocomplete="off" placeholder="输入完整 ID"><button id="search-button" type="button" aria-label="定位搜索结果">定位</button></div><p id="search-result" class="hint" role="status"></p></div><div id="messages" class="messages" aria-live="polite"></div><p class="conversation-foot">对话仅用于导航 · 页面不执行指令</p></section>
+      <section id="map" class="map-workspace" aria-label="战图视图"><section class="map-panel panel"><div class="panel-heading map-heading"><div><p class="eyebrow">GLOBAL OVERVIEW</p><h2>全局战图 <span id="mode-badge" class="mode-badge">真实数据</span></h2></div><div class="toolbar"><button id="full-mode" type="button" aria-pressed="false">完整图</button><button id="collapse-evidence" type="button" aria-pressed="false">折叠证据</button><button id="demo-button" type="button" aria-label="显式加载演示数据">查看演示</button><button id="real-button" type="button" aria-label="返回真实数据">返回真实数据</button><button id="zoom-out" type="button" aria-label="缩小">−</button><button id="zoom-in" type="button" aria-label="放大">＋</button><button id="fit-map" type="button" aria-label="适配全图">适配</button></div></div><div id="route-notes" class="route-notes" aria-label="跳板入口出口及租约核验"></div><div id="selection-tether" class="selection-tether" aria-live="polite">总览选择会同步到下方局部钻取。</div><div id="graph-scroll" class="graph-scroll"><svg id="global-graph" class="graph" role="img" aria-label="五层全局战图"></svg></div><div class="legend" aria-label="节点状态图例"><span><i class="dot verified"></i>已核验</span><span><i class="dot pending"></i>待核验</span><span><i class="dot failed"></i>失败</span><span><i class="dot unknown"></i>未知</span><span class="muted">蓝色描边表示选中</span></div></section>
+        <section class="detail-panel panel" aria-label="局部钻取"><div class="panel-heading"><div><p class="eyebrow">FOCUSED PATH</p><h2>局部钻取 <span id="breadcrumb" class="breadcrumb">全局</span></h2></div><button id="clear-focus" type="button">返回全局</button></div><div id="focus-anomalies" class="focus-anomalies"></div><div id="focus-graph-wrap" class="focus-graph-wrap"><svg id="focus-graph" class="graph" role="img" aria-label="选中节点上下游局部视图"></svg></div><div id="node-detail" class="node-detail" aria-live="polite">选择对话引用或图中节点以查看完整详情。</div></section></section>
+    </main>
+    <div id="global-error" class="global-error" role="alert" hidden></div>
+  </div>
+</body>
+</html>

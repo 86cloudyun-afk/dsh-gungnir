@@ -10,10 +10,11 @@
 // 设计约束（fail-closed）：未配置 = 明确失败，绝不返回"看起来成功"的假回执；
 // 执行器崩溃/输出非法 → 抛错，主控侧表现为任务 unknown/unresolved，而不是完成。
 import { execFile } from 'node:child_process';
+import { parseCmdline } from './parse-cmdline.mjs';
 
 function runCommand(cmdline, job, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
-    const [cmd, ...args] = cmdline.split(' ').filter(Boolean);
+    const [cmd, ...args] = parseCmdline(cmdline, 'GUNGNIR_EXECUTOR_CMD');
     const child = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(`executor 执行失败（exit=${err.code ?? 'unknown'}, killed=${Boolean(err.killed)}, signal=${err.signal ?? 'none'}）：${err.message}; stderr=${stderr?.slice(0, 500)}`));
       try {

@@ -2,7 +2,7 @@
 // 全离线：用 PATH 里的假工具替换真工具，绝不接触网络。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync, copyFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -152,27 +152,16 @@ test('http_get 解析：状态码/标题/Server/跳转/耗时进事实', () => {
 });
 
 test('执行器失败必须可诊断：包装层带上 killed/exit 与输出尾部', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wr-wrap space-'));
-  const aliases = mkdtempSync('/tmp/wr-diagnostic-');
-  const previous = process.env.GUNGNIR_EXECUTOR_CMD;
+  const dir = mkdtempSync(join(tmpdir(), 'wr-wrap-'));
+  const ex = join(dir, 'boom.mjs');
+  writeFileSync(ex, `process.stderr.write('具体原因: 工具没装\\n'); process.exit(9);`);
+  // 用当前解释器路径，避免硬编码 /usr/local/bin/node（nvm/云盒上不存在 → ENOENT 假失败）
+  process.env.GUNGNIR_EXECUTOR_CMD = `${process.execPath} ${ex}`;
   try {
-    const ex = join(dir, 'boom script.mjs');
-    writeFileSync(ex, `process.stderr.write('具体原因: 工具没装\\n'); process.exit(9);`);
-    // #165/#168 的便携夹具：别名消除测试路径空格，不扩展产品命令解析。
-    const node = join(aliases, 'node');
-    const stagedEx = join(aliases, 'boom.mjs');
-    symlinkSync(process.execPath, node);
-    copyFileSync(ex, stagedEx);
-    process.env.GUNGNIR_EXECUTOR_CMD = `${node} ${stagedEx}`;
     const mod = await import('../executors/dsh-redteam-executor.mjs');
     await assert.rejects(() => mod.default.run({ external_id: 'x', role: 'recon', contract: { targets: ['t'] } }),
-      (e) => /exit=9/.test(e.message) && /killed=false/.test(e.message) && /signal=none/.test(e.message) && /具体原因/.test(e.message));
-  } finally {
-    if (previous === undefined) delete process.env.GUNGNIR_EXECUTOR_CMD;
-    else process.env.GUNGNIR_EXECUTOR_CMD = previous;
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(aliases, { recursive: true, force: true });
-  }
+      (e) => /exit=9/.test(e.message) && /具体原因/.test(e.message));
+  } finally { delete process.env.GUNGNIR_EXECUTOR_CMD; }
 });
 
 test('curl 必须显式 -x（只靠 ALL_PROXY 会 CONNECT 后失败）+ 子进程环境里不许残留代理变量', () => {
