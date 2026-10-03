@@ -16,9 +16,11 @@ function fixture(t, { state = 'failed', destructive = false, actionClass = 'acti
   const c = { home, adapter, clock: Date.now(), calls: 0 };
   c.broker = new Broker({ home, adapter, nowMs: () => c.clock });
   c.eng = c.broker.createEngagement({ user_message_id: 'trusted-synthetic-retry', targets: ['target.example.test'] });
-  const approval = destructive ? c.broker.createApproval({ engagement_id: c.eng.engagement_id }) : null;
+  const approval = destructive ? c.broker.createApproval({ engagement_id: c.eng.engagement_id,
+    bound: { action: 'exec', targets: ['target.example.test'] } }) : null;
   c.started = c.broker.execute({ engagement_id: c.eng.engagement_id, auth_version: 1, command_id: 'retry-fixture',
     contract: { targets: ['target.example.test'], action_class: destructive ? 'destructive' : actionClass,
+      ...(destructive ? { action: 'exec' } : {}),
       resources: state === 'unresolved' ? ['container'] : [], wire_cost: 0 }, manual_approval_token: approval?.approval_id });
   if (state === 'unresolved') c.broker.cancel(c.eng.engagement_id, c.started.task_id, 'inert residue fixture');
   else if (state !== 'running') c.broker._setCommandState('retry-fixture', state);

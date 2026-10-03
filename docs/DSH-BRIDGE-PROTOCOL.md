@@ -45,10 +45,15 @@ GUNGNIR（指挥层）与执行层（DSH 侧红队模式）通过 **spool 目录
 ```
 
 `inbox/<id>.probes.json`（停止证实：逐项资源）
+> `stopped` 是**实测结论**：执行器按命令的进程组判定，组内仍有存活成员时必须报 `false` 并把子进程逐条列出
+> （见 ADR-008）。`false` 不会让任务被判 `confirmed_stopped`——它会停在该资源的 `unresolved` 上等探针/人工收口。
 ```json
 { "external_id": "wt_...", "generation": "1:1:1", "event_seq": 3, "stop_request_id": "cancel-...", "resources": [ { "id": "wt_...-session", "kind": "session", "stopped": true },
                  { "id": "wt_...-container", "kind": "container", "stopped": false } ] }
 ```
+
+> 停止请求带 `request_id`（同步路径同样携带）：执行层用它把「停止证据」与本次请求绑定，
+> 上游只接受**新发布**（`event_seq` 前进）的状态作为停止结果，避免把取消前的旧状态当成已停（ADR-009）。
 
 `outbox/<id>.stop.json`
 ```json

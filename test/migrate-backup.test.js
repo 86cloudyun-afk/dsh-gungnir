@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { harness } from '../packages/warroom-core/src/testing.js';
 import { openEngagementDb, openGlobalDb } from '../packages/warroom-core/src/db.js';
@@ -73,12 +74,36 @@ test('v2 迁移：老库缺 secret 表时补建（global 库专属迁移）', as
   // 重新打开触发迁移
   const reopened = openGlobalDb(h.home);
   const v = reopened.prepare("SELECT v FROM meta WHERE k = 'schema_version:global'").get().v;
-  assert.equal(v, '9', 'global 库目标版本（v9 为宿主任务登记与通知日志）');
+  assert.equal(v, '10', 'global 库目标版本（v9 宿主任务登记与通知日志；v10 批准与动作绑定）');
   const tables = reopened.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   assert.ok(tables.includes('secret_store') && tables.includes('secret_grants') && tables.includes('approvals'));
+  // v10：老库里补出批准绑定列（缺列则指纹校验无从谈起）
+  const cols = reopened.prepare('PRAGMA table_info(approvals)').all().map((c) => c.name);
+  assert.ok(cols.includes('contract_hash') && cols.includes('bound_action') && cols.includes('bound_scope'), 'v10 必须补出绑定列');
   // fact 库不应被 global 专属迁移污染
   const factTables = h.store().db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   assert.equal(factTables.includes('secret_store'), false);
+});
+
+test('v10 迁移：旧 approvals 表（无绑定列）升级后补列，旧行保留但消费时被拒', () => {
+  const home = mkdtempSync(join(tmpdir(), 'wr-mig10-'));
+  const db = openGlobalDb(home);
+  db.exec(`DROP TABLE approvals;
+    CREATE TABLE approvals (approval_id TEXT PRIMARY KEY, engagement_id TEXT NOT NULL, action_class TEXT NOT NULL,
+      reason TEXT, issued_by TEXT, expires_at TEXT NOT NULL, single_use INTEGER NOT NULL DEFAULT 1,
+      used_by_command TEXT, ts TEXT NOT NULL);
+    INSERT INTO approvals (approval_id, engagement_id, action_class, expires_at, ts)
+      VALUES ('ap_old', 'eng_old', 'destructive', '2030-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');`);
+  db.prepare("UPDATE meta SET v = '3' WHERE k = 'schema_version:global'").run();
+  db.close();
+  const reopened = openGlobalDb(home);
+  const cols = reopened.prepare('PRAGMA table_info(approvals)').all().map((c) => c.name);
+  assert.ok(cols.includes('contract_hash') && cols.includes('bound_action') && cols.includes('bound_scope'),
+    'v10 必须给旧库补出绑定列');
+  const row = reopened.prepare("SELECT * FROM approvals WHERE approval_id = 'ap_old'").get();
+  assert.equal(row.contract_hash, null, '旧批准不伪造绑定（消费时会被拒，须重新签发）');
+  reopened.close();
+  rmSync(home, { recursive: true, force: true });
 });
 
 test('runMigrations 返回值：已迁移库 from=to=当前版本', () => {

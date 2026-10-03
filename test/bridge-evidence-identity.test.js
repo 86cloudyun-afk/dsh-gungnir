@@ -74,3 +74,29 @@ test('background observation keeps its existing foreign-evidence rejection', (t)
   writeFileSync(join(root, 'target-task.status.json'), JSON.stringify({ external_id: 'another-task', state: 'done', generation: '1:1:1', event_seq: 1 }));
   assert.equal(driver.observationOf('target-task'), null);
 });
+
+for (const [name, source, code] of [
+  ['foreign', { external_id: 'another-task', event_seq: 2 }, 'E_APPROVAL_MISMATCH'],
+  ['missing', { event_seq: 2 }, 'E_GATE_MISSING_TUPLE'],
+  ['empty', { external_id: '', event_seq: 2 }, 'E_GATE_MISSING_TUPLE'],
+  ['malformed', '{invalid JSON', 'E_GATE_MISSING_TUPLE'],
+]) test(`sequence-aware status wait rejects ${name} identity before accepting a publication`, t => {
+  const { driver, root } = fixture(t); const path = join(root, 'target-task.status.json');
+  const original = typeof source === 'string' ? source : JSON.stringify({ ...source, state: 'done' });
+  writeFileSync(path, original);
+  assert.throws(() => driver._awaitFileAfter(path, 1, 'stop', 'target-task'), { code });
+  assert.equal(readFileSync(path, 'utf8'), original);
+});
+test('sequence-aware status wait keeps correctly bound advancing source tuple intact', t => {
+  const { driver, root } = fixture(t); const path = join(root, 'target-task.status.json');
+  const source = { external_id: 'target-task', state: 'confirmed_stopped', generation: '1:1:1', event_seq: 2 };
+  writeFileSync(path, JSON.stringify(source));
+  assert.deepEqual(driver._awaitFileAfter(path, 1, 'stop', 'target-task'), source);
+});
+test('sequence-aware timeout retains bound stale source without inventing a later sequence', t => {
+  const { driver, root } = fixture(t); driver.timeoutMs = 2;
+  const path = join(root, 'target-task.status.json');
+  const source = { external_id: 'target-task', state: 'running', generation: '1:1:1', event_seq: 1 };
+  writeFileSync(path, JSON.stringify(source));
+  assert.deepEqual(driver._awaitFileAfter(path, 1, 'stop', 'target-task'), source);
+});

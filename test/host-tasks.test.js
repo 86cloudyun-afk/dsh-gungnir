@@ -123,9 +123,9 @@ test('failed rate reservation cannot leave a dispatchable host task', () => {
 
 test('approval expiring between registration and host dispatch prevents execution', () => {
   const h = harness();
-  const { approval_id } = h.broker.createApproval({ engagement_id: h.eng.engagement_id, ttlSeconds: 1 });
+  const { approval_id } = h.broker.createApproval({ engagement_id: h.eng.engagement_id, ttlSeconds: 1, bound: { action: 'exec', targets: ['10.0.0.5'] } });
   h.broker.execute({ ...h.base, command_id: 'approved', manual_approval_token: approval_id,
-    contract: h.contract({ action_class: 'destructive', wire_cost: 0 }) }, { deferDispatch: true, parent });
+    contract: h.contract({ action_class: 'destructive', action: 'exec', wire_cost: 0 }) }, { deferDispatch: true, parent });
   h.broker._nowMs = () => Date.now() + 2000;
   h.broker.dispatchQueued('approved');
   assert.equal(h.adapter.tasks.size, 0);
