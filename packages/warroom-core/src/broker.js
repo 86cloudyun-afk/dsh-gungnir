@@ -122,38 +122,38 @@ export class Broker {
     // An idempotent request consumes no second reservation or approval.
     const existing = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
     if (existing) {
-      if (existing.engagement_id !== req.engagement_id) {
-        throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command belongs to another engagement');
-      }
-      const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(existing.command_id);
-      if ((deferDispatch && (!owner || owner.parent_session_id !== parent.session_id ||
-          owner.parent_created_at !== parent.created_at)) || (!deferDispatch && owner)) {
-        throw Object.assign(new Error('command belongs to another parent dispatch path'), { code: 'E_PARENT_IDENTITY' });
-      }
-      if (owner && !owner.registration_ready) {
-        throw Object.assign(new Error(`registration incomplete for ${existing.command_id}; host review required`),
-          { code: 'E_REGISTRATION_INCOMPLETE', task_id: existing.task_id, generation: existing.generation });
-      }
-      return { command_id: req.command_id, task_id: existing.task_id, state: existing.state,
-        generation: existing.generation, deduped: true };
+      return this._acknowledgeCommand(existing, req, { deferDispatch, parent });
     }
+
+    // 命令先持久化，后派发（ADR-003 D1：派发幂等）
+    let generation, contract, approval = null;
+    this.global.exec('BEGIN IMMEDIATE');
+    try {
+    // A second Broker may have committed while the initial read was in flight.
+    // Recheck under SQLite's writer lock; same-command retries remain idempotent.
+    const raced = this.global.prepare('SELECT * FROM command_queue WHERE command_id = ?').get(req.command_id);
+    if (raced) {
+      const result = this._acknowledgeCommand(raced, req, { deferDispatch, parent });
+      this.global.exec('COMMIT');
+      return result;
+    }
+    // Resolve the common task/command namespace only after same-command retries,
+    // under this writer lock, before any approval, rate reservation or dispatch.
+    const racedAlias = this.global.prepare(`SELECT command_id FROM command_queue
+      WHERE task_id = ? OR command_id = ? OR task_id = ? LIMIT 1`)
+      .get(task_id, task_id, req.command_id);
+    if (racedAlias) throw warroomError(ERR.E_APPROVAL_MISMATCH, 'task or command identity is already bound');
 
     // 节奏闸（ADR-002 D10 / 框架 §4）：并发 / wire 预算 / 最小间隔
     this._checkRhythm({ engagementId: req.engagement_id, rhythm: row.rhythm, contract: req.contract, store });
 
-    // broker 持有 task_id（四元组在派发前即完整）
-    const generation = makeGeneration(row.auth_version, ++this.dispatchCounter, 1);
-    const contract = { ...req.contract, task_id, generation, engagement_id: req.engagement_id };
-
-    // 命令先持久化，后派发（ADR-003 D1：派发幂等）。
-    // destructive 的批准**在同一事务内**消费：指纹与动作绑定 + compare-and-set 记下真实 command_id，
-    // 这样"一张令牌授权任意动作"与"跨进程双花"都没有窗口（ADR-007）。
-    let approval = null;
-    this.global.exec('BEGIN IMMEDIATE');
-    try {
+    // Approval consumption and identity registration share the same transaction.
+    generation = makeGeneration(row.auth_version, this.dispatchCounter + 1, 1);
+    contract = { ...req.contract, task_id, generation, engagement_id: req.engagement_id };
     if (req.contract.action_class === 'destructive') {
       approval = this._consumeApproval(req.manual_approval_token, req.engagement_id, contract, req.command_id);
     }
+    ++this.dispatchCounter;
     this.global.prepare(`INSERT INTO command_queue
       (command_id, engagement_id, task_id, contract, state, generation, attempt, ts)
       VALUES (?, ?, ?, ?, 'queued', ?, 1, ?)`).run(
@@ -1094,9 +1094,41 @@ export class Broker {
   }
 
   // ── 内部 ────────────────────────────────────────────────────────────────────
+  _acknowledgeCommand(existing, req, { deferDispatch, parent }) {
+    if (existing.engagement_id !== req.engagement_id) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command belongs to another engagement');
+    }
+    if (req.task_id && req.task_id !== existing.task_id) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'command already has a different task identity');
+    }
+    this._findCommand(existing.command_id);
+    const owner = this.global.prepare('SELECT * FROM task_owners WHERE command_id = ?').get(existing.command_id);
+    if ((deferDispatch && (!owner || owner.parent_session_id !== parent.session_id ||
+        owner.parent_created_at !== parent.created_at)) || (!deferDispatch && owner)) {
+      throw Object.assign(new Error('command belongs to another parent dispatch path'), { code: 'E_PARENT_IDENTITY' });
+    }
+    if (owner && !owner.registration_ready) {
+      throw Object.assign(new Error(`registration incomplete for ${existing.command_id}; host review required`),
+        { code: 'E_REGISTRATION_INCOMPLETE', task_id: existing.task_id, generation: existing.generation });
+    }
+    return { command_id: req.command_id, task_id: existing.task_id, state: existing.state,
+      generation: existing.generation, deduped: true };
+  }
+
   _findCommand(idOrCommand) {
-    return this.global.prepare('SELECT * FROM command_queue WHERE task_id = ? OR command_id = ?')
-      .get(idOrCommand, idOrCommand);
+    const rows = this.global.prepare('SELECT * FROM command_queue WHERE task_id = ? OR command_id = ? LIMIT 2')
+      .all(idOrCommand, idOrCommand);
+    const cmd = rows[0];
+    if (!cmd) return undefined;
+    // Even an exact command lookup must reject a duplicated task alias: downstream
+    // adapters resolve by task_id. Preserve old rows for review rather than guessing.
+    const aliases = this.global.prepare(`SELECT command_id FROM command_queue
+      WHERE task_id IN (?, ?) OR command_id IN (?, ?) LIMIT 2`)
+      .all(cmd.task_id, cmd.command_id, cmd.task_id, cmd.command_id);
+    if (rows.length > 1 || aliases.length > 1) {
+      throw warroomError(ERR.E_APPROVAL_MISMATCH, 'ambiguous task or command identity; host review required');
+    }
+    return cmd;
   }
   /** 命令战役归属：caller 传入的 engagement_id 必须与队列绑定一致（ADR-001 副作用通道闭合）。 */
   _assertCommandOwned(cmd, engagementId) {
