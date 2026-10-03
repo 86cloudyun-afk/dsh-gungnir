@@ -70,6 +70,35 @@ test('时间窗外被拒绝', () => {
   );
 });
 
+test('授权范围校验覆盖 url：targets 在范围内也不许用 url 指向范围外资产', () => {
+  const h = harness();
+  // targets 合法（10.0.0.5 ∈ 10.0.0.0/24），url 指向范围外 → 必须按范围外拒绝
+  expectCode(
+    () => h.broker.execute({
+      ...h.base, command_id: 'g7',
+      contract: h.contract({ url: 'https://outside.example.test/login' }),
+    }),
+    ERR.E_GATE_OUT_OF_SCOPE
+  );
+  // url 主机在范围内（含端口/路径）→ 放行
+  const ok = h.broker.execute({
+    ...h.base, command_id: 'g8',
+    contract: h.contract({ url: 'http://10.0.0.5:8080/admin' }),
+  });
+  assert.equal(ok.state, 'running');
+});
+
+test('授权范围校验覆盖 chain 步内目标（steps[].targets / steps[].url）', () => {
+  const h = harness();
+  expectCode(
+    () => h.broker.execute({
+      ...h.base, command_id: 'g9',
+      contract: h.contract({ steps: [{ action: 'exec', command: 'id' }, { action: 'http_get', url: 'https://outside.example.test/' }] }),
+    }),
+    ERR.E_GATE_OUT_OF_SCOPE
+  );
+});
+
 test('撤销级联停止全部运行任务；账本终态 confirmed_stopped', () => {
   const h = harness();
   const t1 = h.broker.execute({ ...h.base, command_id: 'r1', contract: h.contract() });

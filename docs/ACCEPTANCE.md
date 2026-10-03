@@ -4,12 +4,12 @@
 所有条目均可用仓库内命令复跑；**缺口如实标注，不假装通过**。
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
-本次修复在 Mac 上仅做安全离线复核：489 例登记用例中 470 通过、0 失败、19 项未运行
+本次修复在 Mac 上仅做安全离线复核：登记用例 489 项中 470 通过、0 失败、19 项未运行
 （13 项真实执行器/系统探针受任务限制，6 项原生 DSH 环境不可用）。六闸在交付证据包的
 `offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**489 例**）→ `node scripts/validate-tool-schemas.mjs` →
+逐闸等价命令：`node --test`（**725 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -106,6 +106,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 报告时序与分段 | 逐任务耗时 + ASCII 条；缺时间戳为 — | `test/gantt.test.js` | ✅ |
 | 周报归档 | ISO 周落盘、同周覆盖、历史倒序 | `test/weekly.test.js` | ✅ |
 | 执行层实装指引 | 指引 + 可跑 stub（未配置 fail-closed） | `test/executor-impl-doc.test.js` | ✅ |
+| 执行层能力面配齐 | 八个动作（http_get/recon/nuclei_scan/vuln/exec/exploit/internal/chain）全部有真实命令计划；文档承诺 == 注册表（双向断言）；缺字段精确报缺；`--capabilities` 可现查；操作员命令留 artifact 事实（退出码/输出哈希/落盘路径） | `test/tool-runner.test.js` | ✅ |
 | 蓝队视图 IOC 前置 | 整段搬迁且段集合不变 | `test/ioc-report.test.js` | ✅ |
 | HTML 窄屏适配 | 表格滚动容器 + 媒体查询；零外部资源 | `test/report-html.test.js` | ✅ |
 | 角色动线落地 | 值班/交付/路径口径写进三角色提示词 | `presets/roles/*.md`、`scripts/check-preset.mjs` | ✅ |
@@ -157,7 +158,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：489 例（`node --test`）
+- 测试：725 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=8（**按 label 计算目标版本**；高版本库拒绝打开）

@@ -31,6 +31,33 @@
    你没有"自动确认"的权限，也不要替人写结论
 5. 日常巡检用 `profile:progress`（只盯"已做的东西有没有坏"），别把没干活当异常天天报红
 
+## 可派动作（执行层只认这些，别发明）
+执行器按 `contract.action` 办事（**不按角色猜**）。**八项全部实装**（`node executors/tool-runner.mjs --capabilities` 可现查）：
+
+| action | tier | 语义 | 契约要带 | 产出事实 |
+|---|---|---|---|---|
+| `http_get` | readonly | 单次 HTTP 请求（金丝雀/看页面），显式经出口 SOCKS | `url` 或 `targets` | `asset` |
+| `recon` | readonly | `subfinder` → `httpx` | `targets` | `domain` / `asset` |
+| `nuclei_scan` | active | 限量扫描（`-rl 5`，critical/high/medium） | `targets` | `vuln` |
+| `vuln` | active | 定点验证：模板/标签/等级，或自带验证命令 | `targets` 或 `command` | `vuln` / `artifact` |
+| `exec` | active | 任意命令（**命令必须你在契约里写出来**） | `command` 或 `argv` | `artifact` |
+| `exploit` | destructive | 利用/取控制面 | `command` 或 `argv` | `session` / `credential` / `artifact` |
+| `internal` | active | 横向与提权（netexec/impacket/msf 任选） | `command` 或 `argv` | `session` / `credential` / `asset` / `artifact` |
+| `chain` | active | 多跳拼链：`steps` 顺序执行，任一步失败即停 | `steps` 或 `command` | `chain` / `artifact` |
+
+- `exec` / `exploit` / `internal` / `chain` **不替你想命令**：契约里没有 `command`（或 `argv`/`steps`）就明确报缺哪个字段。
+  要跑什么工具由你写进契约（例：`{"action":"exec","command":"naabu -host 10.0.0.5 -top-ports 1000"}`）。
+- `argv` 数组按参数边界拼壳（空格路径不会被拆开）；命令里的秘密**用环境变量引用**（`$TOKEN`），别写进 argv——
+  产物目录与执行日志按原样留档，写进 argv 就等于写进证据。
+- 回传证据用显式协议行：命令 stdout 里写 `GUNGNIR_MEMBER: {"entity_type":"session","source_id":"…","payload":{…}}`，
+  执行器逐行原样入库（不推断、不脑补）；其余输出按 `parse` 声明的格式解析（`nuclei`/`httpx`/`curl`）。
+- `exploit` 的 destructive 授权仍由 broker 门闸校验（人工批准令牌），执行层不重复裁决也不替它放行。
+- 派单时 `targets` 必须是授权范围内的靶标；`http_get` 可另给 `url`。
+  注意：`targets`、`url`、`chain.steps[].targets/url` **都会被授权范围与出口两层校验**——
+  `url` 不是绕过渠道，指向范围外资产会在门闸处被拒（`E_GATE_OUT_OF_SCOPE`）。
+- 出口由 `warroom_jumps action=acquire` 决定，执行器自带（不要自己在契约里塞代理）。
+- 能力面若报"缺字段/无法识别"，那是**契约写错了**，照报错补齐即可——执行层不再回"未实装"这种无从下手的空话。
+
 ## 派单（三因子）
 每次派单同时确定：**难度（模型档位）× 角色（岗位技能）× 节奏档（门闸约束）**，写进任务单。
 独立任务立即并行（波内无屏障）；依赖满足的结果即刻交下游；波与波之间由裁决点控制。
