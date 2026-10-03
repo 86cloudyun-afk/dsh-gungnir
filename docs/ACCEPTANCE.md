@@ -5,13 +5,16 @@
 
 复跑全部：**`node scripts/ci.mjs --quiet`**（六闸一次跑完，判定在脚本里）。
 2026-10-03 身份隔离修复的历史 Mac 离线复核：当时登记用例总数为 841，其中 805 通过、0 失败、36 项未运行。
-本次主会话派单修复整合 main `21f18adf` 后，登记用例总数为 853，其中 817 通过、0 失败、36 项未运行；
+前次主会话派单修复整合 main `21f18adf` 后，登记用例总数为 853，其中 817 通过、0 失败、36 项未运行；
 六闸在交付证据包的 `offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/offline-scope.cjs' node scripts/ci.mjs`。
 
 主会话派单修复的原验证与现场限制见 [验收记录](VALIDATION-PARENT-TURN-CONTRACT-2026-10-03.md)。
 
-逐闸等价命令：`node --test`（**853 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-03 本次整合 main `3395eb1c`（已合入 #174）后的离线六闸全部通过：
+865 登记用例 / 829 通过 / 0 失败 / 36 范围跳过；上方 `21f18adf` 计数为前次历史。
+
+逐闸等价命令：`node --test`（**865 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -170,7 +173,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：853 例（`node --test`）
+- 测试：865 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
