@@ -10,10 +10,11 @@ const SEVERITY_HINT = [
 ];
 
 /**
- * @param {Array} facts 有效事实（已脱敏；payload 已解析为对象）
+ * @param {Array} facts 有效事实（内部 source_id 保持原值；payload 已解析为对象）
  * @param {object} shellState { highest_proof, current_validity, last_verified_at }
+ * @param {object} opts textForMatching 只控制关键词输入，不改计数/去重/输出引用
  */
-export function buildImpact(facts = [], shellState = null) {
+export function buildImpact(facts = [], shellState = null, { textForMatching = (f) => `${f.source_id} ${JSON.stringify(f.payload ?? {})}` } = {}) {
   const assets = new Set();
   const domains = new Set();
   for (const f of facts) {
@@ -30,7 +31,7 @@ export function buildImpact(facts = [], shellState = null) {
     if (!reasons.some((r) => r.text === text)) reasons.push({ level, text });
   };
   for (const v of [...vulns, ...chains, ...shells]) {
-    const hay = `${v.source_id} ${JSON.stringify(v.payload ?? {})}`;
+    const hay = textForMatching(v);
     const hit = SEVERITY_HINT.find((s) => s.match.test(hay));
     pushReason(hit ? hit.level : '中', hit ? `${v.source_id}：${hit.why}` : `${v.source_id}：需结合资产重要性评估`);
   }

@@ -9,7 +9,7 @@ import { buildTimeline } from './timeline.js';
 import { buildGantt, renderGantt } from './gantt.js';
 import { buildImpact, renderImpact } from './impact.js';
 import { dirname, join } from 'node:path';
-import { redactDeep } from './redactor.js';
+import { redactDeep, redactForAnalysis } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
 import { buildTopology, toMermaidGrouped } from './topology.js';
 
@@ -58,6 +58,41 @@ function groupBy(rows, keyFn) {
   return out;
 }
 
+/** 匹配视图不改变事实 shape/身份；包括嵌套字符串与键名，先中和再拼成关键词输入。 */
+function textForMatching(fact, values) {
+  const text = (v) => {
+    if (Array.isArray(v)) return v.map(text).join(' ');
+    if (v && typeof v === 'object') return Object.entries(v).map(([k, value]) => `${redactForAnalysis(k, values)} ${text(value)}`).join(' ');
+    return redactForAnalysis(v, values);
+  };
+  return `${redactForAnalysis(fact.source_id, values)} ${text(fact.payload ?? {})}`;
+}
+
+/** 固定 schema 字段不做全文替换；只有展示文本/引用通过 redactor。 */
+function displayImpact(impact, R) {
+  return { ...impact,
+    control: { ...impact.control, highest_proof: R(impact.control.highest_proof) },
+    severity: { ...impact.severity, reasons: impact.severity.reasons.map((r) => ({ ...r, text: R(r.text) })) },
+  };
+}
+function displayRemediation(remediation, R) {
+  return { ...remediation, items: remediation.items.map((i) => ({ ...i, ref: R(i.ref), advice: R(i.advice) })) };
+}
+function displayIoc(ioc, R) {
+  return ioc.items.map((i) => ({ ...i, ref: R(i.ref), evidence_ref: R(i.evidence_ref), note: R(i.note) }));
+}
+function displayTopology(topology, R) {
+  // 同 label 的不同原始节点仍有不同 ID；报告局部连接 token 不承载秘密，也不改引用解析规则。
+  const ids = new Map();
+  for (const n of topology.nodes) {
+    if (!ids.has(n.id)) ids.set(n.id, R(n.id) === n.id ? n.id : `report-node#${ids.size + 1}`);
+  }
+  return { ...topology,
+    nodes: topology.nodes.map((n) => ({ ...n, id: ids.get(n.id) })),
+    edges: topology.edges.map((e) => ({ ...e, from: ids.get(e.from), to: ids.get(e.to), via: R(e.via) })),
+  };
+}
+
 /** IOC / 清理候选（自动聚合，见 ioc.js）：带置信度与证据引用，人工确认后交付。 */
 export function buildIocDraft({ store, engagementId, globalDb }) {
   return aggregateIoc({ store, globalDb, engagementId });
@@ -68,17 +103,20 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   const snap = store.exportSnapshot();
   // 完整快照用于历史与水位；派生结论只消费有效修订（ADR-002 D5）。
   const activeRows = snap.rows.filter((r) => r.active === 1);
-  const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
-  // 先解析、再派生（影响面/修复建议按原文 source_id 计数/分类），最后才 scrub 出口。
-  // 若先把不同秘密 source_id 都打成 [REDACTED:label]，Set 计数会塌缩、关键词严重度也会被污染。
+  const values = vault ? vault.values() : [];
+  const R = (s) => (vault ? vault.redact(s) : s);
+  const D = (v) => (vault ? redactDeep(v, values) : v);
+  // 解析后保留原始身份做计数/连接；关键词消费独立中和文本，展示最后按字段脱敏。
   const factsRaw = snap.rows.map((r) => {
     const { payload, ...rest } = r;
     let parsed = {};
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: parsed };
   });
-  const facts = factsRaw.map((f) => R(f));
+  const facts = factsRaw.map((f) => ({ ...f, adapter_instance: R(f.adapter_instance), source_id: R(f.source_id), payload: D(f.payload) }));
   const effectiveFactsRaw = factsRaw.filter((f) => f.active === 1);
+  const matching = { textForMatching: (f) => textForMatching(f, values) };
+  const shellState = store.shellState();
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
     try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
@@ -90,14 +128,14 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   })();
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
-  const topology = buildTopology(activeRows);
-  const remediation = buildRemediation(effectiveFactsRaw);
+  const topology = displayTopology(buildTopology(activeRows, { redactLabel: R }), R);
+  const remediation = displayRemediation(buildRemediation(effectiveFactsRaw, matching), R);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
-  // 影响面摘要（与 md 版同源同算法；用未脱敏事实派生，出口再 R）
-  const impact = buildImpact(effectiveFactsRaw, store.shellState());
+  // 影响面摘要（与 md 版同源同算法；内部原始身份 + 中和关键词，出口按字段脱敏）
+  const impact = displayImpact(buildImpact(effectiveFactsRaw, shellState, matching), R);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -121,14 +159,15 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     },
     watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
     evidence_digests: { fact_members: digest },
-    shell: store.shellState() ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
-    meetings: R(meetings),
+    shell: shellState ? { ...shellState, highest_proof: R(shellState.highest_proof) }
+      : { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
+    meetings: D(meetings),
     audit_summary: auditSummary,
     jump_routes: routes,
     kb_usage: kbUsage,
-    topology: R(topology),
-    remediation: R(remediation),
-    impact: R(impact),
+    topology,
+    remediation,
+    impact,
     timing: {
       tasks: gantt.tasks.map((t) => ({
         task_id: t.task_id, dispatched_at: t.dispatched_at,
@@ -147,7 +186,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
       by_tier: metrics.by_tier ?? {},
     } : null,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
-    ioc: R(ioc.items),
+    ioc: displayIoc(ioc, R),
     ioc_summary: ioc.summary,
   };
 }
@@ -167,20 +206,19 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const snap = store.exportSnapshot();
   const activeRows = snap.rows.filter((r) => r.active === 1);
   const values = vault ? vault.values() : [];
-  const R = (s) => (vault ? vault.redact(s) : String(s));
+  const R = (s) => (vault ? vault.redact(s) : s);
+  const D = (v) => (vault ? redactDeep(v, values) : v);
   const facts = snap.rows.map((r) => ({
     ...r,
     payload: JSON.parse(r.payload || '{}'),
   }));
 
   const effective = facts.filter((f) => f.active === 1);
-  const effectiveFacts = vault
-    ? effective.map((f) => ({ ...f, payload: redactDeep(f.payload, values) }))
-    : effective;
+  const matching = { textForMatching: (f) => textForMatching(f, values) };
   const quarantined = facts.filter((f) => f.active !== 1);
   const grouped = groupBy(effective, (f) => f.entity_type);
   // 影响面摘要（客户视角）：只依据已落库证据，未评估的写"未评估"
-  const impact = buildImpact(effectiveFacts, store.shellState());
+  const impact = displayImpact(buildImpact(effective, store.shellState(), matching), R);
 
   const lines = [];
   lines.push(`# GUNGNIR 战役报告 · ${engagementId}`);
@@ -233,7 +271,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   // 影响面摘要：客户最关心的一段，放在最前（工程视图可跳过）
   lines.push('## 影响面摘要');
   lines.push('');
-  lines.push(R(renderImpact(impact)));
+  lines.push(renderImpact(impact));
   lines.push('');
 
   lines.push('## shell 状态');
@@ -266,7 +304,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${r.adapter_instance}] ${R(r.source_id)} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+      lines.push(`- [${R(r.adapter_instance)}] ${R(r.source_id)} @${rev} · ${JSON.stringify(D(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
@@ -296,8 +334,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   })();
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
-  const topology = buildTopology(activeRows);
-  const remediation = buildRemediation(effectiveFacts);
+  const topology = displayTopology(buildTopology(activeRows, { redactLabel: R }), R);
+  const remediation = displayRemediation(buildRemediation(effective, matching), R);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
@@ -312,8 +350,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- 清单摘要：\`${ioc.summary.digest.slice(0, 16)}\``);
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
-  for (const i of ioc.items) {
-    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${R(i.ref)}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
+  for (const i of displayIoc(ioc, R)) {
+    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${i.note}`);
   }
   lines.push('');
   if (gantt.tasks.length > 0) {
@@ -332,20 +370,13 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       lines.push('');
     }
     for (const item of remediation.items) {
-      lines.push(`- \`${R(item.ref)}\` — ${R(item.advice)}（来源：${item.source}）`);
+      lines.push(`- \`${item.ref}\` — ${item.advice}（来源：${item.source}）`);
     }
     lines.push('');
   }
 
   if (topology.edges.length > 0) {
-    // 先脱敏节点/边可见文本，再交给 Mermaid 转义/截断；否则 `|` 等特殊字符被 safe()
-    // 改写后 vault 精确匹配失败，几乎整段口令会漏进图（Codex P1）。
-    const vizTopology = {
-      ...topology,
-      nodes: topology.nodes.map((n) => ({ ...n, label: R(n.label) })),
-      edges: topology.edges.map((e) => ({ ...e, via: R(String(e.via ?? '')) })),
-    };
-    const viz = toMermaidGrouped(vizTopology);
+    const viz = toMermaidGrouped(topology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
     lines.push(viz.mermaid);
