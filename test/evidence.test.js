@@ -112,3 +112,35 @@ test('可关闭交付清单（checklist:false）', () => {
   assert.equal(r.files.checklist, null);
   assert.equal(readFileSync(r.files.index, 'utf8').includes('## 交付自检'), false);
 });
+
+test('EVIDENCE_INDEX credential ref redacts vault secrets embedded in source_id', () => {
+  // Confirmed 段已对 source_id 走 R；Leaked credentials 的 ref 此前原样插值，
+  // 一旦 source_id 嵌入口令就会在「仅引用、无明文」节里泄漏。
+  const SECRET = 'EvRef-P@ss-2026-plain';
+  const h = harness();
+  h.broker.secrets.put(SECRET, { label: 'ev-ref' });
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'ev-ref-1',
+    contract: h.contract({
+      fake_members: [
+        { entity_type: 'asset', source_id: 'a-ev-ref', revision_no: 1, content_hash: 'h1', payload: { ip: '10.0.0.8' } },
+        {
+          entity_type: 'credential',
+          source_id: `ssh-admin-${SECRET}`,
+          revision_no: 1,
+          content_hash: 'h2',
+          payload: { label: 'ssh-admin', service: 'ssh' },
+        },
+      ],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+
+  const r = h.broker.exportEvidence(h.eng.engagement_id, { outDir: join(h.home, 'ev-ref') });
+  const index = readFileSync(r.files.index, 'utf8');
+  assert.match(index, /## Leaked credentials（仅引用，无明文）/);
+  assert.equal(index.includes(SECRET), false, 'credential ref must not leak vault secret');
+  assert.match(index, /\[REDACTED:ev-ref\]/);
+  assert.match(index, /引用 `/);
+});
