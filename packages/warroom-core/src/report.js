@@ -331,8 +331,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   }
 
   if (topology.edges.length > 0) {
-    // 先脱敏节点/边可见文本，再交给 Mermaid 转义/截断；否则 `|` 等特殊字符被 safe()
-    // 改写后 vault 精确匹配失败，几乎整段口令会漏进图（Codex P1）。
+    // 先脱敏完整 label/via，再交给 Mermaid 转义与展示截断。
+    // 顺序不能反：① `|` 等被 safe() 改写后 vault 精确匹配失败；
+    // ② buildTopology 若先截到 40 字，长口令前缀同样匹配失败（Codex P1 续）。
     const vizTopology = {
       ...topology,
       nodes: topology.nodes.map((n) => ({ ...n, label: R(n.label) })),

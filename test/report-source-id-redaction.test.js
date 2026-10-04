@@ -144,3 +144,46 @@ test('JSON impact counts distinct assets before source_id redaction (Codex P2)',
   assert.equal(blob.includes(A), false);
   assert.equal(blob.includes(B), false);
 });
+
+test('mermaid redacts long source_id secrets before display truncation (Codex P1 follow-up)', () => {
+  // labelOf used to truncate to 40 chars before report R(); vault exact-match then
+  // failed and Mermaid leaked the credential prefix (e.g. VeryLongSecret-ABCDEF…).
+  const SECRET = 'VeryLongSecret-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789';
+  assert.ok(SECRET.length > 40, 'fixture secret must exceed display truncation window');
+  const h = harness();
+  h.broker.secrets.put(SECRET, { label: 'long-cred' });
+  const src = `vuln-${SECRET}`;
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'meta-mermaid-trunc',
+    contract: h.contract({
+      fake_members: [
+        {
+          entity_type: 'vuln',
+          source_id: src,
+          revision_no: 1,
+          content_hash: 'h-long-v',
+          payload: { title: 'sqli' },
+        },
+        {
+          entity_type: 'shell',
+          source_id: 'shell-long',
+          revision_no: 1,
+          content_hash: 'h-long-s',
+          payload: { achieved_via: src },
+        },
+      ],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const { markdown } = h.broker.buildReport(h.eng.engagement_id);
+  assert.match(markdown, /攻击路径拓扑/);
+  assert.match(markdown, /```mermaid/);
+  assert.equal(markdown.includes(SECRET), false, 'full long secret must not appear');
+  assert.equal(
+    markdown.includes('VeryLongSecret-ABCDEF'),
+    false,
+    'truncated credential prefix must not leak into mermaid',
+  );
+  assert.match(markdown, /\[REDACTED:long-cred\]/);
+});
