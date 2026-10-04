@@ -58,6 +58,41 @@ function groupBy(rows, keyFn) {
   return out;
 }
 
+
+/**
+ * JSON 事实行出口脱敏：只 scrub 可能嵌秘密的自由文本，保留 schema/枚举字段。
+ * vault 接受任意非空明文；若秘密恰等于 `asset`/`session` 等，整行 redactDeep
+ * 会把 entity_type 打成 [REDACTED:…]，机器可读 gungnir-report/1 无法再分类（Codex P2）。
+ */
+function scrubFactForExport(fact, R) {
+  return {
+    ...fact,
+    source_id: R(fact.source_id),
+    flags: fact.flags == null ? fact.flags : R(fact.flags),
+    payload: R(fact.payload),
+  };
+}
+
+/**
+ * IOC 条目出口脱敏：只 scrub ref/note 与 evidence_ref 中 `#` 后的标识，
+ * 保留 kind/source/confidence/manual_confirm 等固定枚举（Codex P2）。
+ */
+function scrubIocForExport(item, R) {
+  const scrubEvidenceRef = (ref) => {
+    if (ref == null) return ref;
+    const s = String(ref);
+    const i = s.indexOf('#');
+    if (i < 0) return R(s);
+    return `${s.slice(0, i + 1)}${R(s.slice(i + 1))}`;
+  };
+  return {
+    ...item,
+    ref: R(item.ref),
+    note: item.note == null ? item.note : R(item.note),
+    evidence_ref: scrubEvidenceRef(item.evidence_ref),
+  };
+}
+
 /** IOC / 清理候选（自动聚合，见 ioc.js）：带置信度与证据引用，人工确认后交付。 */
 export function buildIocDraft({ store, engagementId, globalDb }) {
   return aggregateIoc({ store, globalDb, engagementId });
@@ -75,7 +110,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: parsed };
   });
-  const facts = factsRaw.map((f) => R(f));
+  const facts = factsRaw.map((f) => scrubFactForExport(f, R));
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
     try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
@@ -144,7 +179,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
       by_tier: metrics.by_tier ?? {},
     } : null,
     facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
-    ioc: R(ioc.items),
+    ioc: ioc.items.map((i) => scrubIocForExport(i, R)),
     ioc_summary: ioc.summary,
   };
 }
