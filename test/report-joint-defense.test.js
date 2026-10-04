@@ -245,3 +245,82 @@ for (const audience of ['full', 'client', 'blue']) {
       severity: report.impact.severity.level, reproducible: out.self_check.reproducible, database_unchanged: true }));
   });
 }
+
+for (const audience of ['full', 'client', 'blue']) {
+  test(`${audience} free payload keys are scrubbed before encoding without collisions or schema loss`, (t) => {
+    const a = 'ReviewKeyRCE-credential-private-2026';
+    const b = 'ReviewKeyRCE-credential-private-B-2026';
+    const long = 'long-private-key-prefix-0123456789|"[]<fixture>-abcdefghijklmnopqrstuvwxyz';
+    const shapeWords = ['asset', 'target', 'steps', 'from', 'to', 'via', 'ref', 'source_id', 'entity_type', 'adapter_instance'];
+    const values = [{ value: a, label: 'shared-key' }, { value: b, label: 'shared-key' }, { value: long, label: 'long-key' },
+      ...shapeWords.map((value) => ({ value, label: 'shape-key' }))];
+    const h = fixture(t, values);
+    const headers = Object.fromEntries([[a, 'first ordinary value'], [b, 'second ordinary value'], [long, 'long ordinary value'],
+      ['[REDACTED:shared-key]', 'reserved ordinary value'], ['[REDACTED:shared-key]#2', 'reserved suffix value'],
+      ['__proto__', 'own prototype value'], ['asset', 'free map asset value'], ['entity_type', 'free map type value']]);
+    const payload = {
+      observed_headers: headers,
+      asset: { source_id: 'public-host', entity_type: 'asset', adapter_instance: 'public-fixture', metadata: { [a]: 'ref metadata value' } },
+      target: { ref: 'public-host', entity_type: 'asset' },
+      unlocks: [{ ref: 'public-host', entity_type: 'asset' }],
+      achieved_via: [{ source_id: 'public-host', entity_type: 'asset' }],
+      steps: [{ from: 'public-host', to: 'finding', via: 'observed' }],
+      note: 'asset', fix: 'current public fix',
+    };
+    h.ingest([member('asset', 'public-host'), member('vuln', 'finding', { observed_headers: { [a]: 'retired map value' }, fix: 'retired fix' })]);
+    h.ingest([member('vuln', 'finding', payload, 2)]);
+    h.stale([member('vuln', 'inactive-finding', { observed_headers: { [long]: 'inactive map value' }, fix: 'inactive fix' })]);
+    const snapshot = h.store.exportSnapshot();
+    const rowsBefore = [databaseRows(h.store.db), databaseRows(h.args.globalDb)];
+    const out = exportReport({ ...h.args, audience, format: 'all', outDir: join(h.dir, `keys-${audience}`) });
+    const md = readFileSync(out.paths.markdown, 'utf8');
+    const html = readFileSync(out.paths.html, 'utf8');
+    const jsonText = readFileSync(out.paths.json, 'utf8');
+    for (const text of [md, html, jsonText]) {
+      for (const privateValue of [a, b, long]) assert.equal(text.includes(privateValue), false);
+      assert.equal(text.includes('long-private-key-prefix'), false, 'no escaped/truncated key fragment may remain');
+      assert.equal(text.includes('ReviewKeyRCE'), false, 'key secret must be scrubbed before JSON encoding');
+    }
+    const report = JSON.parse(jsonText);
+    const shown = report.facts.effective.find((f) => f.entity_type === 'vuln').payload;
+    assert.equal(Object.keys(shown.observed_headers).length, Object.keys(headers).length);
+    assert.deepEqual(Object.values(shown.observed_headers).sort(), Object.values(headers).map((v) => redact(v, values)).sort(),
+      'every original map entry survives redacted-key collisions with its value scrubbed');
+    assert.equal(shown.observed_headers['[REDACTED:shared-key]'], 'reserved ordinary value');
+    assert.equal(shown.observed_headers['[REDACTED:shared-key]#2'], 'reserved suffix value');
+    assert.ok(Object.hasOwn(shown.observed_headers, redact('__proto__', values)));
+    assert.equal(Object.hasOwn(shown.observed_headers, 'asset'), false, 'known field names are sensitive free-map keys in this location');
+    assert.equal(Object.hasOwn(shown.observed_headers, 'entity_type'), false);
+    assert.equal(shown.asset.source_id, 'public-host');
+    assert.equal(shown.asset.entity_type, 'asset');
+    assert.equal(shown.asset.adapter_instance, 'public-fixture');
+    assert.deepEqual(shown.target, { ref: 'public-host', entity_type: 'asset' });
+    assert.deepEqual(shown.unlocks, [{ ref: 'public-host', entity_type: 'asset' }]);
+    assert.deepEqual(shown.achieved_via, [{ source_id: 'public-host', entity_type: 'asset' }]);
+    assert.deepEqual(shown.steps, [{ from: 'public-host', to: 'finding', via: 'observed' }]);
+    assert.deepEqual(shown.asset.metadata, { '[REDACTED:shared-key]': '[REDACTED:shape-key] metadata value' });
+    assert.equal(shown.note, '[REDACTED:shape-key]');
+    assert.equal(report.schema, 'gungnir-report/1');
+    assert.equal(report.audience, audience);
+    assert.deepEqual(report.facts.effective.map((f) => f.entity_type), ['asset', 'vuln']);
+    assert.equal(report.facts.quarantined.length, 2);
+    assert.deepEqual(report.facts.quarantined[0].payload.observed_headers, { '[REDACTED:shared-key]': 'retired map value' });
+    assert.deepEqual(report.facts.quarantined[1].payload.observed_headers, { '[REDACTED:long-key]': 'inactive map value' });
+    assert.equal(report.impact.severity.level, '中');
+    assert.deepEqual(report.remediation.items.map((i) => i.advice), ['current public fix']);
+    assert.equal(report.topology.nodes.length, 2);
+    assert.deepEqual(report.topology.edges.map((e) => [e.from, e.to, e.kind]), [[report.topology.nodes[0].id, report.topology.nodes[1].id, 'explicit']]);
+    assert.equal(out.self_check.reproducible, true);
+    assert.deepEqual(report.watermark, { seq: snapshot.seq, snapshot_id: snapshot.snapshot_id, exported_at: snapshot.exported_at });
+    assert.equal(report.evidence_digests.fact_members, digest(snapshot.rows));
+    assert.equal(parseReportHeader(md).fact_members_digest, digest(snapshot.rows));
+    assert.deepEqual(h.store.exportSnapshot(), snapshot);
+    assert.deepEqual([databaseRows(h.store.db), databaseRows(h.args.globalDb)], rowsBefore);
+    delete h.args.vault;
+    const plain = buildReportJson(h.args).facts.effective.find((f) => f.entity_type === 'vuln').payload;
+    assert.deepEqual(plain, payload, 'no-vault payload keys/values retain the existing contract');
+    t.diagnostic(JSON.stringify({ audience, formats: Object.keys(out.paths), map_entries: Object.keys(shown.observed_headers).length,
+      active: report.facts.effective.length, history: report.facts.quarantined.length, nodes: report.topology.nodes.length,
+      edges: report.topology.edges.length, severity: report.impact.severity.level, reproducible: true, database_unchanged: true }));
+  });
+}

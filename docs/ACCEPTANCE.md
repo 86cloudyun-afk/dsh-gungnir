@@ -146,7 +146,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 长时任务心跳 | 持续心跳不被清扫；心跳失效转 unknown 且基准标为 heartbeat | `test/heartbeat.test.js` | ✅ |
 | 报告攻击路径拓扑 | 显式引用优先、隐式标「推断」、无引用不画边 | `test/topology.test.js` | ✅ |
 | 报告有效修订派生结论 | 拓扑/影响面/修复建议只用 active=1；历史与完整水位/摘要保留；三受众 JSON/Markdown/HTML 一致 | `test/report-active-facts.test.js` | ✅ 临时 SQLite 回归；Mac 报告相关定向合计 71 通过、0 失败、0 跳过，完整套件以 GitHub CI 为准 |
-| 报告分析与展示脱敏 | 原始身份计数/去重/连接；秘密及替代标签不参与关键词判定；完整标签先脱敏再截断/转义；schema 固定字段保留；同标签不同节点仍独立连接；客户 JSON 仍为全量脱敏数据（含历史） | `test/report-joint-defense.test.js`、`test/report-source-id-redaction.test.js` | ✅ 临时 SQLite / 内存 vault；三受众 Markdown/JSON/HTML 交叉回归；完整套件以 GitHub CI 为准 |
+| 报告分析与展示脱敏 | 原始身份计数/去重/连接；秘密及替代标签不参与关键词判定；完整标签与自由映射键先脱敏再截断/转义；键名碰撞保留各条目；结构引用与 schema 固定字段保留；同标签不同节点仍独立连接；客户 JSON 仍为全量脱敏数据（含历史） | `test/report-joint-defense.test.js`、`test/report-source-id-redaction.test.js` | ✅ 临时 SQLite / 内存 vault；三受众 Markdown/JSON/HTML 交叉回归；完整套件以 GitHub CI 为准 |
 | 知识库复用入报告 | md 段 + json `kb_usage`；未使用不出现 | `test/ioc-report.test.js` | ✅ |
 | 单命令门禁 | 六闸逐条跑、汇总判定、失败非零退出 | `test/ci-runner.test.js` | ✅ |
 | 桥接 adapter 过一致性套件 | 跨进程 + 停止逐项证实 | `test/conformance-bridge.test.js` | ✅ |

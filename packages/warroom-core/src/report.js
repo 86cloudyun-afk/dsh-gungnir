@@ -81,6 +81,40 @@ function displayRemediation(remediation, R) {
 function displayIoc(ioc, R) {
   return ioc.items.map((i) => ({ ...i, ref: R(i.ref), evidence_ref: R(i.evidence_ref), note: R(i.note) }));
 }
+
+// payload 没有全树 schema；只保护报告消费者已定义的结构位置，其余对象键是展示文本。
+const PAYLOAD_REF_FIELDS = new Set(['asset', 'target', 'host', 'via', 'source_ref', 'unlocks', 'achieved_via']);
+const PAYLOAD_FIELDS = new Set([...PAYLOAD_REF_FIELDS, 'steps', 'path', 'chain', 'remediation', 'fix', 'advice']);
+const STEP_FIELDS = new Set(['from', 'to', 'via']);
+const REF_FIELDS = new Set(['ref', 'source_id', 'id', 'adapter_instance', 'entity_type']);
+
+/** 报告展示专用：键/值原文先脱敏，保留数组/引用形态；同 label 键碰撞不丢条目。 */
+function displayPayload(payload, R) {
+  const project = (value, context = 'free') => {
+    if (typeof value === 'string') return R(value);
+    if (Array.isArray(value)) return value.map((v) => project(v, context === 'steps' ? 'step' : ['ref', 'refs'].includes(context) ? 'ref' : 'free'));
+    if (!value || typeof value !== 'object') return value;
+    const fixed = context === 'root' ? PAYLOAD_FIELDS : context === 'step' ? STEP_FIELDS : context === 'ref' ? REF_FIELDS : new Set();
+    const entries = Object.entries(value).map(([key, v]) => ({ key, shown: fixed.has(key) ? key : R(key), value: v }));
+    // 先预留不改名的键，避免脱敏后的键覆盖公开字段或既有替代标记。
+    const used = new Set(entries.filter((e) => e.shown === e.key).map((e) => e.key));
+    return Object.fromEntries(entries.map(({ key, shown, value: v }) => {
+      let outputKey = shown;
+      if (shown !== key) {
+        let suffix = 2;
+        while (used.has(outputKey)) outputKey = `${shown}#${suffix++}`;
+        used.add(outputKey);
+      }
+      const childContext = context === 'root'
+        ? (key === 'steps' ? 'steps' : ['path', 'chain'].includes(key) ? 'refs' : PAYLOAD_REF_FIELDS.has(key) ? 'ref' : 'free')
+        : context === 'step' && ['from', 'to'].includes(key) ? 'ref' : 'free';
+      const shownValue = context === 'ref' && key === 'entity_type' && ENTITY_ORDER.includes(v) ? v : project(v, childContext);
+      return [outputKey, shownValue];
+    }));
+  };
+  return project(payload, 'root');
+}
+
 function displayTopology(topology, R) {
   // 同 label 的不同原始节点仍有不同 ID；报告局部连接 token 不承载秘密，也不改引用解析规则。
   const ids = new Map();
@@ -106,6 +140,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : s);
   const D = (v) => (vault ? redactDeep(v, values) : v);
+  const P = (v) => (vault ? displayPayload(v, R) : v);
   // 解析后保留原始身份做计数/连接；关键词消费独立中和文本，展示最后按字段脱敏。
   const factsRaw = snap.rows.map((r) => {
     const { payload, ...rest } = r;
@@ -113,7 +148,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: parsed };
   });
-  const facts = factsRaw.map((f) => ({ ...f, adapter_instance: R(f.adapter_instance), source_id: R(f.source_id), payload: D(f.payload) }));
+  const facts = factsRaw.map((f) => ({ ...f, adapter_instance: R(f.adapter_instance), source_id: R(f.source_id), payload: P(f.payload) }));
   const effectiveFactsRaw = factsRaw.filter((f) => f.active === 1);
   const matching = { textForMatching: (f) => textForMatching(f, values) };
   const shellState = store.shellState();
@@ -207,7 +242,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const activeRows = snap.rows.filter((r) => r.active === 1);
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : s);
-  const D = (v) => (vault ? redactDeep(v, values) : v);
+  const P = (v) => (vault ? displayPayload(v, R) : v);
   const facts = snap.rows.map((r) => ({
     ...r,
     payload: JSON.parse(r.payload || '{}'),
@@ -304,7 +339,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${R(r.adapter_instance)}] ${R(r.source_id)} @${rev} · ${JSON.stringify(D(r.payload)).slice(0, 300)}`);
+      lines.push(`- [${R(r.adapter_instance)}] ${R(r.source_id)} @${rev} · ${JSON.stringify(P(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
