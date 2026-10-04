@@ -38,13 +38,14 @@ export function exportEvidence({ broker, engagementId, outDir, target = null, au
   const byType = (t) => members.filter((m) => m.entity_type === t);
   const confirmed = members.filter((m) => ['asset', 'vuln', 'chain', 'session', 'shell'].includes(m.entity_type));
   const creds = byType('credential').map((m) => {
-    // 凭据只暴露引用：source_id 作为人类可读标签，payload 里的明文一律不落盘
+    // 凭据只暴露引用：source_id / label 都可能嵌入口令；一律过 vault 再落盘
+    // （Confirmed 段已对 source_id 走 R；此前本段把 ref 原样插进索引，同秘密边界破口）
     let label = m.source_id;
     try {
       const p = JSON.parse(m.payload ?? '{}');
       label = p.label ?? p.service ?? m.source_id;
     } catch { /* 保留 source_id */ }
-    return { ref: m.source_id, label: R(label), evidence: `fact#${m.id}`, note: '明文存于 host 加密库，见 secret_ref' };
+    return { ref: R(m.source_id), label: R(label), evidence: `fact#${m.id}`, note: '明文存于 host 加密库，见 secret_ref' };
   });
 
   const index = [];
