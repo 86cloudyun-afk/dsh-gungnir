@@ -69,13 +69,16 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   // 完整快照用于历史与水位；派生结论只消费有效修订（ADR-002 D5）。
   const activeRows = snap.rows.filter((r) => r.active === 1);
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
-  const facts = snap.rows.map((r) => {
+  // 先解析、再派生（影响面/修复建议按原文 source_id 计数/分类），最后才 scrub 出口。
+  // 若先把不同秘密 source_id 都打成 [REDACTED:label]，Set 计数会塌缩、关键词严重度也会被污染。
+  const factsRaw = snap.rows.map((r) => {
     const { payload, ...rest } = r;
     let parsed = {};
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
-    return { ...rest, payload: R(parsed) };
+    return { ...rest, payload: parsed };
   });
-  const effectiveFacts = facts.filter((f) => f.active === 1);
+  const facts = factsRaw.map((f) => R(f));
+  const effectiveFactsRaw = factsRaw.filter((f) => f.active === 1);
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
     try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
@@ -88,13 +91,13 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(activeRows);
-  const remediation = buildRemediation(effectiveFacts);
+  const remediation = buildRemediation(effectiveFactsRaw);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
-  // 影响面摘要（与 md 版同源同算法）
-  const impact = buildImpact(effectiveFacts, store.shellState());
+  // 影响面摘要（与 md 版同源同算法；用未脱敏事实派生，出口再 R）
+  const impact = buildImpact(effectiveFactsRaw, store.shellState());
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -143,8 +146,8 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
       by_role: metrics.by_role ?? {},
       by_tier: metrics.by_tier ?? {},
     } : null,
-    facts: { effective: effectiveFacts, quarantined: facts.filter((f) => f.active !== 1) },
-    ioc: ioc.items,
+    facts: { effective: facts.filter((f) => f.active === 1), quarantined: facts.filter((f) => f.active !== 1) },
+    ioc: R(ioc.items),
     ioc_summary: ioc.summary,
   };
 }
@@ -230,7 +233,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   // 影响面摘要：客户最关心的一段，放在最前（工程视图可跳过）
   lines.push('## 影响面摘要');
   lines.push('');
-  lines.push(renderImpact(impact));
+  lines.push(R(renderImpact(impact)));
   lines.push('');
 
   lines.push('## shell 状态');
@@ -263,7 +266,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${r.adapter_instance}] ${r.source_id} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+      lines.push(`- [${r.adapter_instance}] ${R(r.source_id)} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
@@ -277,7 +280,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('## 未采用记录（隔离/历史/待审）');
     lines.push('');
     for (const q of quarantined) {
-      lines.push(`- ${q.entity_type}/${q.source_id} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
+      lines.push(`- ${q.entity_type}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
     }
     lines.push('');
   }
@@ -310,7 +313,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
   for (const i of ioc.items) {
-    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
+    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${R(i.ref)}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
   }
   lines.push('');
   if (gantt.tasks.length > 0) {
@@ -329,13 +332,20 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       lines.push('');
     }
     for (const item of remediation.items) {
-      lines.push(`- \`${item.ref}\` — ${R(item.advice)}（来源：${item.source}）`);
+      lines.push(`- \`${R(item.ref)}\` — ${R(item.advice)}（来源：${item.source}）`);
     }
     lines.push('');
   }
 
   if (topology.edges.length > 0) {
-    const viz = toMermaidGrouped(topology);
+    // 先脱敏节点/边可见文本，再交给 Mermaid 转义/截断；否则 `|` 等特殊字符被 safe()
+    // 改写后 vault 精确匹配失败，几乎整段口令会漏进图（Codex P1）。
+    const vizTopology = {
+      ...topology,
+      nodes: topology.nodes.map((n) => ({ ...n, label: R(n.label) })),
+      edges: topology.edges.map((e) => ({ ...e, via: R(String(e.via ?? '')) })),
+    };
+    const viz = toMermaidGrouped(vizTopology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
     lines.push(viz.mermaid);
