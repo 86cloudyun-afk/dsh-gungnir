@@ -187,3 +187,68 @@ test('mermaid redacts long source_id secrets before display truncation (Codex P1
   );
   assert.match(markdown, /\[REDACTED:long-cred\]/);
 });
+
+test('JSON facts.entity_type survives vault secret equal to schema enum (Codex P2)', () => {
+  // vault 接受任意非空明文；秘密恰为 `asset` 时整行 redactDeep 会改写 entity_type。
+  const h = harness();
+  h.broker.secrets.put('asset', { label: 'confusable' });
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'meta-invariant-fact',
+    contract: h.contract({
+      fake_members: [{
+        entity_type: 'asset',
+        source_id: 'host-10.0.0.1',
+        revision_no: 1,
+        content_hash: 'h-inv-a',
+        payload: { note: 'contains asset as free text' },
+      }],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'json' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  const row = json.facts.effective.find((f) => f.source_id === 'host-10.0.0.1');
+  assert.ok(row, 'fact row must remain findable by unredacted source_id');
+  assert.equal(row.entity_type, 'asset', 'entity_type enum must not be redacted');
+  assert.equal(row.adapter_instance, 'fake-adapter-1');
+  assert.equal(row.payload.note.includes('asset'), false, 'free-text payload must still scrub');
+  assert.match(row.payload.note, /\[REDACTED:confusable\]/);
+});
+
+test('JSON IOC kind/source/confidence survive vault secrets equal to enums (Codex P2)', () => {
+  const h = harness();
+  h.broker.secrets.put('session', { label: 'conf-kind' });
+  h.broker.secrets.put('fact', { label: 'conf-source' });
+  h.broker.secrets.put('high', { label: 'conf-conf' });
+  const SECRET_REF = 'SessRef-P@ss-2026';
+  h.broker.secrets.put(SECRET_REF, { label: 'sess-ref' });
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'meta-invariant-ioc',
+    contract: h.contract({
+      fake_members: [{
+        entity_type: 'session',
+        source_id: `sess-${SECRET_REF}`,
+        revision_no: 1,
+        content_hash: 'h-inv-s',
+        payload: { host: '10.0.0.5' },
+      }],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'json' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  assert.equal(json.ioc.length, 1);
+  const item = json.ioc[0];
+  assert.equal(item.kind, 'session', 'IOC kind enum must not be redacted');
+  assert.equal(item.source, 'fact', 'IOC source enum must not be redacted');
+  assert.equal(item.confidence, 'high', 'IOC confidence enum must not be redacted');
+  assert.equal(item.manual_confirm, true);
+  assert.equal(item.evidence_ref, 'fact#1', 'evidence_ref protocol prefix must stay intact');
+  assert.equal(String(item.ref).includes(SECRET_REF), false, 'IOC ref must still scrub secrets');
+  assert.match(String(item.ref), /\[REDACTED:sess-ref\]/);
+  const fact = json.facts.effective.find((f) => f.entity_type === 'session');
+  assert.ok(fact, 'fact entity_type session must remain classifiable');
+  assert.equal(fact.entity_type, 'session');
+});
