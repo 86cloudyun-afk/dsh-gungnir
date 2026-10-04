@@ -49,9 +49,11 @@ export function redactForAnalysis(text, values = []) {
   // label 可含 ]：先按注册表中和完整标记，不能让首个 ] 后的风险词残留。
   const markers = values.map((v) => `[REDACTED:${v.label}]`).sort((a, b) => b.length - a.length);
   for (const marker of markers) out = out.split(marker).join(' ');
+  // 历史标记也先中和：秘密若等于 REDACTED 等前缀片段，替换后会让通用标记匹配失效。
+  out = out.replace(/\[REDACTED(?::[^\]]*)?\]/gi, ' ');
   for (const v of [...values].sort((a, b) => b.value.length - a.value.length)) {
     if (v.value) out = out.split(v.value).join(' ');
   }
   for (const { re } of PATTERNS) out = out.replace(re, ' ');
-  return out.replace(/\[REDACTED(?::[^\]]*)?\]/gi, ' ');
+  return out;
 }

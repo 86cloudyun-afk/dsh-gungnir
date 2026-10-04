@@ -47,6 +47,7 @@ function readKbUsage(home, engagementId) {
 }
 
 const ENTITY_ORDER = ['asset', 'domain', 'vuln', 'credential', 'session', 'chain', 'shell', 'persistence'];
+const displayEntityType = (type, R) => ENTITY_ORDER.includes(type) ? type : R(type);
 
 function groupBy(rows, keyFn) {
   const out = new Map();
@@ -148,7 +149,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: parsed };
   });
-  const facts = factsRaw.map((f) => ({ ...f, adapter_instance: R(f.adapter_instance), source_id: R(f.source_id), payload: P(f.payload) }));
+  const facts = factsRaw.map((f) => ({ ...f, entity_type: displayEntityType(f.entity_type, R),
+    adapter_instance: R(f.adapter_instance), source_id: R(f.source_id),
+    content_hash: R(f.content_hash), generation: R(f.generation), payload: P(f.payload) }));
   const effectiveFactsRaw = factsRaw.filter((f) => f.active === 1);
   const matching = { textForMatching: (f) => textForMatching(f, values) };
   const shellState = store.shellState();
@@ -271,7 +274,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
   lines.push(`- fact_members: \`${sha(JSON.stringify(snap.rows))}\``);
   for (const [type, rows] of grouped) {
-    lines.push(`- ${type}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
+    lines.push(`- ${displayEntityType(type, R)}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
   }
   lines.push('');
   // 链前会议纪要（有则收录：波次与报告的追溯链）
@@ -333,7 +336,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   for (const type of ENTITY_ORDER.concat([...grouped.keys()].filter((k) => !ENTITY_ORDER.includes(k)))) {
     const rows = grouped.get(type);
     if (!rows) continue;
-    lines.push(`### ${type}（${rows.length}）`);
+    lines.push(`### ${displayEntityType(type, R)}（${rows.length}）`);
     lines.push('');
     const effectiveLimit = audience === 'client' ? 0 : maxFactsPerType;   // 客户版不铺逐条流水
     const shown = rows.slice(0, effectiveLimit);
@@ -353,7 +356,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('## 未采用记录（隔离/历史/待审）');
     lines.push('');
     for (const q of quarantined) {
-      lines.push(`- ${q.entity_type}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
+      lines.push(`- ${displayEntityType(q.entity_type, R)}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
     }
     lines.push('');
   }
