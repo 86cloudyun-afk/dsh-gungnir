@@ -7,8 +7,15 @@ const NODE_KIND = { asset: 'asset', domain: 'domain', vuln: 'vuln', credential: 
 function labelOf(row) {
   const src = row.source_id ?? row.id ?? 'unknown';
   const kind = NODE_KIND[row.entity_type] ?? 'other';
-  const short = src.length > 40 ? `${src.slice(0, 37)}…` : src;
-  return { id: `${kind}:${src}`, label: short, kind };
+  // 保留完整 source_id：可见截断只在 Mermaid 渲染层做。
+  // 若在这里先截到 40 字，报告侧 vault 精确脱敏会匹配失败，长口令前缀会漏进图。
+  return { id: `${kind}:${src}`, label: String(src), kind };
+}
+
+/** 展示用截断（脱敏之后再调用；勿用于 vault 匹配输入）。 */
+function displayLabel(s, max = 40) {
+  const t = String(s ?? '');
+  return t.length > max ? `${t.slice(0, max - 3)}…` : t;
 }
 
 function parsePayload(row) {
@@ -97,10 +104,10 @@ export function toMermaid(topology, { maxNodes = 60 } = {}) {
   const keepIds = new Set(keep.map((n) => n.id));
   const lines = ['```mermaid', 'flowchart LR'];
   const safe = (s) => String(s).replace(/[[\]{}()"|]/g, ' ');
-  for (const n of keep) lines.push(`  ${hashId(n.id)}["${safe(n.label)}"]`);
+  for (const n of keep) lines.push(`  ${hashId(n.id)}["${safe(displayLabel(n.label))}"]`);
   for (const e of topology.edges) {
     if (!keepIds.has(e.from) || !keepIds.has(e.to)) continue;
-    const label = e.kind === 'inferred' ? `${safe(e.via)}（推断）` : safe(e.via);
+    const label = e.kind === 'inferred' ? `${safe(displayLabel(e.via))}（推断）` : safe(displayLabel(e.via));
     lines.push(`  ${hashId(e.from)} -->|${label}| ${hashId(e.to)}`);
   }
   lines.push('```');
@@ -138,7 +145,7 @@ export function toMermaidGrouped(topology, { maxNodes = 60 } = {}) {
   const lines = ['```mermaid', 'flowchart LR'];
   for (const [group, nodes] of groups) {
     lines.push(`  subgraph ${group}`);
-    for (const n of nodes) lines.push(`    ${hashId(n.id)}["${safe(n.label)}"]`);
+    for (const n of nodes) lines.push(`    ${hashId(n.id)}["${safe(displayLabel(n.label))}"]`);
     lines.push('  end');
   }
   const critical = [];
@@ -146,9 +153,16 @@ export function toMermaidGrouped(topology, { maxNodes = 60 } = {}) {
     if (!keepIds.has(e.from) || !keepIds.has(e.to)) continue;
     const toKind = nodeById.get(e.to)?.kind;
     const isCritical = CONTROL_KINDS.has(toKind);      // 通向控制面 = 关键跳
-    const label = e.kind === 'inferred' ? `${safe(e.via)}（推断）` : safe(e.via);
+    const label = e.kind === 'inferred' ? `${safe(displayLabel(e.via))}（推断）` : safe(displayLabel(e.via));
     lines.push(`  ${hashId(e.from)} ${isCritical ? '==>' : '-->'}|${label}| ${hashId(e.to)}`);
-    if (isCritical) critical.push({ from: nodeById.get(e.from)?.label, to: nodeById.get(e.to)?.label, via: e.via });
+    // 关键跳清单同样走展示截断；调用方应已先脱敏 label/via
+    if (isCritical) {
+      critical.push({
+        from: displayLabel(nodeById.get(e.from)?.label),
+        to: displayLabel(nodeById.get(e.to)?.label),
+        via: displayLabel(e.via),
+      });
+    }
   }
   lines.push('```');
   return { mermaid: lines.join('\n'), critical, groups: [...groups.keys()] };
