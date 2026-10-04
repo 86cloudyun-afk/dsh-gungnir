@@ -79,3 +79,68 @@ test('payload-only secret still redacted alongside metadata scrub', () => {
   assert.match(markdown, /cred-clean/);
   assert.match(markdown, /\[REDACTED:meta-src\]/);
 });
+
+test('mermaid redacts vault secrets before special-char escaping (Codex P1)', () => {
+  // Mermaid safe() turns `|` into a space; if redaction runs after that, vault
+  // exact-match fails and almost the whole credential leaks into the graph.
+  const SECRET_PIPE = 'hunter2|meta';
+  const h = harness();
+  h.broker.secrets.put(SECRET_PIPE, { label: 'pipe-cred' });
+  const src = `sqli-${SECRET_PIPE}`;
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'meta-mermaid-1',
+    contract: h.contract({
+      fake_members: [
+        {
+          entity_type: 'vuln',
+          source_id: src,
+          revision_no: 1,
+          content_hash: 'h-pipe-v',
+          payload: { title: 'sqli' },
+        },
+        {
+          entity_type: 'shell',
+          source_id: 'shell-pipe',
+          revision_no: 1,
+          content_hash: 'h-pipe-s',
+          payload: { achieved_via: src },
+        },
+      ],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const { markdown } = h.broker.buildReport(h.eng.engagement_id);
+  assert.match(markdown, /攻击路径拓扑/);
+  assert.match(markdown, /```mermaid/);
+  assert.equal(markdown.includes(SECRET_PIPE), false, 'mermaid must not keep raw pipe-secret');
+  assert.equal(markdown.includes('hunter2'), false, 'partial credential after safe() must not remain');
+  assert.match(markdown, /\[REDACTED:pipe-cred\]/);
+});
+
+test('JSON impact counts distinct assets before source_id redaction (Codex P2)', () => {
+  // Two different secrets sharing one vault label must not collapse to one asset
+  // when redaction runs before buildImpact's Set-based counting.
+  const A = 'AssetSecret-AAA-2026';
+  const B = 'AssetSecret-BBB-2026';
+  const h = harness();
+  h.broker.secrets.put(A, { label: 'asset' });
+  h.broker.secrets.put(B, { label: 'asset' });
+  const ex = h.broker.execute({
+    ...h.base,
+    command_id: 'meta-impact-1',
+    contract: h.contract({
+      fake_members: [
+        { entity_type: 'asset', source_id: `host-${A}`, revision_no: 1, content_hash: 'h-a', payload: { ip: '10.0.0.1' } },
+        { entity_type: 'asset', source_id: `host-${B}`, revision_no: 1, content_hash: 'h-b', payload: { ip: '10.0.0.2' } },
+      ],
+    }),
+  });
+  h.broker.collect(h.eng.engagement_id, ex.task_id, h.adapter.collect(ex.task_id));
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'json' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  assert.equal(json.impact.scope.assets, 2, 'distinct assets must survive shared-label redaction');
+  const blob = JSON.stringify(json);
+  assert.equal(blob.includes(A), false);
+  assert.equal(blob.includes(B), false);
+});

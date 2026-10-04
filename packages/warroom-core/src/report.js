@@ -67,14 +67,15 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null, metrics = null }) {
   const snap = store.exportSnapshot();
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
-  // 元数据（source_id 等）与 payload 一体过 redactor：source_id 是人类可读标签，
-  // 可能嵌入口令/令牌；只 scrub payload 会把明文留在 JSON facts / 影响面引用里。
-  const facts = snap.rows.map((r) => {
+  // 先解析、再派生（影响面/修复建议按原文 source_id 计数/分类），最后才 scrub 出口。
+  // 若先把不同秘密 source_id 都打成 [REDACTED:label]，Set 计数会塌缩、关键词严重度也会被污染。
+  const factsRaw = snap.rows.map((r) => {
     const { payload, ...rest } = r;
     let parsed = {};
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
-    return R({ ...rest, payload: parsed });
+    return { ...rest, payload: parsed };
   });
+  const facts = factsRaw.map((f) => R(f));
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
     try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
@@ -87,13 +88,13 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const topology = buildTopology(snap.rows);
-  const remediation = buildRemediation(facts);
+  const remediation = buildRemediation(factsRaw);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
-  // 影响面摘要（与 md 版同源同算法）
-  const impact = buildImpact(facts, store.shellState());
+  // 影响面摘要（与 md 版同源同算法；用未脱敏事实派生，出口再 R）
+  const impact = buildImpact(factsRaw, store.shellState());
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -330,10 +331,17 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   }
 
   if (topology.edges.length > 0) {
-    const viz = toMermaidGrouped(topology);
+    // 先脱敏节点/边可见文本，再交给 Mermaid 转义/截断；否则 `|` 等特殊字符被 safe()
+    // 改写后 vault 精确匹配失败，几乎整段口令会漏进图（Codex P1）。
+    const vizTopology = {
+      ...topology,
+      nodes: topology.nodes.map((n) => ({ ...n, label: R(n.label) })),
+      edges: topology.edges.map((e) => ({ ...e, via: R(String(e.via ?? '')) })),
+    };
+    const viz = toMermaidGrouped(vizTopology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
-    lines.push(R(viz.mermaid));
+    lines.push(viz.mermaid);
     lines.push('');
     lines.push(`- 节点 ${topology.nodes.length} · 边 ${topology.edges.length}`
       + `（边来源：${topology.derived_from}）`);
@@ -341,7 +349,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       + '普通箭头 = 支撑关系；标「推断」= 由引用字段推断，未在链路步骤中显式声明');
     if (viz.critical.length > 0) {
       lines.push('- 关键跳清单：');
-      for (const c of viz.critical) lines.push(`  - ${R(c.from)} --(${R(c.via)})--> **${R(c.to)}**`);
+      for (const c of viz.critical) lines.push(`  - ${c.from} --(${c.via})--> **${c.to}**`);
     }
     if (topology.unexplained > 0) {
       lines.push(`- ⚠️ 有 **${topology.unexplained}** 条事实（弱点/链路/控制面）**未给出引用关系**，`
