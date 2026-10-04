@@ -42,3 +42,16 @@ export function redactDeep(value, values = []) {
   }
   return value;
 }
+
+/** 分析专用：秘密与已有脱敏标记只留下分隔空格，不把 vault label/替代词送入关键词判定。 */
+export function redactForAnalysis(text, values = []) {
+  let out = String(text ?? '');
+  // label 可含 ]：先按注册表中和完整标记，不能让首个 ] 后的风险词残留。
+  const markers = values.map((v) => `[REDACTED:${v.label}]`).sort((a, b) => b.length - a.length);
+  for (const marker of markers) out = out.split(marker).join(' ');
+  for (const v of [...values].sort((a, b) => b.value.length - a.value.length)) {
+    if (v.value) out = out.split(v.value).join(' ');
+  }
+  for (const { re } of PATTERNS) out = out.replace(re, ' ');
+  return out.replace(/\[REDACTED(?::[^\]]*)?\]/gi, ' ');
+}

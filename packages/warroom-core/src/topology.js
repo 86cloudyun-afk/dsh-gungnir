@@ -4,10 +4,11 @@
 const NODE_KIND = { asset: 'asset', domain: 'domain', vuln: 'vuln', credential: 'credential',
   session: 'session', chain: 'chain', shell: 'shell', persistence: 'persistence' };
 
-function labelOf(row) {
+function labelOf(row, redactLabel) {
   const src = row.source_id ?? row.id ?? 'unknown';
   const kind = NODE_KIND[row.entity_type] ?? 'other';
-  const short = src.length > 40 ? `${src.slice(0, 37)}…` : src;
+  const label = String(redactLabel(String(src)));
+  const short = label.length > 40 ? `${label.slice(0, 37)}…` : label;
   return { id: `${kind}:${src}`, label: short, kind };
 }
 
@@ -17,10 +18,12 @@ function parsePayload(row) {
 
 /**
  * @param {Array} facts 有效事实行
+ * @param {object} opts redactLabel 在完整 label 上脱敏，不改内部身份/连接键
  * @returns {{nodes:Array<{id,label,kind}>, edges:Array<{from,to,via}>, derived_from:string, unexplained:number}}
  */
-export function buildTopology(facts = []) {
-  const nodes = facts.map(labelOf);
+export function buildTopology(facts = [], { redactLabel = (s) => s } = {}) {
+  // 身份/引用仍按原始 source_id 连接；完整展示 label 先脱敏再截断。
+  const nodes = facts.map((row) => labelOf(row, redactLabel));
   const idBySource = new Map();
   for (let i = 0; i < facts.length; i += 1) {
     const key = facts[i].source_id;
