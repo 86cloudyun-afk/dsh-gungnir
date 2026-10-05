@@ -274,4 +274,58 @@ test('kb_usage ledger redacts asset/title in MD and JSON; result/code survive', 
   assert.match(String(row.asset), /\[REDACTED:kb-asset-pw\]/);
   assert.equal(row.result, 'hit', 'result enum must not be redacted');
   assert.equal(row.code, 'POC-KB', 'code identifier must not be redacted');
+test('JSON shell.highest_proof redacts vault secrets; current_validity enum survives', () => {
+  const SECRET = 'ShellProof-P@ss-LEAK-2026';
+  const h = harness();
+  h.broker.secrets.put(SECRET, { label: 'shell-pw' });
+  h.broker.secrets.put('likely', { label: 'conf-validity' });
+  h.broker.recordShellProof(h.eng.engagement_id, {
+    proof: `root@host/${SECRET}`,
+    evidence_ref: 'ev-shell',
+  });
+  h.broker.verifyShell(h.eng.engagement_id, { validity: 'likely', evidence_ref: 'ev-v' });
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  const md = readFileSync(exported.paths.markdown, 'utf8');
+  assert.equal(JSON.stringify(json).includes(SECRET), false, 'JSON must not leak shell proof secret');
+  assert.equal(md.includes(SECRET), false, 'markdown must not leak shell proof secret');
+  assert.match(String(json.shell.highest_proof), /\[REDACTED:shell-pw\]/);
+  assert.equal(json.shell.current_validity, 'likely', 'current_validity enum must not be redacted');
+  assert.match(md, /highest_proof:.*\[REDACTED:shell-pw\]/);
+});
+
+test('jump_routes ledger redacts socks/ids in MD and JSON; state enum survives', () => {
+  const SECRET = 'SocksSecret-P@ss-LEAK-2026';
+  const h = harness();
+  h.broker.secrets.put(SECRET, { label: 'socks-pw' });
+  h.broker.secrets.put('active', { label: 'conf-state' });
+  h.store().db.prepare(
+    `INSERT INTO jump_routes (route_id, lease_id, jumphost_id, socks, state, ts) VALUES (?,?,?,?,?,?)`,
+  ).run(
+    `rt-${SECRET}`,
+    `lease-${SECRET}`,
+    `jh-${SECRET}`,
+    `socks5://user:${SECRET}@10.0.0.9:1080`,
+    'active',
+    '2026-10-05T00:00:00.000Z',
+  );
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  const md = readFileSync(exported.paths.markdown, 'utf8');
+  assert.equal(json.jump_routes.length, 1);
+  const route = json.jump_routes[0];
+  assert.equal(JSON.stringify(json).includes(SECRET), false, 'JSON jump_routes must not leak vault secret');
+  assert.equal(md.includes(SECRET), false, 'markdown jump ledger must not leak vault secret');
+  assert.match(String(route.route_id), /\[REDACTED:socks-pw\]/);
+  assert.match(String(route.jumphost_id), /\[REDACTED:socks-pw\]/);
+  assert.match(String(route.socks), /\[REDACTED:socks-pw\]/);
+  assert.match(String(route.lease_id), /\[REDACTED:socks-pw\]/);
+  assert.equal(route.state, 'active', 'route state enum must not be redacted');
+  assert.match(md, /跳板与隧道台账/);
+  assert.match(md, /\[REDACTED:socks-pw\]/);
+  // MD IOC evidence_ref#suffix must scrub too (parity with JSON scrubIocForExport)
+  const iocLine = md.split('\n').find((l) => l.includes('**tunnel**'));
+  assert.ok(iocLine, 'tunnel IOC line present in markdown');
+  assert.equal(iocLine.includes(SECRET), false, 'MD IOC evidence_ref must not leak route secret');
+  assert.match(iocLine, /证据 jump_routes#rt-\[REDACTED:socks-pw\]/);
 });
