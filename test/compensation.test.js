@@ -60,3 +60,31 @@ test('TTL 到期未证实释放 → quarantined，不再分配（负样本）', 
     (e) => e.code === 'E_NO_JUMPHOST'
   );
 });
+
+test('跨天滚动：往日用满的跳板，新的一天配额完整恢复（不被往日 used_today 污染）', () => {
+  const h = harness();
+  const g = h.broker.global;
+  const jm = new JumphostManager({ globalDb: g, getFactStore: (id) => h.broker._eng(id).store });
+  jm.importHosts([{ id: 'jh-roll', addr_v4: '203.0.113.60', quota: 3 }]);
+
+  // 昨天把配额用满（day=昨天、used_today=quota）
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  g.prepare("UPDATE jumphosts SET used_today = 3, day = ? WHERE id = 'jh-roll'").run(yesterday);
+
+  // 今天第一次 acquire：当日计数应从 1 起算（而非在往日 3 上 +1）
+  jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.5' });
+  const after1 = g.prepare("SELECT used_today, day FROM jumphosts WHERE id = 'jh-roll'").get();
+  assert.equal(after1.used_today, 1, '新一天首个 acquire 后 used_today 必须为 1');
+  assert.equal(after1.day, new Date().toISOString().slice(0, 10));
+
+  // 今日配额为 3：应还能再取满剩余 2 次，不得被往日用量提前耗尽
+  jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.6' });
+  jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.7' });
+  assert.equal(g.prepare("SELECT used_today FROM jumphosts WHERE id = 'jh-roll'").get().used_today, 3);
+
+  // 第 4 次（超今日配额）才应拒绝
+  assert.throws(
+    () => jm.acquire({ engagement_id: h.eng.engagement_id, target: '10.0.0.8' }),
+    (e) => e.code === 'E_NO_JUMPHOST'
+  );
+});

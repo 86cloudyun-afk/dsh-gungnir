@@ -55,6 +55,9 @@ export class JumphostManager {
    */
   acquire({ engagement_id, target, jumphost_id = null }) {
     const all = this.g.prepare('SELECT * FROM jumphosts').all().filter((h) => this._usable(h.id));
+    const today = now().slice(0, 10);
+    // 当日配额以“今天”为准：台账里 day 落在往日时，其 used_today 属于往日，今天应视作 0（与 _usable 一致）。
+    const usedToday = (h) => (h.day === today ? h.used_today : 0);
     let host;
     if (jumphost_id) {
       host = all.find((h) => h.id === jumphost_id);
@@ -63,7 +66,7 @@ export class JumphostManager {
       const withEndpoint = all.filter((h) => /^socks5h?:\/\//.test(String(h.ssh_host ?? '')));
       const pool = withEndpoint.length > 0 ? withEndpoint : all;
       if (pool.length === 0) throw warroomError(ERR.E_NO_JUMPHOST, 'no usable jumphost');
-      host = pool.slice().sort((a, b) => (a.used_today - b.used_today) || a.id.localeCompare(b.id))[0];
+      host = pool.slice().sort((a, b) => (usedToday(a) - usedToday(b)) || a.id.localeCompare(b.id))[0];
     }
 
     // 1) op 意图先行（补偿唯一真源，ADR-002 D6）
@@ -91,8 +94,9 @@ export class JumphostManager {
       const store = this.getFactStore(engagement_id);
       store.recordRoute({ route_id, lease_id, jumphost_id: host.id, socks });
       store.recordEgressCheck({ jumphost_id: host.id, exit_ip: probe.exit_ip, route_id });
-      this.g.prepare('UPDATE jumphosts SET used_today = used_today + 1, day = ? WHERE id = ?')
-        .run(now().slice(0, 10), host.id);
+      // 跨天滚动：day 变化时当日计数从 1 起算（否则往日用量会漏算进今天，错误地提前耗尽今日配额）。
+      this.g.prepare('UPDATE jumphosts SET used_today = CASE WHEN day = ? THEN used_today + 1 ELSE 1 END, day = ? WHERE id = ?')
+        .run(today, today, host.id);
       this.g.prepare("UPDATE op_log SET state = 'activated' WHERE op_id = ?").run(op_id);
       return {
         lease_id, route_id, jumphost_id: host.id, socks, socks_source,
