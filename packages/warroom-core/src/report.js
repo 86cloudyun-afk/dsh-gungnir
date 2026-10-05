@@ -93,6 +93,51 @@ function scrubIocForExport(item, R) {
   };
 }
 
+/**
+ * 知识库复用台账出口脱敏：只 scrub rows[] 里的 asset / title 自由文本，
+ * 保留 code / result / category / ts 等标识与枚举及汇总计数。
+ * poc_usage.asset 走 use() 无脱敏入库，资产串里可嵌 `http://user:pw@host`
+ * 一类凭据；MD 版早已 R(title)/R(asset)，JSON 版此前整段原样出口会漏口令。
+ */
+function scrubKbUsageForExport(kbUsage, R) {
+  return {
+    ...kbUsage,
+    rows: (kbUsage.rows ?? []).map((r) => ({
+      ...r,
+      title: r.title == null ? r.title : R(r.title),
+      asset: r.asset == null ? r.asset : R(r.asset),
+    })),
+  };
+}
+
+/**
+ * shell 状态出口脱敏：只 scrub highest_proof 自由文本。
+ * current_validity 是固定枚举（unknown/likely/…），整对象 redactDeep 会在秘密
+ * 恰等于枚举词时打坏机器可读字段；MD 路径早已 R(highest_proof)，JSON 此前漏掉。
+ */
+function scrubShellForExport(shell, R) {
+  const s = shell ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null };
+  return {
+    ...s,
+    highest_proof: s.highest_proof == null ? s.highest_proof : R(s.highest_proof),
+  };
+}
+
+/**
+ * 跳板台账出口脱敏：scrub route_id / lease_id / jumphost_id / socks 自由文本，
+ * 保留 state 枚举与 ts。台账段与 JSON jump_routes 此前整行原样出口，socks URL
+ * 里嵌的口令会直接进交付物；IOC tunnel 路径已 scrub，台账必须对齐。
+ */
+function scrubRouteForExport(route, R) {
+  return {
+    ...route,
+    route_id: R(route.route_id),
+    lease_id: route.lease_id == null ? route.lease_id : R(route.lease_id),
+    jumphost_id: R(route.jumphost_id),
+    socks: R(route.socks),
+  };
+}
+
 /** IOC / 清理候选（自动聚合，见 ioc.js）：带置信度与证据引用，人工确认后交付。 */
 export function buildIocDraft({ store, engagementId, globalDb }) {
   return aggregateIoc({ store, globalDb, engagementId });
@@ -153,11 +198,11 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     },
     watermark: { seq: snap.seq, snapshot_id: snap.snapshot_id, exported_at: snap.exported_at },
     evidence_digests: { fact_members: digest },
-    shell: store.shellState() ?? { highest_proof: null, current_validity: 'unknown', last_verified_at: null },
+    shell: scrubShellForExport(store.shellState(), R),
     meetings: R(meetings),
     audit_summary: auditSummary,
-    jump_routes: routes,
-    kb_usage: kbUsage,
+    jump_routes: routes.map((r) => scrubRouteForExport(r, R)),
+    kb_usage: scrubKbUsageForExport(kbUsage, R),
     topology: R(topology),
     remediation: R(remediation),
     impact: R(impact),
@@ -340,8 +385,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- 清单摘要：\`${ioc.summary.digest.slice(0, 16)}\``);
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
-  for (const i of ioc.items) {
-    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${R(i.ref)}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${R(i.note)}`);
+  // 与 JSON 同源：ref/note/evidence_ref#suffix 过 vault；kind/confidence 等枚举保留
+  for (const i of ioc.items.map((item) => scrubIocForExport(item, R))) {
+    lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${i.note}`);
   }
   lines.push('');
   if (gantt.tasks.length > 0) {
@@ -436,7 +482,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   if (audience !== 'client' && routes.length > 0) {
     lines.push('## 跳板与隧道台账');
     lines.push('');
-    for (const r of routes) {
+    for (const r of routes.map((row) => scrubRouteForExport(row, R))) {
       lines.push(`- \`${r.route_id}\` 跳板 ${r.jumphost_id} · ${r.socks} · 状态 ${r.state} · ${r.ts}`);
     }
     lines.push('- 收口：`warroom jump release --lease <lease_id>` / `jump sweep`（未证实释放进隔离）');
