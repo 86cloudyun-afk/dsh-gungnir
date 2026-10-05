@@ -61,7 +61,8 @@ test('TTL 到期未证实释放 → quarantined，不再分配（负样本）', 
   );
 });
 
-test('跨天滚动：往日用满的跳板，新的一天配额完整恢复（不被往日 used_today 污染）', () => {
+test('跨天滚动：往日用满的跳板，新的一天配额完整恢复（不被往日 used_today 污染）', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-02T12:00:00.000Z') });
   const h = harness();
   const g = h.broker.global;
   const jm = new JumphostManager({ globalDb: g, getFactStore: (id) => h.broker._eng(id).store });
