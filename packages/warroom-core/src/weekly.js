@@ -104,6 +104,16 @@ export function archiveWeekly({ broker, days = 7, now = Date.now() }) {
   return { path, label, existing, totals: w.totals };
 }
 
+/**
+ * 表格单元格安全化：周报表里 `目标`/`节奏` 两列来自战役配置的自由文本（engagements.target_scope/rhythm），
+ * 可能含竖线或换行；直接拼进 markdown 表会把一行劈成多列/多行，渲染后静默丢列（html.js 的表格解析按 `|` 裸切，
+ * 且不认 `\|` 转义）。这里把换行折叠为空格、竖线替换为全角 `｜`，保证原始 .md 与 HTML 两头表格都不塌。
+ */
+function cell(v) {
+  if (v == null) return '—';
+  return String(v).replace(/\s*[\r\n]+\s*/g, ' ').replace(/\|/g, '｜').trim() || '—';
+}
+
 export function renderWeekly(w) {
   const lines = [];
   lines.push(`# 战役周报（近 ${w.window.days} 天）`);
@@ -117,7 +127,7 @@ export function renderWeekly(w) {
   lines.push('| 战役 | 目标 | 节奏 | 窗口内事实 | 累计事实 | 报告(窗口内) | 交付门禁 |');
   lines.push('|---|---|---|---|---|---|---|');
   for (const r of w.rows) {
-    lines.push(`| \`${r.engagement_id.slice(0, 18)}…\` | ${r.target_scope ?? '—'} | ${r.rhythm ?? '—'}`
+    lines.push(`| \`${r.engagement_id.slice(0, 18)}…\` | ${cell(r.target_scope)} | ${cell(r.rhythm)}`
       + ` | ${r.facts_in_window} | ${r.facts} | ${r.reports_in_window}/${r.reports}`
       + ` | ${r.delivery ? (r.delivery.deliverable ? '✅ 可交付' : `⬜ 未过 ${r.delivery.blocked} 项`) : '—'} |`);
   }
