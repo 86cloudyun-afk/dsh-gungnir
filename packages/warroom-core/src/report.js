@@ -9,7 +9,7 @@ import { buildTimeline } from './timeline.js';
 import { buildGantt, renderGantt } from './gantt.js';
 import { buildImpact, renderImpact } from './impact.js';
 import { dirname, join } from 'node:path';
-import { redactDeep } from './redactor.js';
+import { redactDeep, redactForAnalysis } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
 import { buildTopology, toMermaidGrouped } from './topology.js';
 
@@ -146,7 +146,10 @@ export function buildIocDraft({ store, engagementId, globalDb }) {
 /** 结构化报告（机器可读）：与 markdown 报告同水位、同证据摘要。 */
 export function buildReportJson({ store, engagementId, engagementRow, vault, globalDb, home = null, metrics = null }) {
   const snap = store.exportSnapshot();
+  // 完整快照用于历史与水位；派生结论只消费有效修订（ADR-002 D5）。
+  const activeRows = snap.rows.filter((r) => r.active === 1);
   const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
+  const values = vault ? vault.values() : [];
   // 先解析、再派生（影响面/修复建议按原文 source_id 计数/分类），最后才 scrub 出口。
   // 若先把不同秘密 source_id 都打成 [REDACTED:label]，Set 计数会塌缩、关键词严重度也会被污染。
   const factsRaw = snap.rows.map((r) => {
@@ -156,6 +159,15 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     return { ...rest, payload: parsed };
   });
   const facts = factsRaw.map((f) => scrubFactForExport(f, R));
+  const effectiveFacts = factsRaw.filter((f) => f.active === 1);
+  const matching = { textForMatching: (f) => {
+    const text = (v) => {
+      if (Array.isArray(v)) return v.map(text).join(' ');
+      if (v && typeof v === 'object') return Object.entries(v).map(([k, value]) => `${redactForAnalysis(k, values)} ${text(value)}`).join(' ');
+      return redactForAnalysis(v, values);
+    };
+    return `${redactForAnalysis(f.source_id, values)} ${text(f.payload ?? {})}`;
+  } };
   // 审计摘要（门闸判定分布）与跳板台账（隧道收口清单）
   const auditSummary = (() => {
     try { return store.db.prepare('SELECT decision, COUNT(*) AS n FROM gate_log GROUP BY decision ORDER BY n DESC').all(); }
@@ -167,14 +179,14 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   })();
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
-  const topology = buildTopology(snap.rows);
-  const remediation = buildRemediation(factsRaw);
+  const topology = buildTopology(activeRows);
+  const remediation = buildRemediation(effectiveFacts, matching);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
   // 影响面摘要（与 md 版同源同算法；用未脱敏事实派生，出口再 R）
-  const impact = buildImpact(factsRaw, store.shellState());
+  const impact = buildImpact(effectiveFacts, store.shellState(), matching);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -253,7 +265,15 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const quarantined = facts.filter((f) => f.active !== 1);
   const grouped = groupBy(effective, (f) => f.entity_type);
   // 影响面摘要（客户视角）：只依据已落库证据，未评估的写"未评估"
-  const impact = buildImpact(facts, store.shellState());
+  const matching = { textForMatching: (f) => {
+    const text = (v) => {
+      if (Array.isArray(v)) return v.map(text).join(' ');
+      if (v && typeof v === 'object') return Object.entries(v).map(([k, value]) => `${redactForAnalysis(k, values)} ${text(value)}`).join(' ');
+      return redactForAnalysis(v, values);
+    };
+    return `${redactForAnalysis(f.source_id, values)} ${text(f.payload ?? {})}`;
+  } };
+  const impact = buildImpact(effective, store.shellState(), matching);
 
   const lines = [];
   lines.push(`# GUNGNIR 战役报告 · ${engagementId}`);
@@ -369,8 +389,9 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   })();
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
-  const topology = buildTopology(snap.rows);
-  const remediation = buildRemediation(facts);
+  const activeRows = snap.rows.filter((r) => r.active === 1);
+  const topology = buildTopology(activeRows);
+  const remediation = buildRemediation(effective, matching);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);

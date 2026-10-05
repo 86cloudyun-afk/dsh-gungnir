@@ -15,10 +15,11 @@ const GENERIC = [
 ];
 
 /**
- * @param {Array} facts 有效事实（已脱敏）
+ * @param {Array} facts 有效事实（内部 source_id 保持原值；payload 已解析为对象）
+ * @param {object} opts textForMatching 只控制通用建议关键词输入，逐条说明与引用保留原形
  * @returns {{items:Array<{ref:string, source:string, advice:string, generic:boolean}>, generic_count:number}}
  */
-export function buildRemediation(facts = []) {
+export function buildRemediation(facts = [], { textForMatching = (f) => `${f.source_id} ${JSON.stringify(f.payload ?? {})}` } = {}) {
   const items = [];
   for (const f of facts) {
     if (!['vuln', 'credential', 'chain'].includes(f.entity_type)) continue;
@@ -28,7 +29,7 @@ export function buildRemediation(facts = []) {
       items.push({ ref: f.source_id, source: '事实自带修复说明', advice: explicit.trim(), generic: false });
       continue;
     }
-    const haystack = `${f.source_id} ${JSON.stringify(payload)}`;
+    const haystack = textForMatching(f);
     const hit = GENERIC.find((g) => g.match.test(haystack));
     items.push({
       ref: f.source_id,
