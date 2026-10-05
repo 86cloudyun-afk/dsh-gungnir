@@ -94,6 +94,23 @@ function scrubIocForExport(item, R) {
 }
 
 /**
+ * 知识库复用台账出口脱敏：只 scrub rows[] 里的 asset / title 自由文本，
+ * 保留 code / result / category / ts 等标识与枚举及汇总计数。
+ * poc_usage.asset 走 use() 无脱敏入库，资产串里可嵌 `http://user:pw@host`
+ * 一类凭据；MD 版早已 R(title)/R(asset)，JSON 版此前整段原样出口会漏口令。
+ */
+function scrubKbUsageForExport(kbUsage, R) {
+  return {
+    ...kbUsage,
+    rows: (kbUsage.rows ?? []).map((r) => ({
+      ...r,
+      title: r.title == null ? r.title : R(r.title),
+      asset: r.asset == null ? r.asset : R(r.asset),
+    })),
+  };
+}
+
+/**
  * shell 状态出口脱敏：只 scrub highest_proof 自由文本。
  * current_validity 是固定枚举（unknown/likely/…），整对象 redactDeep 会在秘密
  * 恰等于枚举词时打坏机器可读字段；MD 路径早已 R(highest_proof)，JSON 此前漏掉。
@@ -185,7 +202,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     meetings: R(meetings),
     audit_summary: auditSummary,
     jump_routes: routes.map((r) => scrubRouteForExport(r, R)),
-    kb_usage: kbUsage,
+    kb_usage: scrubKbUsageForExport(kbUsage, R),
     topology: R(topology),
     remediation: R(remediation),
     impact: R(impact),

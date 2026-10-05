@@ -253,6 +253,29 @@ test('JSON IOC kind/source/confidence survive vault secrets equal to enums (Code
   assert.equal(fact.entity_type, 'session');
 });
 
+test('kb_usage ledger redacts asset/title in MD and JSON; result/code survive', () => {
+  const SECRET = 'KbAsset-P@ss-LEAK-2026';
+  const h = harness();
+  h.broker.secrets.put(SECRET, { label: 'kb-asset-pw' });
+  h.broker.knowledge.addPoc({ code: 'POC-KB', title: '通用未授权访问', category: 'unauth' });
+  // asset 经 use() 无脱敏入库：资产串里嵌的口令必须在出口被 vault scrub。
+  h.broker.knowledge.use('POC-KB', {
+    engagement_id: h.eng.engagement_id,
+    asset: `http://admin:${SECRET}@10.0.0.5`,
+    result: 'hit',
+  });
+  const exported = h.broker.exportReport(h.eng.engagement_id, { format: 'both' });
+  const json = JSON.parse(readFileSync(exported.paths.json, 'utf8'));
+  const md = readFileSync(exported.paths.markdown, 'utf8');
+  assert.equal(JSON.stringify(json).includes(SECRET), false, 'JSON must not leak kb_usage asset secret');
+  assert.equal(md.includes(SECRET), false, 'markdown must not leak kb_usage asset secret');
+  const row = json.kb_usage.rows.find((r) => r.code === 'POC-KB');
+  assert.ok(row, 'kb_usage row must survive');
+  assert.match(String(row.asset), /\[REDACTED:kb-asset-pw\]/);
+  assert.equal(row.result, 'hit', 'result enum must not be redacted');
+  assert.equal(row.code, 'POC-KB', 'code identifier must not be redacted');
+});
+
 test('JSON shell.highest_proof redacts vault secrets; current_validity enum survives', () => {
   const SECRET = 'ShellProof-P@ss-LEAK-2026';
   const h = harness();
