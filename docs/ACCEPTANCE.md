@@ -9,7 +9,16 @@
 `integration-offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/integration-offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**879 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-05 报告展示防御恢复：基于 PR187 `f71355b` 的独立 Linux 工作树，恢复此前组合分支的
+动态 payload 键脱敏/碰撞保留/结构位置、拓扑局部 ID 与完整 label 回调、派生结构枚举保护；
+采用 PR192 的完整 metadata/evidence 引用边界。原始连接解析、active 筛选、全行 digest 与水位保留。
+固定合成 fixture 下，集中 RED 57 登记 / 29 通过 / 28 预期失败，GREEN 57/57；
+报告相关定向 120/120，零跳过。外部安全 preload 下完整六闸为 924 登记 / 877 通过 / 0 失败 / 47 跳过
+（41 项执行器/网络/资源/native/deploy 范围跳过、6 项既有环境跳过，均不计通过）。
+仅使用内存合成 vault 和新建临时数据库；三受众跨格式、query_only、SQL/snapshot 前后比较均通过，
+不作为真实服务器验收，也不将旧组合分支或来源 PR 的历史 CI 计为本次结果。
+
+逐闸等价命令：`node --test`（**924 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -51,6 +60,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 | 水位双校验 | `test/report.test.js` | ✅ |
 | 非所有者写被拒 | `test/store.test.js` | ✅ |
 | fact 停写注入 + 补偿 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③④ | ✅ |
+| 报告展示防御恢复 | `test/report-display-restoration.test.js`、`test/report-joint-defense.test.js`、`test/report-concentrated-defense.test.js`、`test/report-topology-combination.test.js`、`test/report-complete-redaction.test.js`：键碰撞、局部图连接、结构枚举、完整引用、metadata、active/history、全行水位及只读导出 | ✅ 固定合成 fixture；来源 183/旧187/192 的回归在本候选重新 RED/GREEN |
 | auth_version 递增不影响 engagement_id / 库路径 / 租约 | `test/gates.test.js`、`test/migrate-backup.test.js` | ✅ |
 
 ## ADR-003（Adapter 生命周期 rev2）
@@ -162,7 +172,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：879 例（`node --test`）
+- 测试：924 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）

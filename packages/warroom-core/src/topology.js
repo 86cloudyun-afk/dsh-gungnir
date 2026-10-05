@@ -4,12 +4,12 @@
 const NODE_KIND = { asset: 'asset', domain: 'domain', vuln: 'vuln', credential: 'credential',
   session: 'session', chain: 'chain', shell: 'shell', persistence: 'persistence' };
 
-function labelOf(row) {
+function labelOf(row, redactLabel) {
   const src = row.source_id ?? row.id ?? 'unknown';
   const kind = NODE_KIND[row.entity_type] ?? 'other';
   // 保留完整 source_id：可见截断只在 Mermaid 渲染层做。
   // 若在这里先截到 40 字，报告侧 vault 精确脱敏会匹配失败，长口令前缀会漏进图。
-  return { id: `${kind}:${src}`, label: String(src), kind };
+  return { id: `${kind}:${src}`, label: String(redactLabel(src)), kind };
 }
 
 /** 展示用截断（脱敏之后再调用；勿用于 vault 匹配输入）。 */
@@ -24,10 +24,11 @@ function parsePayload(row) {
 
 /**
  * @param {Array} facts 有效事实行
+ * @param {object} opts redactLabel 只处理完整展示 label，不改 raw ID 或连接解析。
  * @returns {{nodes:Array<{id,label,kind}>, edges:Array<{from,to,via}>, derived_from:string, unexplained:number}}
  */
-export function buildTopology(facts = []) {
-  const nodes = facts.map(labelOf);
+export function buildTopology(facts = [], { redactLabel = (s) => s } = {}) {
+  const nodes = facts.map((row) => labelOf(row, redactLabel));
   const idBySource = new Map();
   for (let i = 0; i < facts.length; i += 1) {
     const key = facts[i].source_id;

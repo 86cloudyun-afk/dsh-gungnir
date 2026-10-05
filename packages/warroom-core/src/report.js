@@ -47,6 +47,7 @@ function readKbUsage(home, engagementId) {
 }
 
 const ENTITY_ORDER = ['asset', 'domain', 'vuln', 'credential', 'session', 'chain', 'shell', 'persistence'];
+const displayEntityType = (type, R) => ENTITY_ORDER.includes(type) ? type : R(type);
 
 function groupBy(rows, keyFn) {
   const out = new Map();
@@ -59,37 +60,80 @@ function groupBy(rows, keyFn) {
 }
 
 
-/**
- * JSON 事实行出口脱敏：只 scrub 可能嵌秘密的自由文本，保留 schema/枚举字段。
- * vault 接受任意非空明文；若秘密恰等于 `asset`/`session` 等，整行 redactDeep
- * 会把 entity_type 打成 [REDACTED:…]，机器可读 gungnir-report/1 无法再分类（Codex P2）。
- */
-function scrubFactForExport(fact, R) {
+/** 完整元数据沿用 PR192 的递归脱敏边界；payload 单独保护结构位置与动态键。 */
+function scrubFactForExport(fact, R, P) {
+  const { payload, ...metadata } = fact;
+  const scrubbed = R(metadata);
   return {
-    ...fact,
-    source_id: R(fact.source_id),
-    flags: fact.flags == null ? fact.flags : R(fact.flags),
-    payload: R(fact.payload),
+    ...scrubbed,
+    entity_type: ENTITY_ORDER.includes(fact.entity_type) ? fact.entity_type : scrubbed.entity_type,
+    payload: P(payload),
   };
 }
 
-/**
- * IOC 条目出口脱敏：只 scrub ref/note 与 evidence_ref 中 `#` 后的标识，
- * 保留 kind/source/confidence/manual_confirm 等固定枚举（Codex P2）。
- */
+/** 完整引用（含跨 # 的秘密）脱敏，保留 kind/source/confidence 等结构枚举。 */
 function scrubIocForExport(item, R) {
-  const scrubEvidenceRef = (ref) => {
-    if (ref == null) return ref;
-    const s = String(ref);
-    const i = s.indexOf('#');
-    if (i < 0) return R(s);
-    return `${s.slice(0, i + 1)}${R(s.slice(i + 1))}`;
-  };
   return {
     ...item,
     ref: R(item.ref),
     note: item.note == null ? item.note : R(item.note),
-    evidence_ref: scrubEvidenceRef(item.evidence_ref),
+    evidence_ref: item.evidence_ref == null ? item.evidence_ref : R(item.evidence_ref),
+  };
+}
+
+/** 只脱敏自由展示字段；派生计数、状态、严重度及建议来源保持结构枚举。 */
+function displayImpact(impact, R) {
+  return { ...impact,
+    control: { ...impact.control, highest_proof: R(impact.control.highest_proof) },
+    severity: { ...impact.severity, reasons: impact.severity.reasons.map((r) => ({ ...r, text: R(r.text) })) },
+  };
+}
+function displayRemediation(remediation, R) {
+  return { ...remediation, items: remediation.items.map((i) => ({ ...i, ref: R(i.ref), advice: R(i.advice) })) };
+}
+
+// payload 没有全树 schema；只保护消费者已定义的结构位置，其余对象键是展示文本。
+const PAYLOAD_REF_FIELDS = new Set(['asset', 'target', 'host', 'via', 'source_ref', 'unlocks', 'achieved_via']);
+const PAYLOAD_FIELDS = new Set([...PAYLOAD_REF_FIELDS, 'steps', 'path', 'chain', 'remediation', 'fix', 'advice']);
+const STEP_FIELDS = new Set(['from', 'to', 'via']);
+const REF_FIELDS = new Set(['ref', 'source_id', 'id', 'adapter_instance', 'entity_type']);
+
+/** 键/值原文先脱敏；同 label 键碰撞不丢条目，引用/数组形态保留。 */
+function displayPayload(payload, R) {
+  const project = (value, context = 'free') => {
+    if (typeof value === 'string') return R(value);
+    if (Array.isArray(value)) return value.map((v) => project(v, context === 'steps' ? 'step' : ['ref', 'refs'].includes(context) ? 'ref' : 'free'));
+    if (!value || typeof value !== 'object') return value;
+    const fixed = context === 'root' ? PAYLOAD_FIELDS : context === 'step' ? STEP_FIELDS : context === 'ref' ? REF_FIELDS : new Set();
+    const entries = Object.entries(value).map(([key, v]) => ({ key, shown: fixed.has(key) ? key : R(key), value: v }));
+    // 预留不改名的键，避免替代标记或公开字段被脱敏后的键覆盖。
+    const used = new Set(entries.filter((e) => e.shown === e.key).map((e) => e.key));
+    return Object.fromEntries(entries.map(({ key, shown, value: v }) => {
+      let outputKey = shown;
+      if (shown !== key) {
+        let suffix = 2;
+        while (used.has(outputKey)) outputKey = `${shown}#${suffix++}`;
+        used.add(outputKey);
+      }
+      const childContext = context === 'root'
+        ? (key === 'steps' ? 'steps' : ['path', 'chain'].includes(key) ? 'refs' : PAYLOAD_REF_FIELDS.has(key) ? 'ref' : 'free')
+        : context === 'step' && ['from', 'to'].includes(key) ? 'ref' : 'free';
+      const shownValue = context === 'ref' && key === 'entity_type' && ENTITY_ORDER.includes(v) ? v : project(v, childContext);
+      return [outputKey, shownValue];
+    }));
+  };
+  return project(payload, 'root');
+}
+
+function displayTopology(topology, R) {
+  // 原图完成连接后再映射局部 ID；不同 raw ID 的同 label 节点保持独立。
+  const ids = new Map();
+  for (const n of topology.nodes) {
+    if (!ids.has(n.id)) ids.set(n.id, R(n.id) === n.id ? n.id : `report-node#${ids.size + 1}`);
+  }
+  return { ...topology,
+    nodes: topology.nodes.map((n) => ({ ...n, id: ids.get(n.id) })),
+    edges: topology.edges.map((e) => ({ ...e, from: ids.get(e.from), to: ids.get(e.to), via: R(e.via) })),
   };
 }
 
@@ -148,8 +192,10 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   const snap = store.exportSnapshot();
   // 完整快照用于历史与水位；派生结论只消费有效修订（ADR-002 D5）。
   const activeRows = snap.rows.filter((r) => r.active === 1);
-  const R = (v) => (vault ? redactDeep(v, vault.values()) : v);
   const values = vault ? vault.values() : [];
+  const R = (v) => (vault ? redactDeep(v, values) : v);
+  const S = (s) => (vault ? vault.redact(s) : s);
+  const P = (v) => (vault ? displayPayload(v, S) : v);
   // 先解析、再派生（影响面/修复建议按原文 source_id 计数/分类），最后才 scrub 出口。
   // 若先把不同秘密 source_id 都打成 [REDACTED:label]，Set 计数会塌缩、关键词严重度也会被污染。
   const factsRaw = snap.rows.map((r) => {
@@ -158,7 +204,7 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     try { parsed = JSON.parse(payload ?? '{}'); } catch { parsed = { raw: payload }; }
     return { ...rest, payload: parsed };
   });
-  const facts = factsRaw.map((f) => scrubFactForExport(f, R));
+  const facts = factsRaw.map((f) => scrubFactForExport(f, R, P));
   const effectiveFacts = factsRaw.filter((f) => f.active === 1);
   const matching = { textForMatching: (f) => {
     const text = (v) => {
@@ -179,14 +225,14 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
   })();
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
-  const topology = buildTopology(activeRows);
-  const remediation = buildRemediation(effectiveFacts, matching);
+  const topology = displayTopology(buildTopology(activeRows, { redactLabel: S }), S);
+  const remediation = displayRemediation(buildRemediation(effectiveFacts, matching), S);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
 
   // 影响面摘要（与 md 版同源同算法；用未脱敏事实派生，出口再 R）
-  const impact = buildImpact(effectiveFacts, store.shellState(), matching);
+  const impact = displayImpact(buildImpact(effectiveFacts, store.shellState(), matching), S);
 
   // 知识库复用（POC 跨战役复用是本框架的长期价值所在：这次用了什么、成没成）
   const kbUsage = readKbUsage(home, engagementId);
@@ -215,9 +261,9 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
     audit_summary: auditSummary,
     jump_routes: routes.map((r) => scrubRouteForExport(r, R)),
     kb_usage: scrubKbUsageForExport(kbUsage, R),
-    topology: R(topology),
-    remediation: R(remediation),
-    impact: R(impact),
+    topology,
+    remediation,
+    impact,
     timing: {
       tasks: gantt.tasks.map((t) => ({
         task_id: t.task_id, dispatched_at: t.dispatched_at,
@@ -255,7 +301,10 @@ export function buildReportJson({ store, engagementId, engagementRow, vault, glo
 export function buildReport({ store, engagementId, engagementRow, vault, globalDb, home = null, maxFactsPerType = 50, audience = 'full', metrics = null }) {
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
-  const R = (s) => (vault ? vault.redact(s) : String(s));
+  const R = (s) => (vault ? vault.redact(s) : s);
+  const D = (v) => (vault ? redactDeep(v, values) : v);
+  const P = (v) => (vault ? displayPayload(v, R) : v);
+  const RF = (f) => scrubFactForExport(f, D, P);
   const facts = snap.rows.map((r) => ({
     ...r,
     payload: JSON.parse(r.payload || '{}'),
@@ -273,7 +322,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     };
     return `${redactForAnalysis(f.source_id, values)} ${text(f.payload ?? {})}`;
   } };
-  const impact = buildImpact(effective, store.shellState(), matching);
+  const impact = displayImpact(buildImpact(effective, store.shellState(), matching), R);
 
   const lines = [];
   lines.push(`# GUNGNIR 战役报告 · ${engagementId}`);
@@ -291,7 +340,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
   lines.push(`- fact_members: \`${sha(JSON.stringify(snap.rows))}\``);
   for (const [type, rows] of grouped) {
-    lines.push(`- ${type}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
+    lines.push(`- ${displayEntityType(type, R)}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
   }
   lines.push('');
   // 链前会议纪要（有则收录：波次与报告的追溯链）
@@ -326,7 +375,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   // 影响面摘要：客户最关心的一段，放在最前（工程视图可跳过）
   lines.push('## 影响面摘要');
   lines.push('');
-  lines.push(R(renderImpact(impact)));
+  lines.push(renderImpact(impact));
   lines.push('');
 
   lines.push('## shell 状态');
@@ -353,13 +402,14 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   for (const type of ENTITY_ORDER.concat([...grouped.keys()].filter((k) => !ENTITY_ORDER.includes(k)))) {
     const rows = grouped.get(type);
     if (!rows) continue;
-    lines.push(`### ${type}（${rows.length}）`);
+    lines.push(`### ${displayEntityType(type, R)}（${rows.length}）`);
     lines.push('');
     const effectiveLimit = audience === 'client' ? 0 : maxFactsPerType;   // 客户版不铺逐条流水
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${r.adapter_instance}] ${R(r.source_id)} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+      const display = RF(r);
+      lines.push(`- [${display.adapter_instance}] ${display.source_id} @${rev} · ${JSON.stringify(display.payload).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
@@ -373,7 +423,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('## 未采用记录（隔离/历史/待审）');
     lines.push('');
     for (const q of quarantined) {
-      lines.push(`- ${q.entity_type}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
+      const display = RF(q);
+      lines.push(`- ${display.entity_type}/${display.source_id} r${q.revision_no} · flags=${display.flags ?? 'superseded'}（不参与记账与判定）`);
     }
     lines.push('');
   }
@@ -390,8 +441,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
 
   // 攻击路径拓扑（只按 payload 里明写的引用画边，不猜）
   const activeRows = snap.rows.filter((r) => r.active === 1);
-  const topology = buildTopology(activeRows);
-  const remediation = buildRemediation(effective, matching);
+  const topology = displayTopology(buildTopology(activeRows, { redactLabel: R }), R);
+  const remediation = displayRemediation(buildRemediation(effective, matching), R);
   // 时序分段（逐任务 派发→回执→结项）：账本里没有的事件不出现，段缺时间戳就显示 —
   const timeline = buildTimeline({ store, globalDb, engagementId });
   const gantt = buildGantt(timeline);
@@ -406,7 +457,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- 清单摘要：\`${ioc.summary.digest.slice(0, 16)}\``);
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
-  // 与 JSON 同源：ref/note/evidence_ref#suffix 过 vault；kind/confidence 等枚举保留
+  // 与 JSON 同源：完整 ref/note/evidence_ref 过 vault；kind/confidence 等枚举保留
   for (const i of ioc.items.map((item) => scrubIocForExport(item, R))) {
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${i.note}`);
   }
@@ -427,7 +478,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
       lines.push('');
     }
     for (const item of remediation.items) {
-      lines.push(`- \`${R(item.ref)}\` — ${R(item.advice)}（来源：${item.source}）`);
+      lines.push(`- \`${item.ref}\` — ${item.advice}（来源：${item.source}）`);
     }
     lines.push('');
   }
@@ -436,12 +487,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     // 先脱敏完整 label/via，再交给 Mermaid 转义与展示截断。
     // 顺序不能反：① `|` 等被 safe() 改写后 vault 精确匹配失败；
     // ② buildTopology 若先截到 40 字，长口令前缀同样匹配失败（Codex P1 续）。
-    const vizTopology = {
-      ...topology,
-      nodes: topology.nodes.map((n) => ({ ...n, label: R(n.label) })),
-      edges: topology.edges.map((e) => ({ ...e, via: R(String(e.via ?? '')) })),
-    };
-    const viz = toMermaidGrouped(vizTopology);
+    const viz = toMermaidGrouped(topology);
     lines.push('## 攻击路径拓扑');
     lines.push('');
     lines.push(viz.mermaid);
