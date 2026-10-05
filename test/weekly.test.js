@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { Broker } from '../packages/warroom-core/src/broker.js';
 import { FakeAdapter } from '../packages/warroom-core/src/adapters/fake.js';
 import { renderWeekly } from '../packages/warroom-core/src/weekly.js';
+import { markdownToHtml } from '../packages/warroom-core/src/html.js';
 import { harness } from '../packages/warroom-core/src/testing.js';
 import { backupHome } from '../packages/warroom-core/src/maintenance.js';
 
@@ -138,4 +139,34 @@ test('CLI weekly --archive 可用并返回路径', () => {
   assert.ok(out.path.endsWith('.md'));
   assert.ok(out.label);
   assert.ok(readFileSync(out.path, 'utf8').includes('# 战役周报'));
+});
+
+test('周报：目标/节奏含竖线或换行不塌表（.md 与 HTML 列数都保全）', () => {
+  const w = {
+    window: { from: '2026-10-01T00:00:00.000Z', to: '2026-10-08T00:00:00.000Z', days: 7 },
+    totals: { engagements: 1, deliverable: 0, facts: 10, facts_in_window: 3, reports_in_window: 1, shells: 0 },
+    rows: [{
+      engagement_id: '01ABCDEFGHIJKLMNOPQRSTUVWX',
+      // 配置自由文本：含竖线与换行（html.js 不认 \| 转义，裸切 | 会丢列）
+      target_scope: '*.corp.example.com | 禁 prod-db\n第二行注释',
+      rhythm: 'open | 夜间\r\n加一段',
+      facts_in_window: 3, facts: 10, reports_in_window: 1, reports: 2,
+      delivery: { deliverable: false, blocked: 2 },
+    }],
+    note: 'x',
+  };
+  const md = renderWeekly(w);
+  const bodyRow = md.split('\n').find((l) => l.startsWith('| `01ABC'));
+  // 该数据行不得被换行劈开，且恰有 8 个 | 边界（7 列）
+  assert.ok(bodyRow, '数据行应整行存在，不被换行截断');
+  assert.equal((bodyRow.match(/\|/g) || []).length, 8, '一行应恰好 7 列（8 个竖线边界）');
+  assert.ok(!bodyRow.includes('第二行注释\n') && !bodyRow.includes('\n'), '换行应被折叠');
+
+  const html = markdownToHtml(md);
+  const table = html.match(/<table>[\s\S]*?<\/table>/)[0];
+  const firstBodyTr = table.split('<tbody>')[1].match(/<tr>[\s\S]*?<\/tr>/)[0];
+  const tdCount = (firstBodyTr.match(/<td>/g) || []).length;
+  assert.equal(tdCount, 7, 'HTML 表体首行应保全 7 个单元格，不因竖线丢列');
+  // 交付门禁列（最后一列）仍在
+  assert.ok(firstBodyTr.includes('未过 2 项'), '末列交付门禁不得被前面的竖线吞掉');
 });
