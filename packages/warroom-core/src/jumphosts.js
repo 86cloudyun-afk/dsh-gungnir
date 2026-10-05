@@ -35,13 +35,14 @@ export class JumphostManager {
     return hosts.length;
   }
 
-  _usable(hostId) {
+  _usable(hostId, at = now()) {
     const h = this.g.prepare('SELECT * FROM jumphosts WHERE id = ?').get(hostId);
     if (!h) return false;
     if (h.status !== 'healthy') return false;
-    const cd = this.g.prepare('SELECT 1 FROM cooldowns WHERE jumphost_id = ? AND until > ?').get(hostId, now());
+    const cd = this.g.prepare('SELECT 1 FROM cooldowns WHERE jumphost_id = ? AND until > ?').get(hostId, at);
     if (cd) return false;
-    const day = now().slice(0, 10);
+    const day = at.slice(0, 10);
+    if (h.day > day) return false; // 旧时钟/旧请求不能退回已开始的新日桶。
     const used = h.day === day ? h.used_today : 0;
     return used < h.quota;
   }
@@ -54,8 +55,9 @@ export class JumphostManager {
    *   拿到一条占位路由（真机踩过）。
    */
   acquire({ engagement_id, target, jumphost_id = null }) {
-    const all = this.g.prepare('SELECT * FROM jumphosts').all().filter((h) => this._usable(h.id));
-    const today = now().slice(0, 10);
+    const at = now();
+    const today = at.slice(0, 10);
+    const all = this.g.prepare('SELECT * FROM jumphosts').all().filter((h) => this._usable(h.id, at));
     // 当日配额以“今天”为准：台账里 day 落在往日时，其 used_today 属于往日，今天应视作 0（与 _usable 一致）。
     const usedToday = (h) => (h.day === today ? h.used_today : 0);
     let host;
@@ -72,13 +74,28 @@ export class JumphostManager {
     // 1) op 意图先行（补偿唯一真源，ADR-002 D6）
     const op_id = randomUUID();
     const lease_id = `lease_${randomUUID()}`;
-    this.g.prepare(`INSERT INTO op_log (op_id, kind, ref_id, state, detail, ts)
-      VALUES (?, 'jumphost_acquire', ?, 'intent', ?, ?)`).run(op_id, host.id, `lease=${lease_id}`, now());
-
-    // 2) 租约
     const expires = new Date(Date.now() + this.ttlMinutes * 60_000).toISOString();
-    this.g.prepare(`INSERT INTO leases (lease_id, jumphost_id, engagement_id, state, expires_at, heartbeat_at, ts)
-      VALUES (?, ?, ?, 'active', ?, ?, ?)`).run(lease_id, host.id, engagement_id, expires, now(), now());
+    // 多个 CLI 可共享 global.db：意图、当日配额预留、租约在短写事务内原子提交。
+    // 探测/fact 写入在提交后执行；不能持锁等待外部动作，也不能到完成时再写回缓存日期。
+    this.g.exec('BEGIN IMMEDIATE');
+    try {
+      this.g.prepare(`INSERT INTO op_log (op_id, kind, ref_id, state, detail, ts)
+        VALUES (?, 'jumphost_acquire', ?, 'intent', ?, ?)`).run(op_id, host.id, `lease=${lease_id}`, at);
+      const reserved = this.g.prepare(`UPDATE jumphosts
+        SET used_today = CASE WHEN day = ? THEN used_today + 1 ELSE 1 END, day = ?
+        WHERE id = ? AND status = 'healthy' AND quota > 0
+          AND (day < ? OR (day = ? AND used_today < quota))
+          AND NOT EXISTS (SELECT 1 FROM cooldowns WHERE jumphost_id = ? AND until > ?)`)
+        .run(today, today, host.id, today, today, host.id, at);
+      if (reserved.changes !== 1) throw warroomError(ERR.E_NO_JUMPHOST, 'jumphost quota or availability changed');
+      // 2) 租约：只有成功预留的请求才能进入激活/出口实测。
+      this.g.prepare(`INSERT INTO leases (lease_id, jumphost_id, engagement_id, state, expires_at, heartbeat_at, ts)
+        VALUES (?, ?, ?, 'active', ?, ?, ?)`).run(lease_id, host.id, engagement_id, expires, at, at);
+      this.g.exec('COMMIT');
+    } catch (e) {
+      this.g.exec('ROLLBACK');
+      throw e;
+    }
 
     // 3) 激活 + 出口实测（写 fact.db —— 可注入故障的补偿点）
     try {
@@ -94,9 +111,6 @@ export class JumphostManager {
       const store = this.getFactStore(engagement_id);
       store.recordRoute({ route_id, lease_id, jumphost_id: host.id, socks });
       store.recordEgressCheck({ jumphost_id: host.id, exit_ip: probe.exit_ip, route_id });
-      // 跨天滚动：day 变化时当日计数从 1 起算（否则往日用量会漏算进今天，错误地提前耗尽今日配额）。
-      this.g.prepare('UPDATE jumphosts SET used_today = CASE WHEN day = ? THEN used_today + 1 ELSE 1 END, day = ? WHERE id = ?')
-        .run(today, today, host.id);
       this.g.prepare("UPDATE op_log SET state = 'activated' WHERE op_id = ?").run(op_id);
       return {
         lease_id, route_id, jumphost_id: host.id, socks, socks_source,
@@ -108,9 +122,20 @@ export class JumphostManager {
     } catch (e) {
       // 4) 补偿：资源拆除 + 租约释放 + op_log 补偿态；fact 审计恢复后补齐
       this.teardowns.push({ lease_id, jumphost_id: host.id, reason: String(e.message || e) });
-      this.g.prepare('UPDATE leases SET state = ? WHERE lease_id = ?').run('released', lease_id);
-      this.g.prepare("UPDATE op_log SET state = 'compensation_pending' WHERE op_id = ?").run(op_id);
-      this.g.prepare("UPDATE op_log SET state = 'released', recovered_at = ? WHERE op_id = ?").run(now(), op_id);
+      // 只归还本请求所属日期的预留；新日已滚动时不碰新日成功请求的计数。
+      // 归还与释放一并提交：释放写失败时保留配额，避免未释放租约脱离预算。
+      this.g.exec('BEGIN IMMEDIATE');
+      try {
+        this.g.prepare('UPDATE jumphosts SET used_today = used_today - 1 WHERE id = ? AND day = ? AND used_today > 0')
+          .run(host.id, today);
+        this.g.prepare('UPDATE leases SET state = ? WHERE lease_id = ?').run('released', lease_id);
+        this.g.prepare("UPDATE op_log SET state = 'compensation_pending' WHERE op_id = ?").run(op_id);
+        this.g.prepare("UPDATE op_log SET state = 'released', recovered_at = ? WHERE op_id = ?").run(now(), op_id);
+        this.g.exec('COMMIT');
+      } catch (compensationError) {
+        this.g.exec('ROLLBACK');
+        throw compensationError;
+      }
       throw warroomError(ERR.E_COMPENSATED, `acquire compensated: ${e.code ?? e.message}`, { lease_id });
     }
   }

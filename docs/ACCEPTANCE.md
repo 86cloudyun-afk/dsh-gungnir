@@ -9,7 +9,15 @@
 `integration-offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/integration-offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**868 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-05 跳板配额修复在独立 Linux 工作树验证：880 登记 / 833 通过 / 0 失败 / 47 跳过；
+其中 41 项执行器/网络/资源/原生宿主/部署范围跳过，6 项既有环境跳过，均不计通过。
+12 项新增回归使用固定时钟、新建临时 WAL 库及合成事实；相关定向集 37/37，零跳过。
+外部安全 preload 限制真实工具、公共网络和非 fixture 秘密路径；Node 24 下显式指定
+`--test-reporter=tap`，使文档计数脚本及其子测试保持可解析输出。
+配额先预留，失败时与租约释放一并归还；进程意外终止或补偿写失败时预留保留，可能占用当日槽位，
+防止未确认释放的请求脱离配额。本次 fixture 结果不替代用户服务器验收。
+
+逐闸等价命令：`node --test`（**880 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -51,6 +59,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 | 水位双校验 | `test/report.test.js` | ✅ |
 | 非所有者写被拒 | `test/store.test.js` | ✅ |
 | fact 停写注入 + 补偿 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③④ | ✅ |
+| 跳板每日配额跨进程防御 | `test/jumphost-quota.test.js`：固定时钟、新建 WAL 库、独立 Node 子进程；旧日延迟完成/失败不回退或扣减新日桶，同日预留不超额/不丢计数，选择后竞态重新验证，租约失败原子回滚，满额/时钟回退拒绝不写库，fact 失败保留补偿审计，释放写失败保留预留 | ✅ 临时合成 fixture；不连接出口，不作为现场验收 |
 | auth_version 递增不影响 engagement_id / 库路径 / 租约 | `test/gates.test.js`、`test/migrate-backup.test.js` | ✅ |
 
 ## ADR-003（Adapter 生命周期 rev2）
@@ -162,7 +171,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：868 例（`node --test`）
+- 测试：880 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
