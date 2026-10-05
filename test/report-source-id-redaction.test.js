@@ -274,6 +274,8 @@ test('kb_usage ledger redacts asset/title in MD and JSON; result/code survive', 
   assert.match(String(row.asset), /\[REDACTED:kb-asset-pw\]/);
   assert.equal(row.result, 'hit', 'result enum must not be redacted');
   assert.equal(row.code, 'POC-KB', 'code identifier must not be redacted');
+});
+
 test('JSON shell.highest_proof redacts vault secrets; current_validity enum survives', () => {
   const SECRET = 'ShellProof-P@ss-LEAK-2026';
   const h = harness();
