@@ -43,6 +43,7 @@ DSH 红队战役指挥框架。**100% 红队工具：仅限已获授权的攻防
 - ADR-007 批准与动作绑定（批准指纹 + 原子单次消费 + 授权手段校验）：[docs/adr/ADR-007-approval-action-binding.md](docs/adr/ADR-007-approval-action-binding.md)
 - ADR-008 证据来源与资源清单真实性（目标文本不得成为事实 + 后台进程进清单）：[docs/adr/ADR-008-evidence-provenance-and-resource-manifest.md](docs/adr/ADR-008-evidence-provenance-and-resource-manifest.md)
 - ADR-009 终态与资源收口（完成不掩盖活资源；终态取消仍必须真的停 + 逐项证实）：[docs/adr/ADR-009-terminal-state-and-resource-settlement.md](docs/adr/ADR-009-terminal-state-and-resource-settlement.md)
+- ADR-010 执行线与自主研究线（**Proposed，仅设计**；范围内自主假设/验证/论证，候选结论显式采纳）：[设计](docs/adr/ADR-010-execution-autonomous-research.md) ｜ [离线第一期计划](docs/superpowers/plans/2026-10-03-execution-autonomous-research.md)
 - 冻结快照：[docs/adr/frozen/](docs/adr/frozen/)
 - 快速开始（真实演练输出）：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 - 工具清单（自动生成）：[docs/TOOLS.md](docs/TOOLS.md)
