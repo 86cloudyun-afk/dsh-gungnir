@@ -60,36 +60,28 @@ function groupBy(rows, keyFn) {
 
 
 /**
- * JSON 事实行出口脱敏：只 scrub 可能嵌秘密的自由文本，保留 schema/枚举字段。
- * vault 接受任意非空明文；若秘密恰等于 `asset`/`session` 等，整行 redactDeep
- * 会把 entity_type 打成 [REDACTED:…]，机器可读 gungnir-report/1 无法再分类（Codex P2）。
+ * 事实行出口递归脱敏：任意元数据也可能含秘密，仅恢复已知 entity_type 枚举。
+ * 自定义类型与 adapter_instance/content_hash/generation 等均是自由文本。
+ * 原始事实仍用于派生分析、水位与摘要；这里只处理展示副本。
  */
 function scrubFactForExport(fact, R) {
+  const scrubbed = R(fact);
   return {
-    ...fact,
-    source_id: R(fact.source_id),
-    flags: fact.flags == null ? fact.flags : R(fact.flags),
-    payload: R(fact.payload),
+    ...scrubbed,
+    entity_type: ENTITY_ORDER.includes(fact.entity_type) ? fact.entity_type : scrubbed.entity_type,
   };
 }
 
 /**
- * IOC 条目出口脱敏：只 scrub ref/note 与 evidence_ref 中 `#` 后的标识，
- * 保留 kind/source/confidence/manual_confirm 等固定枚举（Codex P2）。
+ * IOC 条目出口脱敏：完整 ref/note/evidence_ref 过 vault，包括跨 `#` 的秘密。
+ * kind/source/confidence/manual_confirm 等结构枚举保留。
  */
 function scrubIocForExport(item, R) {
-  const scrubEvidenceRef = (ref) => {
-    if (ref == null) return ref;
-    const s = String(ref);
-    const i = s.indexOf('#');
-    if (i < 0) return R(s);
-    return `${s.slice(0, i + 1)}${R(s.slice(i + 1))}`;
-  };
   return {
     ...item,
     ref: R(item.ref),
     note: item.note == null ? item.note : R(item.note),
-    evidence_ref: scrubEvidenceRef(item.evidence_ref),
+    evidence_ref: item.evidence_ref == null ? item.evidence_ref : R(item.evidence_ref),
   };
 }
 
@@ -244,6 +236,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const snap = store.exportSnapshot();
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
+  const RF = (fact) => scrubFactForExport(fact, (v) => vault ? redactDeep(v, values) : v);
+  const displayType = (type) => ENTITY_ORDER.includes(type) ? type : R(type);
   const facts = snap.rows.map((r) => ({
     ...r,
     payload: JSON.parse(r.payload || '{}'),
@@ -271,7 +265,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push('');
   lines.push(`- fact_members: \`${sha(JSON.stringify(snap.rows))}\``);
   for (const [type, rows] of grouped) {
-    lines.push(`- ${type}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
+    lines.push(`- ${displayType(type)}: \`${sha(JSON.stringify(rows.map((r) => [r.id, r.revision_no, r.content_hash]))).slice(0, 16)}\``);
   }
   lines.push('');
   // 链前会议纪要（有则收录：波次与报告的追溯链）
@@ -333,13 +327,14 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   for (const type of ENTITY_ORDER.concat([...grouped.keys()].filter((k) => !ENTITY_ORDER.includes(k)))) {
     const rows = grouped.get(type);
     if (!rows) continue;
-    lines.push(`### ${type}（${rows.length}）`);
+    lines.push(`### ${displayType(type)}（${rows.length}）`);
     lines.push('');
     const effectiveLimit = audience === 'client' ? 0 : maxFactsPerType;   // 客户版不铺逐条流水
     const shown = rows.slice(0, effectiveLimit);
     for (const r of shown) {
+      const display = RF(r);
       const rev = `r${r.revision_no}`;
-      lines.push(`- [${r.adapter_instance}] ${R(r.source_id)} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
+      lines.push(`- [${display.adapter_instance}] ${display.source_id} @${rev} · ${R(JSON.stringify(r.payload)).slice(0, 300)}`);
     }
     if (rows.length > shown.length) {
       const why = audience === 'client'
@@ -353,7 +348,8 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
     lines.push('## 未采用记录（隔离/历史/待审）');
     lines.push('');
     for (const q of quarantined) {
-      lines.push(`- ${q.entity_type}/${R(q.source_id)} r${q.revision_no} · flags=${q.flags ?? 'superseded'}（不参与记账与判定）`);
+      const display = RF(q);
+      lines.push(`- ${display.entity_type}/${display.source_id} r${q.revision_no} · flags=${display.flags ?? 'superseded'}（不参与记账与判定）`);
     }
     lines.push('');
   }
@@ -385,7 +381,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   lines.push(`- 清单摘要：\`${ioc.summary.digest.slice(0, 16)}\``);
   lines.push('');
   if (ioc.items.length === 0) lines.push('- （无候选）');
-  // 与 JSON 同源：ref/note/evidence_ref#suffix 过 vault；kind/confidence 等枚举保留
+  // 与 JSON 同源：完整 ref/note/evidence_ref 过 vault；kind/confidence 等枚举保留
   for (const i of ioc.items.map((item) => scrubIocForExport(item, R))) {
     lines.push(`- [${i.manual_confirm ? ' ' : 'x'}] **${i.kind}** \`${i.ref}\`（${i.confidence}，证据 ${i.evidence_ref}）— ${i.note}`);
   }
