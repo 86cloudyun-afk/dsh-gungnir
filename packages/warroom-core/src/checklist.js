@@ -139,7 +139,9 @@ export function buildChecklist({ broker, engagementId, profile = 'delivery', rep
     }
   }
 
-  const done = items.filter((i) => i.status === OK).length;
+  // "自动判定" 只数自动项：人工项即便经 recordConfirmation 翻成 OK，也属于「人工确认」计数
+  // （见下方 manual 与渲染行 `自动判定：done/total`），不得算进 done，否则 done 会超过 total（倒挂）。
+  const done = items.filter((i) => !i.manual && i.status === OK).length;
   const manual = items.filter((i) => i.manual).length;
 
   // 必过项（gate）：
