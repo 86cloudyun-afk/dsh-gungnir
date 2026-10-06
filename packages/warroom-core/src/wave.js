@@ -162,10 +162,20 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
     }
   };
 
-  const ready = (t) => (t.depends_on ?? []).every((dep) => results.has(dep));
+  // 下游“就绪”必须以上游**结项**为准（而非仅已派发）：依赖边意味着下游要消费上游产出的事实，
+  // 回执未就绪的上游（异步执行器）不能算满足；否则在节奏档并发 ≥2 时，下游会抢在上游落库前开跑。
+  const ready = (t) => (t.depends_on ?? []).every((dep) => results.get(dep)?.settled);
   let guard = 0;
   while (results.size < wave.tasks.length) {
-    if (++guard > budget) throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：疑似成环');
+    if (++guard > budget) {
+      // 合法 DAG（planWave 已校验无环/无悬空）里走到这里只有一种可能：
+      // 在飞任务迟迟不结项，导致下游依赖无法推进——如实报执行器未报终态，而不是误判成环。
+      const stuck = inFlight.map((x) => x.id).join(',') || '(无在飞任务)';
+      throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
+        `波内任务长时间未结项，下游依赖无法推进：${stuck}`
+        + '（执行器未报告终态；请 reconcile 或检查执行器）');
+    }
+    drain();                 // 先收口可结项的在飞任务，让已满足依赖的下游本轮即可交接
     let progressed = false;
     for (const t of wave.tasks) {
       if (dispatched.has(t.id) || !ready(t)) continue;
@@ -197,22 +207,13 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
 
       // 回执 → 入库（成员级幂等）→ 结项（执行器报告终态后账本跟进）
       drain();
-      if (!item.settled) {
-        // 未结项意味着它仍占并发名额：下一轮会继续尝试 drain；若波结束仍未结项则如实报错
-        progress_guard: { /* 见循环末尾的收口检查 */ }
-      }
       results.set(t.id, item);
     }
-    if (!progressed) {
-      // 没有任何任务可推进：要么依赖成环，要么并发槽被未结项任务占满
-      drain();
-      if (inFlight.length >= maxInFlight) {
-        throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
-          `并发名额被 ${inFlight.length} 个未结项任务占满（上限 ${maxInFlight}，节奏档 ${rhythm}）；`
-          + '请检查执行器是否报告终态，或用 reconcile 定论后再继续');
-      }
+    if (!progressed && inFlight.length === 0) {
+      // 既无可派发任务、也无在飞任务可等——合法 DAG（planWave 已校验）不该出现，防御性报错
       throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：成环或引用了不存在的任务');
     }
+    // 否则：要么本轮已派发，要么在等在飞任务结项以解锁下游——继续循环（由 budget 守卫兜底，避免真卡死）
   }
 
   // 收口：所有任务都必须结项，否则如实报告（不允许"看起来跑完"）
