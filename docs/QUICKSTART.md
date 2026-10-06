@@ -138,9 +138,13 @@ node bin/warroom.mjs wave --engagement "$ENG" --meeting wave.json --json
 - **会不开，波不发**：纪要落库（`meetings` 表），并随报告一起交付（md「链前会议纪要」段 / json `meetings`）
 - **先演练**：`--dry-run` 只出计划（依赖序 + 同层并行分组 + 会议预览），不派单不落库
 - **波内无屏障但受节奏档约束**：独立任务立即并行、依赖满足即刻交接下游，同时在飞不超过档位上限
-  （open=3 / restricted=2 / stealth=1）；名额占满先结项释放，波末未结项会如实报错
+  （open=3 / restricted=2 / stealth=1）；名额占满先尝试结项释放，无进展时返回 `pending:true`
 - **顺序实测**：`recon-A → chain-B`（B 依赖 A 时最后派发）
 - 任务报终态后自动**结项**；成环/悬空依赖如实报错
+- `pending:true` 表示本次波次未完成：`tasks` 保留已派发任务的 `task_id` 与账本状态，
+  `blocked` 列未派下游，`unsettled` 列尚未由本次波次结项的任务。不要为等待回执而重交整波。
+  回执到达后按原 task_id collect/settle；只有 `unknown`/`unresolved` 使用 reconcile。
+  本接口不后台自动续派 blocked；后续交接须先核上游证据及当前授权，停止的上游不得自动重做。
 
 ## 7.8 其余运维子命令（一览）
 

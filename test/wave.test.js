@@ -216,12 +216,16 @@ test('stealth 档：波内上限为 1（逐层串行）', () => {
   assert.equal(r.tasks.length, 2);
 });
 
-test('未结项的波必须如实报错（不允许"看起来跑完"）', () => {
+test('未结项的波必须如实返回 pending（不允许"看起来跑完"）', () => {
   const h = harness({ faults: { neverFinish: true } });  // 执行器不报终态
-  assert.throws(() => runWave({
+  const r = runWave({
     broker: h.broker, engagementId: h.eng.engagement_id,
     wave: { title: '卡住的波', notes: 'x', tasks: [{ id: 'A', role: 'recon', targets: ['10.0.0.5'] }] },
-  }), (e) => e.code === 'E_GATE_CONCURRENCY_LIMIT' && /未结项/.test(e.message));
+  });
+  assert.equal(r.pending, true);
+  assert.deepEqual(r.unsettled, ['A']);
+  assert.equal(r.tasks[0].settled, false);
+  assert.equal(r.tasks[0].state, 'running');
 });
 
 test('计划标注执行桶与出口需求（含默认桶与分桶计数）', () => {
