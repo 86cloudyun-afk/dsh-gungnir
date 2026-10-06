@@ -182,6 +182,29 @@ test('人工确认留痕：确认前是待办；确认后带署名与结论（�
   assert.match(text, /--confirm <id>/);
 });
 
+test('自动判定计数只含自动项：人工确认不计入 done（done ≤ total，不倒挂）', () => {
+  const h = harness();
+  const autoOk = (c) => c.items.filter((i) => !i.manual && i.status === '✅').length;
+
+  const before = h.broker.checklist(h.eng.engagement_id);
+  assert.equal(before.done, autoOk(before), 'done 应只统计自动判定通过项');
+  assert.ok(before.done <= before.total, `done(${before.done}) 不得超过 total(${before.total})`);
+
+  // 确认两个人工项（控制面有效性 / IOC 附录）→ 它们翻成 ✅，但属于「人工确认」而非「自动判定」
+  h.broker.confirmChecklistItem(h.eng.engagement_id, { itemId: 'shell', by: 'yg', note: 'ok' });
+  h.broker.confirmChecklistItem(h.eng.engagement_id, { itemId: 'ioc', by: 'yg', note: 'ok' });
+
+  const after = h.broker.checklist(h.eng.engagement_id);
+  // 核心回归：人工确认项（现为 ✅）不得被算进「自动判定」的 done
+  assert.equal(after.done, autoOk(after), '人工确认项不得抬高自动判定通过数');
+  assert.ok(after.done <= after.total, `done(${after.done}) 不得超过 total(${after.total})`);
+  assert.equal(after.manual, 2, '人工项数量单独统计，不随确认变化');
+
+  // 渲染行 `自动判定：done/total` 不得倒挂（N ≤ M）
+  const m = /自动判定：\*\*(\d+)\/(\d+)\*\*/.exec(renderChecklist(after));
+  assert.ok(m && Number(m[1]) <= Number(m[2]), `自动判定计数不得倒挂：${m && `${m[1]}/${m[2]}`}`);
+});
+
 test('人工确认只允许人工项；自动项不接受"确认"（不许绕过判定）', () => {
   const h = harness();
   assert.throws(() => h.broker.confirmChecklistItem(h.eng.engagement_id, { itemId: 'report', by: 'x' }),
