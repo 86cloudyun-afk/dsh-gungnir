@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { redactDeep } from './redactor.js';
 import { aggregateIoc } from './ioc.js';
 import { buildTopology, toMermaidGrouped } from './topology.js';
+import { FACT_ENTITY_TYPES } from '../../shared-types/src/index.js';
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -68,7 +69,7 @@ function scrubFactForExport(fact, R) {
   const scrubbed = R(fact);
   return {
     ...scrubbed,
-    entity_type: ENTITY_ORDER.includes(fact.entity_type) ? fact.entity_type : scrubbed.entity_type,
+    entity_type: FACT_ENTITY_TYPES.includes(fact.entity_type) ? fact.entity_type : scrubbed.entity_type,
   };
 }
 
@@ -237,7 +238,7 @@ export function buildReport({ store, engagementId, engagementRow, vault, globalD
   const values = vault ? vault.values() : [];
   const R = (s) => (vault ? vault.redact(s) : String(s));
   const RF = (fact) => scrubFactForExport(fact, (v) => vault ? redactDeep(v, values) : v);
-  const displayType = (type) => ENTITY_ORDER.includes(type) ? type : R(type);
+  const displayType = (type) => FACT_ENTITY_TYPES.includes(type) ? type : R(type);
   const facts = snap.rows.map((r) => ({
     ...r,
     payload: JSON.parse(r.payload || '{}'),
