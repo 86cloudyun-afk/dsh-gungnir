@@ -42,6 +42,53 @@ test('依赖立即交接：B 依赖 A，A 完成即派 B；C 无依赖与 A 同�
   assert.equal(listMeetings({ store: h.store() }).length, 1);
 });
 
+test('依赖以上游**结项**为准：回执未就绪时，下游不得提前派发（并发 ≥2）', () => {
+  const h = harness(); // restricted → maxInFlight 2：有空槽也不能让下游抢跑
+  const timeline = [];
+  let aTaskId = null;
+  const origExecute = h.broker.execute.bind(h.broker);
+  h.broker.execute = (req) => {
+    const res = origExecute(req);
+    const id = req.command_id.split('-').pop();
+    if (id === 'A') aTaskId = res.task_id;
+    timeline.push(`dispatch:${id}`);
+    return res;
+  };
+  const origSettle = h.broker.settle.bind(h.broker);
+  h.broker.settle = (eng, tid) => {
+    const r = origSettle(eng, tid);
+    if (tid === aTaskId && r.settled) timeline.push('settle:A');
+    return r;
+  };
+  // 模拟异步执行器：A 的回执第一次 drain 尚未就绪（collect 抛一次），下一轮才能收到
+  const origCollect = h.broker.adapter.collect.bind(h.broker.adapter);
+  const thrown = new Set();
+  h.broker.adapter.collect = (tid, opts) => {
+    if (aTaskId && tid === aTaskId && !thrown.has(tid)) {
+      thrown.add(tid);
+      throw new Error('receipt not ready yet (simulated async executor)');
+    }
+    return origCollect(tid, opts);
+  };
+
+  const r = runWave({
+    broker: h.broker, engagementId: h.eng.engagement_id,
+    wave: { title: '异步依赖波', notes: 'x', tasks: [
+      { id: 'A', role: 'recon', targets: ['10.0.0.5'] },
+      { id: 'B', role: 'chain', targets: ['10.0.0.5'], depends_on: ['A'] },
+    ] },
+  });
+  // 关键不变量：B 的派发必须晚于 A 的结项（即使并发槽有空）
+  const iA = timeline.indexOf('settle:A');
+  const iB = timeline.indexOf('dispatch:B');
+  assert.ok(iA >= 0, '应记录到 A 结项');
+  assert.ok(iB >= 0, '应记录到 B 派发');
+  assert.ok(iA < iB, `B 不得在 A 结项前派发，实际时序 ${timeline.join(' ')}`);
+  assert.equal(r.tasks.length, 2);
+  assert.equal(r.facts_inserted, 2, '两个任务各入库一条事实');
+  assert.ok(r.tasks.every((t) => t.settled), '两个任务最终都应结项');
+});
+
 test('依赖成环/引用不存在 → 如实报错，不无限循环', () => {
   const h = harness();
   assert.throws(() => runWave({
