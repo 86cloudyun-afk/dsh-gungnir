@@ -245,7 +245,7 @@ test('JSON IOC kind/source/confidence survive vault secrets equal to enums (Code
   assert.equal(item.source, 'fact', 'IOC source enum must not be redacted');
   assert.equal(item.confidence, 'high', 'IOC confidence enum must not be redacted');
   assert.equal(item.manual_confirm, true);
-  assert.equal(item.evidence_ref, 'fact#1', 'evidence_ref protocol prefix must stay intact');
+  assert.equal(item.evidence_ref, '[REDACTED:conf-source]#1', 'evidence_ref is free text; structural source enum stays intact');
   assert.equal(String(item.ref).includes(SECRET_REF), false, 'IOC ref must still scrub secrets');
   assert.match(String(item.ref), /\[REDACTED:sess-ref\]/);
   const fact = json.facts.effective.find((f) => f.entity_type === 'session');
