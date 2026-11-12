@@ -9,7 +9,10 @@
 `integration-offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/integration-offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**884 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-06 #172 整合 main `bec6b782`：实际冲突仅为三份文档的五处测试计数；原 argv 解析器、派单示例、17 项回归及实现文档逐字保留，其余文件与当前 main 一致。云环境安全夹具六闸为 901 登记 / 854 通过 / 0 失败 / 47 跳过（41 项执行器、网络、资源、原生宿主与部署范围排除，6 项环境跳过）；原参数回归 17/17，参数、桥及身份组合回归 121 项 / 119 通过 / 2 项范围跳过。
+复跑：`NODE_OPTIONS='--require=<证据目录>/safe-preload.cjs --test-reporter=tap' node scripts/ci.mjs`。Windows/UNC 测试只证明字符串解析；真实 Windows 进程/路径、用户服务器与 intake/lingshu/x1-exec 现场通道仍未验收。#176 回执防御与 #199 波次/报告修复尚为独立草稿，本轮未吸收或重做。
+
+逐闸等价命令：`node --test`（**901 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -162,7 +165,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：884 例（`node --test`）
+- 测试：901 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
