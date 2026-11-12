@@ -4,6 +4,11 @@
 
 export const VERSION = '0.1.0-alpha.4';
 
+// 已支持的事实结构类型（报告与执行器产物的全集）；扩展类型仍由 receipt 契约接受。
+export const FACT_ENTITY_TYPES = Object.freeze([
+  'asset', 'domain', 'vuln', 'credential', 'session', 'chain', 'shell', 'persistence', 'artifact',
+]);
+
 // ── 动作分级（ADR-001 D5）：readonly < active < destructive ─────────────────
 export const ACTION_CLASS = Object.freeze(['readonly', 'active', 'destructive']);
 const CLASS_RANK = Object.freeze({ readonly: 0, active: 1, destructive: 2 });

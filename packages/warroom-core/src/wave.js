@@ -141,7 +141,24 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
   const results = new Map();   // task.id → {task_id, state, facts}
   const dispatched = new Set();
   const inFlight = [];         // 已派发但尚未结项的任务
-  const budget = wave.tasks.length * 4 + 8; // 防死循环（依赖成环时如实报错）
+
+  // 同步接口不忙等异步回执：一轮无派发进展就返回已派任务与阻塞项。
+  // task identity/账本状态保留，调用方稍后 collect/settle；unknown/unresolved 再 reconcile。
+  const summarize = () => {
+    const tasks = [...results.values()].map((item) => ({ ...item,
+      state: broker.global.prepare('SELECT state FROM command_queue WHERE engagement_id = ? AND task_id = ?')
+        .get(engagementId, item.task_id)?.state ?? item.state,
+    }));
+    const blocked = wave.tasks.filter((t) => !dispatched.has(t.id)).map((t) => t.id);
+    const unsettled = tasks.filter((t) => !t.settled).map((t) => t.id);
+    return {
+      meeting, tasks, order: [...results.keys()],
+      facts_inserted: tasks.reduce((a, r) => a + (r.facts ?? 0), 0),
+      max_in_flight: maxInFlight, rhythm,
+      pending: blocked.length > 0 || unsettled.length > 0,
+      blocked, unsettled,
+    };
+  };
 
   /** 收执并结项，释放并发名额（无副作用：已完成的任务直接返回）。 */
   const drain = () => {
@@ -150,7 +167,7 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
       try {
         const receipt = broker.adapter.collect(item.task_id);
         const ingested = broker.collect(engagementId, item.task_id, receipt);
-        item.facts = ingested.accepted
+        item.facts += ingested.accepted
           ? (ingested.results ?? []).filter((x) => x.action === 'inserted' || x.action === 'superseded').length
           : 0;
         const settled = broker.settle(engagementId, item.task_id).settled;
@@ -165,16 +182,7 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
   // 下游“就绪”必须以上游**结项**为准（而非仅已派发）：依赖边意味着下游要消费上游产出的事实，
   // 回执未就绪的上游（异步执行器）不能算满足；否则在节奏档并发 ≥2 时，下游会抢在上游落库前开跑。
   const ready = (t) => (t.depends_on ?? []).every((dep) => results.get(dep)?.settled);
-  let guard = 0;
   while (results.size < wave.tasks.length) {
-    if (++guard > budget) {
-      // 合法 DAG（planWave 已校验无环/无悬空）里走到这里只有一种可能：
-      // 在飞任务迟迟不结项，导致下游依赖无法推进——如实报执行器未报终态，而不是误判成环。
-      const stuck = inFlight.map((x) => x.id).join(',') || '(无在飞任务)';
-      throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
-        `波内任务长时间未结项，下游依赖无法推进：${stuck}`
-        + '（执行器未报告终态；请 reconcile 或检查执行器）');
-    }
     drain();                 // 先收口可结项的在飞任务，让已满足依赖的下游本轮即可交接
     let progressed = false;
     for (const t of wave.tasks) {
@@ -213,23 +221,9 @@ export function runWave({ broker, engagementId, wave, dryRun = false }) {
       // 既无可派发任务、也无在飞任务可等——合法 DAG（planWave 已校验）不该出现，防御性报错
       throw warroomError(ERR.E_GATE_MISSING_TUPLE, '依赖无法满足：成环或引用了不存在的任务');
     }
-    // 否则：要么本轮已派发，要么在等在飞任务结项以解锁下游——继续循环（由 budget 守卫兜底，避免真卡死）
+    if (!progressed) return summarize();
+    // 有进展的轮次至少派发一个新 task，合法计划最多 tasks.length 个此类轮次。
   }
 
-  // 收口：所有任务都必须结项，否则如实报告（不允许"看起来跑完"）
-  const unsettled = [...results.values()].filter((r) => !r.settled);
-  if (unsettled.length > 0) {
-    throw warroomError(ERR.E_GATE_CONCURRENCY_LIMIT,
-      `波结束后仍有 ${unsettled.length} 个任务未结项：${unsettled.map((u) => u.id).join(',')}`
-      + '（执行器未报告终态；请 reconcile 或检查执行器）');
-  }
-
-  return {
-    meeting,
-    tasks: [...results.values()],
-    order: [...results.keys()],
-    facts_inserted: [...results.values()].reduce((a, r) => a + (r.facts ?? 0), 0),
-    max_in_flight: maxInFlight,
-    rhythm,
-  };
+  return summarize();
 }

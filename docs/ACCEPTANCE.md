@@ -9,7 +9,17 @@
 `integration-offline-scope.cjs` preload 下运行，禁止网络与真实工具调用；不作为云/服务器运行验收。
 复跑：`NODE_OPTIONS='--require=<证据目录>/integration-offline-scope.cjs' node scripts/ci.mjs`。
 
-逐闸等价命令：`node --test`（**884 例**）→ `node scripts/validate-tool-schemas.mjs` →
+2026-10-06 主线两项防御正确性复核（main `bec6b782`，独立 Linux 合成 fixture）：
+延迟回执与 artifact 类型各最小 RED 1 项，修复后 2/2 GREEN；新增集中 16 项为 RED 15 失败 / 1 通过、
+GREEN 16/16，wave/report/IOC 定向 94/94、零跳过。完整安全六闸实际 900 登记 / 853 通过 / 0 失败 / 47 跳过
+（41 项执行器/网络/资源/native/deploy 范围排除、6 项既有环境跳过，均不计通过），36 工具、故障矩阵21/21。
+wave 无派发进展时诚实返回 pending/blocked/unsettled，保留原 task identity 与账本 unknown/停止状态；
+已支持事实类型统一用共享 FACT_ENTITY_TYPES，artifact 仅恢复结构类型，其内容与元数据仍递归脱敏。
+固定时钟、内存合成 vault、全行 digest/watermark、query_only、SQL/snapshot/total_changes 前后检查通过。
+动态 payload 键展示投影与旧报告组合防御仍由独立 PR196 提供，本次未吸收或宣称已解决；
+既有冲突 PR 不在本轮，fixture 与 runner 结果均不作为用户现场验收。
+
+逐闸等价命令：`node --test`（**900 例**）→ `node scripts/validate-tool-schemas.mjs` →
 `node scripts/check-preset.mjs` → `node scripts/fault-matrix.mjs`（**21 场景**）→
 `node scripts/gen-docs.mjs --check`（工具/看板/矩阵文档同步）→ `node scripts/self-review.mjs`。
 CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨进程执行层演练）与 `native-host`（真实 DSH 挂载验收 → HOST_VERIFIED）。
@@ -49,6 +59,7 @@ CI 另有**三个真跑 job**：`fence`（真实容器围栏）、`drill`（跨�
 | 成员幂等三例（集合扩张 / 修订 / 重复回执） | `test/store.test.js`、故障矩阵② | ✅ |
 | 并发逆序：两任务逆序 collect 均有效 | `test/store.test.js` | ✅ |
 | 水位双校验 | `test/report.test.js` | ✅ |
+| 已支持实体枚举 | `test/report-artifact-enum.test.js`；artifact 与其余八类结构类型保留，内容/元数据继续脱敏，三受众只读导出 | ✅ |
 | 非所有者写被拒 | `test/store.test.js` | ✅ |
 | fact 停写注入 + 补偿 + TTL 隔离 | `test/compensation.test.js`、故障矩阵③④ | ✅ |
 | auth_version 递增不影响 engagement_id / 库路径 / 租约 | `test/gates.test.js`、`test/migrate-backup.test.js` | ✅ |
@@ -149,7 +160,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 | 单命令门禁 | 六闸逐条跑、汇总判定、失败非零退出 | `test/ci-runner.test.js` | ✅ |
 | 桥接 adapter 过一致性套件 | 跨进程 + 停止逐项证实 | `test/conformance-bridge.test.js` | ✅ |
 | 备份保留与恢复演练 | `--keep` 只轮转自动备份；restore 默认 dry-run，apply 前先做恢复前快照 | `test/restore.test.js` | ✅ |
-| 波次与节奏档联动 | 同时在飞 ≤ 档位上限；波末未结项如实报错 | `test/wave.test.js` | ✅ |
+| 波次与节奏档联动 | 同时在飞 ≤ 档位上限；无进展/波末未结项如实 pending，列阻塞项，不忙等或自动重派 | `test/wave.test.js`、`test/wave-pending.test.js` | ✅ |
 | 报告自校验 | 导出即复核；漂移如实标记 | `test/report-selfcheck.test.js` | ✅ |
 | 事实查询（工具+CLI） | 过滤/历史修订/统计一致 | `test/fact-query.test.js` | ✅ |
 | 出口验证门闸 | 记录/状态；开启后无有效 pass 即拒绝出网；wire_cost=0 不受影响 | `test/egress-gate.test.js` | ✅ |
@@ -162,7 +173,7 @@ CI `drill` job 每次推送都跑跨进程链路 | 剩余：把 `GUNGNIR_EXECUTO
 
 ## 数字快照
 
-- 测试：884 例（`node --test`）
+- 测试：900 例（`node --test`）
 - CI 闸：6 + 故障矩阵 21 场景 + 三个真跑 job（`fence` / `drill` / `native-host`）
 - 工具：36 个（schema 严格校验，DSH 挂载要求）
 - schema 版本：fact=6 / global=10（**按 label 计算目标版本**；高版本库拒绝打开；v10 = 批准与动作绑定）
