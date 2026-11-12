@@ -5,3 +5,5 @@ artifacts/
 *.db-shm
 *.log
 dist/
+.warroom/
+*.key
